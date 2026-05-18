@@ -1,0 +1,310 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { Plus, Trash2, Pencil, Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { LabelChip } from "@/components/inbox/label-chip";
+import { cn } from "@/lib/utils";
+import type { LabelRow } from "@/lib/inbox/labels-shared";
+
+type Color = "green" | "red" | "amber" | "zinc" | "stone" | "pink" | "blue";
+type Sentiment = "positive" | "negative" | "neutral";
+type Platform = "email" | "linkedin" | "both";
+
+const COLOR_OPTIONS: { value: Color; swatch: string }[] = [
+  { value: "green", swatch: "bg-emerald-400" },
+  { value: "red", swatch: "bg-red-400" },
+  { value: "amber", swatch: "bg-amber-400" },
+  { value: "blue", swatch: "bg-blue-400" },
+  { value: "pink", swatch: "bg-pink-400" },
+  { value: "zinc", swatch: "bg-zinc-400" },
+  { value: "stone", swatch: "bg-stone-400" },
+];
+
+interface FormState {
+  name: string;
+  color: Color;
+  sentiment: Sentiment;
+  platform: Platform;
+  obligation: boolean;
+  mirror_to_emailbison: boolean;
+}
+
+const EMPTY_FORM: FormState = {
+  name: "",
+  color: "zinc",
+  sentiment: "neutral",
+  platform: "both",
+  obligation: false,
+  mirror_to_emailbison: false,
+};
+
+export function LabelsManager({ labels }: { labels: LabelRow[] }) {
+  const router = useRouter();
+  const [filter, setFilter] = useState("");
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<LabelRow | null>(null);
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function openCreate() {
+    setEditing(null);
+    setForm(EMPTY_FORM);
+    setError(null);
+    setOpen(true);
+  }
+
+  function openEdit(l: LabelRow) {
+    setEditing(l);
+    setForm({
+      name: l.name,
+      color: (l.color as Color) ?? "zinc",
+      sentiment: l.sentiment,
+      platform: l.platform,
+      obligation: l.obligation,
+      mirror_to_emailbison: l.mirror_to_emailbison,
+    });
+    setError(null);
+    setOpen(true);
+  }
+
+  async function handleSubmit() {
+    setError(null);
+    const url = editing ? `/api/labels/${editing.id}` : "/api/labels";
+    const method = editing ? "PATCH" : "POST";
+    const res = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
+    });
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      setError(json.error ?? "Save failed");
+      return;
+    }
+    setOpen(false);
+    startTransition(() => router.refresh());
+  }
+
+  async function handleDelete(l: LabelRow) {
+    if (!confirm(`Delete label "${l.name}"?`)) return;
+    const res = await fetch(`/api/labels/${l.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      alert(json.error ?? "Delete failed");
+      return;
+    }
+    startTransition(() => router.refresh());
+  }
+
+  const visible = labels.filter((l) =>
+    filter ? l.name.toLowerCase().includes(filter.toLowerCase()) : true,
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+          <Input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Search labels"
+            className="pl-8 h-8 text-sm"
+          />
+        </div>
+        <Button size="sm" onClick={openCreate} className="gap-1.5">
+          <Plus className="size-3.5" />
+          Create Label
+        </Button>
+      </div>
+
+      <div className="rounded-lg border bg-card overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50 text-xs text-muted-foreground">
+            <tr>
+              <th className="text-left font-medium px-4 py-2">Label</th>
+              <th className="text-left font-medium px-4 py-2">Sentiment</th>
+              <th className="text-left font-medium px-4 py-2">Platform</th>
+              <th className="text-left font-medium px-4 py-2">Obligation</th>
+              <th className="text-left font-medium px-4 py-2">Source</th>
+              <th className="w-10" />
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {visible.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground text-sm">
+                  No labels match.
+                </td>
+              </tr>
+            ) : (
+              visible.map((l) => (
+                <tr key={l.id} className="hover:bg-muted/30">
+                  <td className="px-4 py-2">
+                    <LabelChip name={l.name} color={l.color} />
+                  </td>
+                  <td className="px-4 py-2 capitalize text-muted-foreground">{l.sentiment}</td>
+                  <td className="px-4 py-2 capitalize text-muted-foreground">{l.platform}</td>
+                  <td className="px-4 py-2 text-muted-foreground">
+                    {l.obligation ? "Yes" : "No"}
+                  </td>
+                  <td className="px-4 py-2 text-muted-foreground">
+                    {l.is_system ? "System" : "Custom"}
+                  </td>
+                  <td className="px-2 py-2">
+                    <div className="flex items-center gap-0.5 justify-end">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(l)}
+                        className="size-7 rounded-md flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                        aria-label="Edit"
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                      {!l.is_system ? (
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(l)}
+                          disabled={pending}
+                          className="size-7 rounded-md flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-red-600 transition-colors"
+                          aria-label="Delete"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editing ? "Edit label" : "Create label"}</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Name</label>
+              <Input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="e.g. Interested"
+                autoFocus
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Color</label>
+              <div className="flex flex-wrap gap-1.5">
+                {COLOR_OPTIONS.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    onClick={() => setForm({ ...form, color: c.value })}
+                    className={cn(
+                      "size-7 rounded-full border-2 transition-all",
+                      c.swatch,
+                      form.color === c.value
+                        ? "border-foreground scale-110"
+                        : "border-transparent hover:border-muted-foreground/40",
+                    )}
+                    aria-label={c.value}
+                  />
+                ))}
+              </div>
+              <div className="pt-2">
+                <span className="text-xs text-muted-foreground mr-2">Preview:</span>
+                <LabelChip name={form.name || "Sample"} color={form.color} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Sentiment</label>
+                <select
+                  value={form.sentiment}
+                  onChange={(e) =>
+                    setForm({ ...form, sentiment: e.target.value as Sentiment })
+                  }
+                  className="w-full h-9 rounded-md border bg-background px-3 text-sm"
+                >
+                  <option value="positive">Positive</option>
+                  <option value="negative">Negative</option>
+                  <option value="neutral">Neutral</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Platform</label>
+                <select
+                  value={form.platform}
+                  onChange={(e) =>
+                    setForm({ ...form, platform: e.target.value as Platform })
+                  }
+                  className="w-full h-9 rounded-md border bg-background px-3 text-sm"
+                >
+                  <option value="both">Both</option>
+                  <option value="email">Email only</option>
+                  <option value="linkedin">LinkedIn only</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded-md border px-3 py-2">
+              <div>
+                <p className="text-xs font-medium">Obligation</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Threads with this label appear in Needs Reply.
+                </p>
+              </div>
+              <Switch
+                checked={form.obligation}
+                onCheckedChange={(v) => setForm({ ...form, obligation: v })}
+              />
+            </div>
+
+            <div className="flex items-center justify-between rounded-md border px-3 py-2">
+              <div>
+                <p className="text-xs font-medium">Mirror to EmailBison</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Sync this label as a tag on EmailBison replies.
+                </p>
+              </div>
+              <Switch
+                checked={form.mirror_to_emailbison}
+                onCheckedChange={(v) => setForm({ ...form, mirror_to_emailbison: v })}
+              />
+            </div>
+
+            {error ? <p className="text-xs text-red-600">{error}</p> : null}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSubmit} disabled={!form.name.trim() || pending}>
+              {editing ? "Save changes" : "Create label"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

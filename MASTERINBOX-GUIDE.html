@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Master Inbox — Product Guide</title>
+<style>
+  :root {
+    --ink: #111418;
+    --muted: #5b6370;
+    --rule: #e6e8ec;
+    --bg-soft: #f7f8fa;
+    --accent: #1f4d8a;
+    --accent-soft: #eef3fb;
+    --serif: "Iowan Old Style", "Source Serif Pro", Georgia, "Times New Roman", serif;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .page {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 72px 56px 96px;
+  }
+
+  /* Cover */
+  .cover {
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 48px;
+    margin-bottom: 56px;
+  }
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 44px;
+    line-height: 1.15;
+    margin: 14px 0 16px;
+    letter-spacing: -0.01em;
+  }
+  .lede {
+    color: var(--muted);
+    font-size: 17px;
+    line-height: 1.6;
+    max-width: 60ch;
+  }
+  .meta {
+    margin-top: 28px;
+    font-size: 12.5px;
+    color: var(--muted);
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .meta span strong { color: var(--ink); font-weight: 600; }
+
+  /* TOC */
+  .toc {
+    background: var(--bg-soft);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 24px 28px;
+    margin: 0 0 56px;
+  }
+  .toc h2 {
+    font-family: var(--sans);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--muted);
+    margin: 0 0 14px;
+    font-weight: 600;
+  }
+  .toc ol {
+    columns: 2;
+    column-gap: 36px;
+    margin: 0;
+    padding: 0 0 0 1.2em;
+    font-size: 13.5px;
+  }
+  .toc li {
+    margin: 0 0 7px;
+    break-inside: avoid;
+  }
+  .toc a {
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .toc a:hover { color: var(--accent); }
+
+  /* Sections */
+  section { margin: 56px 0; }
+  section:first-of-type { margin-top: 0; }
+
+  h2.section {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 28px;
+    line-height: 1.25;
+    letter-spacing: -0.005em;
+    margin: 0 0 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--rule);
+    padding-top: 28px;
+  }
+  h2.section .num {
+    color: var(--accent);
+    margin-right: 12px;
+    font-weight: 500;
+  }
+  .section-intro {
+    color: var(--muted);
+    margin: 0 0 22px;
+    font-size: 15.5px;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 0.005em;
+    margin: 28px 0 8px;
+    color: var(--ink);
+  }
+
+  p { margin: 0 0 14px; }
+  p + p { margin-top: 0; }
+
+  ul, ol {
+    margin: 0 0 16px;
+    padding-left: 22px;
+  }
+  li { margin-bottom: 6px; }
+  li:last-child { margin-bottom: 0; }
+
+  /* Inline emphasis */
+  strong { font-weight: 600; color: var(--ink); }
+  em { color: var(--muted); font-style: italic; }
+
+  /* Callout */
+  .callout {
+    background: var(--accent-soft);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    padding: 16px 20px;
+    margin: 20px 0;
+    color: var(--ink);
+    font-size: 14.5px;
+  }
+  .callout strong { color: var(--accent); }
+
+  /* Step list */
+  .steps {
+    counter-reset: stepnum;
+    list-style: none;
+    padding: 0;
+    margin: 16px 0;
+  }
+  .steps > li {
+    counter-increment: stepnum;
+    position: relative;
+    padding: 4px 0 4px 38px;
+    margin-bottom: 10px;
+  }
+  .steps > li::before {
+    content: counter(stepnum);
+    position: absolute;
+    left: 0;
+    top: 4px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--ink);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+
+  /* Term list */
+  .terms {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    gap: 8px 24px;
+    margin: 18px 0;
+  }
+  .terms dt {
+    font-weight: 600;
+    color: var(--ink);
+    font-size: 14px;
+  }
+  .terms dd {
+    margin: 0;
+    color: var(--ink);
+    font-size: 14.5px;
+  }
+  .terms dt, .terms dd {
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .terms > dt:last-of-type,
+  .terms > dd:last-of-type {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  /* Workflow card */
+  .workflow {
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 22px 26px;
+    margin: 18px 0;
+  }
+  .workflow h4 {
+    margin: 0 0 6px;
+    font-family: var(--sans);
+    font-size: 14.5px;
+    font-weight: 600;
+  }
+  .workflow .scenario {
+    color: var(--muted);
+    font-size: 13.5px;
+    margin: 0 0 12px;
+  }
+  .workflow ol {
+    margin: 0;
+    padding-left: 20px;
+    font-size: 14.5px;
+  }
+
+  /* Footer */
+  .footer {
+    margin-top: 80px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+    color: var(--muted);
+    font-size: 12.5px;
+    text-align: center;
+  }
+
+  /* Print */
+  @page {
+    size: A4;
+    margin: 18mm 16mm;
+  }
+  @media print {
+    body { font-size: 11.5pt; }
+    .page { max-width: none; padding: 0; }
+    h1 { font-size: 32pt; }
+    h2.section { font-size: 18pt; }
+    h3 { font-size: 11.5pt; }
+    .cover { break-after: page; }
+    .toc { break-after: page; }
+    section { break-inside: avoid-page; }
+    .workflow, .callout { break-inside: avoid; }
+    a { color: var(--ink); text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header class="cover">
+    <p class="eyebrow">Product Guide</p>
+    <h1>Master Inbox</h1>
+    <p class="lede">
+      A single screen for every sales reply. Master Inbox brings your inbound responses from
+      cold-outreach campaigns into one organized, AI-labeled, team-ready workflow — so
+      nothing falls through the cracks and your team can spend their time on what only
+      humans should do: closing deals.
+    </p>
+    <div class="meta">
+      <span><strong>Prepared for:</strong> Client teams</span>
+      <span><strong>Version:</strong> 1.0</span>
+      <span><strong>Date:</strong> May 2026</span>
+    </div>
+  </header>
+
+  <nav class="toc">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#overview">What Master Inbox is</a></li>
+      <li><a href="#signing-in">Signing in</a></li>
+      <li><a href="#sidebar">The sidebar</a></li>
+      <li><a href="#workspaces">Workspaces &amp; the Sync button</a></li>
+      <li><a href="#inbox">The inbox view</a></li>
+      <li><a href="#thread">Opening a conversation</a></li>
+      <li><a href="#composer">Replying to a prospect</a></li>
+      <li><a href="#prospect-panel">The prospect panel</a></li>
+      <li><a href="#labels">Labels</a></li>
+      <li><a href="#filters">Filters &amp; custom views</a></li>
+      <li><a href="#snoozing">Snoozing &amp; reminders</a></li>
+      <li><a href="#archive-trash">Archive vs. Trash</a></li>
+      <li><a href="#ai-labeling">AI Labeling</a></li>
+      <li><a href="#reply-agents">Reply Agents</a></li>
+      <li><a href="#members">Inviting your team</a></li>
+      <li><a href="#personal">Personal settings</a></li>
+      <li><a href="#workflows">Day-to-day workflows</a></li>
+      <li><a href="#roadmap">What's coming next</a></li>
+    </ol>
+  </nav>
+
+  <section id="overview">
+    <h2 class="section"><span class="num">01</span>What Master Inbox is</h2>
+    <p>
+      Master Inbox is your unified reply center. Every time a prospect responds to one of
+      your cold-outreach campaigns, the message lands here — categorized by an AI, tied to
+      the right lead record, and ready for your team to act on.
+    </p>
+    <p>
+      Instead of jumping between sending tools to triage replies, your sales team works from
+      one screen: read the reply, see the prospect's full context on the right, send a
+      response (often pre-drafted by your Reply Agent), and move on. Threads can be snoozed
+      to come back later, archived when handled, or filtered into custom lists so each
+      person sees only what's relevant to them.
+    </p>
+    <div class="callout">
+      <strong>The promise:</strong> Cut reply triage time in half, never miss a follow-up,
+      and keep every conversation organized the way your team actually works.
+    </div>
+  </section>
+
+  <section id="signing-in">
+    <h2 class="section"><span class="num">02</span>Signing in</h2>
+    <p>
+      Open the Corofy Master Inbox URL provided by your admin and sign in with your
+      email and password.
+    </p>
+    <p>
+      If you've been invited but haven't set a password yet, you'll receive an invitation
+      email with a link to set yours.
+    </p>
+  </section>
+
+  <section id="sidebar">
+    <h2 class="section"><span class="num">03</span>The sidebar</h2>
+    <p class="section-intro">
+      The left rail is fixed and gives you one-click access to every part of Master Inbox.
+    </p>
+
+    <h3>Sales Inbox</h3>
+    <ul>
+      <li><strong>All</strong> — every conversation in this workspace.</li>
+      <li><strong>Your custom lists</strong> — saved filter views you or your team have
+        created. They appear here automatically once saved.</li>
+      <li><strong>+</strong> — create a new list straight from the sidebar.</li>
+    </ul>
+
+    <h3>Folders</h3>
+    <ul>
+      <li><strong>Reminders</strong> — threads you've snoozed, waiting to come back.</li>
+      <li><strong>Archive</strong> — threads you've finished with but want to keep.</li>
+      <li><strong>Trash</strong> — threads you've removed.</li>
+    </ul>
+
+    <h3>Workspace switcher</h3>
+    <p>
+      At the very bottom of the sidebar. Shows the workspace you're currently in and how
+      many you can access. Click it to switch.
+    </p>
+
+    <h3>Logout</h3>
+    <p>One click below the workspace switcher.</p>
+  </section>
+
+  <section id="workspaces">
+    <h2 class="section"><span class="num">04</span>Workspaces &amp; the Sync button</h2>
+    <p>
+      A workspace represents one team or one customer account — its own sending accounts,
+      its own conversations, its own labels, AI configuration, and reply agents. Everything
+      you see on screen at any moment belongs to exactly one workspace.
+    </p>
+
+    <h3>Switching</h3>
+    <p>
+      Click the workspace name at the bottom of the sidebar. A dialog opens with a search
+      box and the full list of workspaces you belong to. Your current one is marked with a
+      checkmark. Click any other workspace to switch — the entire interface refreshes to
+      show that workspace's data.
+    </p>
+
+    <h3>The Sync button</h3>
+    <p>
+      When you add a new workspace inside EmailBison, Master Inbox doesn't know about it
+      until you tell it to look. Open the workspace switcher and click <strong>Sync</strong>.
+      Master Inbox will:
+    </p>
+    <ul>
+      <li>Pull in any newly-created workspaces from EmailBison.</li>
+      <li>Automatically register the inbound webhook for them, so replies start flowing
+        immediately — no manual setup required.</li>
+      <li>Add you as an owner of each new workspace.</li>
+    </ul>
+    <div class="callout">
+      <strong>Safe to click any time.</strong> Existing workspaces are never touched. Their
+      data, webhook setup, labels, and AI settings stay exactly as they were. Running Sync
+      when nothing has changed simply tells you you're up to date.
+    </div>
+  </section>
+
+  <section id="inbox">
+    <h2 class="section"><span class="num">05</span>The inbox view</h2>
+    <p>
+      Open <strong>All</strong> or any custom list and you'll see a list of conversation
+      rows, with the most recent at the top.
+    </p>
+
+    <h3>What each row shows</h3>
+    <ul>
+      <li>Sender name and company.</li>
+      <li>Any labels — small colored chips like <em>Interested</em> or <em>Wrong Person</em>.</li>
+      <li>Subject and the first line of the latest message.</li>
+      <li>Timestamp of the last activity.</li>
+    </ul>
+
+    <h3>The toolbar at the top</h3>
+    <ul>
+      <li>Search across all conversations.</li>
+      <li>Counts: <em>"1–25 of 101"</em> tells you which page you're on and how many
+        threads match.</li>
+      <li>Pagination arrows for moving between pages.</li>
+    </ul>
+
+    <h3>Bulk actions</h3>
+    <p>
+      Select multiple rows by checking the boxes on the left, then apply labels, archive,
+      mark unread, or move to trash on all of them at once.
+    </p>
+  </section>
+
+  <section id="thread">
+    <h2 class="section"><span class="num">06</span>Opening a conversation</h2>
+    <p>
+      Click any row to open the full thread. You'll see three areas: a toolbar across the
+      top, the message timeline in the middle, and the prospect panel on the right.
+    </p>
+
+    <h3>The thread toolbar</h3>
+    <dl class="terms">
+      <dt>Back arrow</dt>
+      <dd>Return to the list you were viewing.</dd>
+
+      <dt>Prev / Next</dt>
+      <dd>Jump to the previous or next conversation in the list without leaving the thread
+        view.</dd>
+
+      <dt>Label picker</dt>
+      <dd>Add or remove labels — both your team's manual labels and AI suggestions appear
+        here.</dd>
+
+      <dt>Snooze (clock)</dt>
+      <dd>Push the thread out of the inbox until a chosen time. Becomes amber when the
+        thread is currently snoozed.</dd>
+
+      <dt>Mark unread</dt>
+      <dd>Flag the thread so it stands out again as needing attention.</dd>
+
+      <dt>Refresh</dt>
+      <dd>Pull the very latest messages from EmailBison.</dd>
+
+      <dt>Archive</dt>
+      <dd>Clean it out of the inbox without deleting it. When you're already viewing the
+        Archive folder, this same icon un-archives the thread.</dd>
+
+      <dt>Delete</dt>
+      <dd>Move the thread to Trash. From inside Trash, the same icon restores it.</dd>
+    </dl>
+
+    <h3>The message timeline</h3>
+    <p>
+      Every message in the conversation appears in chronological order, oldest at the top.
+      Long quoted reply chains are collapsed automatically — click the small caret to
+      expand. Attachments are listed inline beneath each message.
+    </p>
+  </section>
+
+  <section id="composer">
+    <h2 class="section"><span class="num">07</span>Replying to a prospect</h2>
+    <p>
+      The reply composer sits at the bottom of the thread.
+    </p>
+    <ul>
+      <li><strong>From</strong> — choose which sending account to reply from. Useful when
+        your team operates several sender domains.</li>
+      <li><strong>Insert variables</strong> — drop in fields like the prospect's first name
+        or company. Handy when responding to similar replies at scale.</li>
+      <li><strong>Formatting</strong> — bold, italics, lists, links.</li>
+      <li><strong>Attachments</strong> — drag and drop a file or click the paperclip.</li>
+      <li><strong>Send</strong> — fires through EmailBison. The outbound message is
+        recorded in the thread immediately.</li>
+    </ul>
+
+    <h3>AI-drafted replies</h3>
+    <p>
+      If a Reply Agent is configured and active, every inbound reply triggers it to write a
+      draft. When you open the thread, the draft is already loaded in the composer — you
+      review, optionally tweak, and click Send. In auto mode, the agent sends the draft
+      directly without your review.
+    </p>
+  </section>
+
+  <section id="prospect-panel">
+    <h2 class="section"><span class="num">08</span>The prospect panel</h2>
+    <p>
+      To the right of every thread, you'll find the prospect panel — the lead's full
+      context, right where you need it. It has three tabs:
+    </p>
+
+    <dl class="terms">
+      <dt>Details</dt>
+      <dd>Labels on this thread, contact info, company, role, location, social profiles,
+        and any custom fields enriched on the lead record.</dd>
+
+      <dt>Attachments</dt>
+      <dd>Every file ever exchanged on this thread, in one place.</dd>
+
+      <dt>Notes</dt>
+      <dd>Internal notes only visible to your team. Use these for context that shouldn't
+        leak into the reply itself.</dd>
+    </dl>
+  </section>
+
+  <section id="labels">
+    <h2 class="section"><span class="num">09</span>Labels</h2>
+    <p>
+      Labels are how Master Inbox organizes conversations. Each label has a color and
+      meaning — Interested, Wrong Person, Meeting Booked, Out of Office, Cold Lead, and so
+      on. They can be applied manually by your team or automatically by the AI labeler.
+    </p>
+
+    <h3>Managing labels</h3>
+    <p>Open <strong>Settings → Labels</strong>. From there you can:</p>
+    <ul>
+      <li>Create new labels with custom names, colors, and sentiments
+        (positive / negative / neutral).</li>
+      <li>Mark a label as an <strong>Obligation</strong> — meaning a thread with that label
+        is expected to be replied to.</li>
+      <li>Reorder labels by dragging.</li>
+      <li>Delete labels you no longer use.</li>
+    </ul>
+
+    <h3>Defaults</h3>
+    <p>
+      Each new workspace starts with a sensible set of labels — Interested, Not Interested,
+      Not Right Now, Wrong Person, Do Not Contact, OOO Sequence, Automated Response, Add to
+      Blocklist, Information Request, Meetings Booked, Cold-Leads, Form, and Unable to
+      Categorize. You can rename or remove any of them.
+    </p>
+  </section>
+
+  <section id="filters">
+    <h2 class="section"><span class="num">10</span>Filters &amp; custom views</h2>
+    <p>
+      Above the thread list is the filter builder. Stack conditions to define exactly which
+      conversations you want to see, then save the result as a list anyone on your team can
+      reopen later.
+    </p>
+
+    <h3>Conditions you can combine</h3>
+    <dl class="terms">
+      <dt>Labels</dt>
+      <dd>Show threads that have, or don't have, one or more chosen labels.</dd>
+
+      <dt>Channels</dt>
+      <dd>Restrict to specific sending accounts.</dd>
+
+      <dt>Reply Since</dt>
+      <dd>e.g., "our last reply was more than 3 days ago, less than 5 days ago" — perfect
+        for staged follow-ups.</dd>
+
+      <dt>Last Message From</dt>
+      <dd>The most recent message in the thread came from us, or from them.</dd>
+
+      <dt>Message Counts</dt>
+      <dd>Number of times sent or received on this thread.</dd>
+    </dl>
+
+    <p>
+      Click <strong>Save</strong>, give the list a name, and it joins the sidebar so your
+      whole team can use the same view.
+    </p>
+
+    <div class="callout">
+      <strong>Example:</strong> A "Follow-Up Day 3" list might be — Labels NOT [Cold Leads,
+      Wrong Person, Not Right Now] · Reply Since "more than 3 days, less than 5 days" ·
+      Last Message From "Me" · Sent count "1". Anyone who opens that list tomorrow sees
+      exactly the threads ready for their second touch.
+    </div>
+  </section>
+
+  <section id="snoozing">
+    <h2 class="section"><span class="num">11</span>Snoozing &amp; reminders</h2>
+    <p>
+      Reminders let you push a thread out of sight until you actually need to think about
+      it again — without losing track of it.
+    </p>
+
+    <h3>How to snooze</h3>
+    <ol class="steps">
+      <li>Open any conversation.</li>
+      <li>Click the <strong>clock icon</strong> in the toolbar.</li>
+      <li>Pick a preset or choose a custom date and time.</li>
+    </ol>
+
+    <h3>Available presets</h3>
+    <ul>
+      <li>Later today (in 3 hours)</li>
+      <li>Tomorrow morning at 9:00 AM</li>
+      <li>This weekend, Saturday at 9:00 AM</li>
+      <li>Next Monday at 9:00 AM</li>
+      <li>Next week (in 7 days)</li>
+      <li>Custom — pick any date and time</li>
+    </ul>
+
+    <p>
+      The thread disappears from your inbox and lands under <strong>Reminders</strong> in
+      the sidebar. The clock icon on the thread itself turns amber to show it's snoozed.
+    </p>
+
+    <h3>How reminders return to your inbox</h3>
+    <p>
+      Open the <strong>Reminders</strong> page. Any reminder whose scheduled time has
+      passed is immediately released — the thread returns to your inbox and the reminder is
+      marked done. Think of opening Reminders as checking your reminder queue.
+    </p>
+
+    <h3>Un-snoozing early</h3>
+    <ul>
+      <li>From <strong>Reminders</strong>, click the <strong>X</strong> next to a row.</li>
+      <li>Or open the thread itself and click the amber clock → <em>Move back to
+        inbox</em>.</li>
+    </ul>
+
+    <h3>Peeking at a snoozed thread without un-snoozing</h3>
+    <p>
+      From Reminders, click the arrow on the right side of a row. The thread opens for
+      reading — it stays snoozed until its scheduled time.
+    </p>
+  </section>
+
+  <section id="archive-trash">
+    <h2 class="section"><span class="num">12</span>Archive vs. Trash</h2>
+    <p>
+      Both Archive and Trash move a thread out of your inbox, but they mean different
+      things:
+    </p>
+
+    <dl class="terms">
+      <dt>Archive</dt>
+      <dd>"I'm done with this conversation, but I want to keep it around for reference."
+        Think of it the way you'd archive an email in Gmail.</dd>
+
+      <dt>Trash</dt>
+      <dd>"I want this out of the way." Threads stay recoverable from Trash; nothing is
+        permanently deleted unless you choose to.</dd>
+    </dl>
+
+    <p>
+      Both views are accessible from the sidebar. While viewing either view, the matching
+      icon in the thread toolbar restores the thread back to your inbox.
+    </p>
+  </section>
+
+  <section id="ai-labeling">
+    <h2 class="section"><span class="num">13</span>AI Labeling</h2>
+    <p>
+      Every inbound reply runs through your AI labeler the moment it arrives. The AI
+      assigns one or more labels — Interested, Wrong Person, Out of Office, and so on —
+      based on the meaning of the message and the categories you've defined.
+    </p>
+
+    <h3>Configuring it</h3>
+    <p>Open <strong>Settings → AI Labeling</strong>. You control:</p>
+    <ul>
+      <li><strong>Provider</strong> — choose your AI provider (OpenAI, OpenRouter, and
+        others).</li>
+      <li><strong>Model</strong> — pick the model you want to use.</li>
+      <li><strong>API key</strong> — securely stored, never visible to anyone else.</li>
+      <li><strong>Label old replies</strong> — one-time backfill onto every existing
+        thread.</li>
+      <li><strong>Relabel ongoing</strong> — re-evaluate labels each time a thread gets a
+        new message.</li>
+      <li><strong>Custom prompt</strong> — tell the AI exactly how your team thinks about
+        each category.</li>
+      <li><strong>Category set</strong> — the list of labels the AI is allowed to
+        assign.</li>
+    </ul>
+
+    <p>
+      Once configured, this happens automatically. New inbound replies arrive in your
+      inbox already labeled, usually within a few seconds.
+    </p>
+  </section>
+
+  <section id="reply-agents">
+    <h2 class="section"><span class="num">14</span>Reply Agents</h2>
+    <p>
+      Reply Agents are AI assistants that draft responses for your team. They read every
+      inbound reply, understand the context, look at the lead's information, and either
+      pre-write a draft (for your review) or send a reply directly.
+    </p>
+
+    <h3>Configuring an agent</h3>
+    <p>Open <strong>Settings → Reply Agents</strong>. For each agent, you can set:</p>
+    <ul>
+      <li><strong>Name</strong> — internal label so your team knows which agent does
+        what.</li>
+      <li><strong>Mode</strong> — Human-in-the-Loop (AI drafts, human approves) or Auto
+        (AI sends directly).</li>
+      <li><strong>Channels</strong> — which sending accounts the agent operates on.</li>
+      <li><strong>Tone</strong> — formal, friendly, casual, blunt.</li>
+      <li><strong>Response length</strong> — short, medium, or long.</li>
+      <li><strong>Max tokens</strong> — caps how long any response can run.</li>
+      <li><strong>Provider, model, API key, temperature</strong> — full AI configuration
+        per agent.</li>
+      <li><strong>Custom system prompt</strong> — your sales messaging, talk tracks,
+        do's & don'ts. Drop them in and the agent follows them.</li>
+      <li><strong>Insert Variable</strong> — reference lead data inline in the prompt
+        itself.</li>
+    </ul>
+
+    <h3>The Reply Agents dashboard</h3>
+    <p>
+      At the top of the Reply Agents page you'll find live stats: Total Agents, Active,
+      Replies generated, Sent, Pending review, and tokens consumed (prompt, completion,
+      total). It gives you an at-a-glance view of how much work the AI is doing for your
+      team.
+    </p>
+
+    <h3>How drafts surface to your team</h3>
+    <p>
+      In Human-in-the-Loop mode, every new inbound reply triggers the agent within a minute
+      or so. When a team member opens the thread, the draft is already in the composer
+      ready to edit and send. In Auto mode, the agent sends the draft immediately without
+      manual review — best reserved for low-risk responses like out-of-office
+      acknowledgments.
+    </p>
+  </section>
+
+  <section id="members">
+    <h2 class="section"><span class="num">15</span>Inviting your team</h2>
+    <p>
+      Open <strong>Settings → Members</strong> to manage who has access to a workspace.
+      From there you can:
+    </p>
+    <ul>
+      <li>Invite a new teammate by email.</li>
+      <li>Assign a role — Owner, Admin, or Member — controlling how much they can change.</li>
+      <li>Revoke access from someone who has left the team.</li>
+    </ul>
+    <p>
+      Invitees receive an email with a link to sign in and accept the invitation.
+    </p>
+  </section>
+
+  <section id="personal">
+    <h2 class="section"><span class="num">16</span>Personal settings</h2>
+    <p>
+      Open <strong>Settings → Personal details</strong> to:
+    </p>
+    <ul>
+      <li>See the email address tied to your account.</li>
+      <li>Change your password.</li>
+    </ul>
+  </section>
+
+  <section id="workflows">
+    <h2 class="section"><span class="num">17</span>Day-to-day workflows</h2>
+    <p class="section-intro">
+      A few of the patterns we expect teams to settle into.
+    </p>
+
+    <div class="workflow">
+      <h4>Morning triage of overnight replies</h4>
+      <p class="scenario">Get through 50 fresh replies in under 30 minutes.</p>
+      <ol>
+        <li>Open <strong>All</strong>. Newest threads are at the top, already labeled.</li>
+        <li>Click into anything labeled <em>Interested</em> — the Reply Agent's draft is
+          waiting in the composer.</li>
+        <li>Read, lightly edit, hit Send.</li>
+        <li>For anything that needs more thought, click the clock and snooze it to a later
+          time of day.</li>
+        <li>Archive anything marked <em>Out of Office</em> or <em>Automated
+          Response</em>.</li>
+      </ol>
+    </div>
+
+    <div class="workflow">
+      <h4>Building a "Follow-Up Day 3" list</h4>
+      <p class="scenario">Surface threads that are due for a second touch.</p>
+      <ol>
+        <li>Open the filter bar above any list.</li>
+        <li>Set Labels = NOT [Cold-Leads, Wrong Person, Not Right Now].</li>
+        <li>Set Reply Since = "more than 3 days, less than 5 days".</li>
+        <li>Set Last Message From = "Me".</li>
+        <li>Click <strong>Save</strong>, name it "Follow-Up Day 3".</li>
+        <li>Tomorrow morning, the list shows up in your sidebar with the right threads
+          inside.</li>
+      </ol>
+    </div>
+
+    <div class="workflow">
+      <h4>Onboarding a new client account</h4>
+      <p class="scenario">New team in EmailBison → ready in Master Inbox in 3 minutes.</p>
+      <ol>
+        <li>Add the team in EmailBison as you normally would.</li>
+        <li>In Master Inbox, click the workspace switcher → <strong>Sync</strong>.</li>
+        <li>The new workspace appears. Switch to it.</li>
+        <li>Configure AI Labeling and a Reply Agent under Settings — both are blank in a
+          fresh workspace.</li>
+        <li>Invite the team via Settings → Members.</li>
+      </ol>
+    </div>
+
+    <div class="workflow">
+      <h4>Closing out the week</h4>
+      <p class="scenario">Empty inbox by Friday afternoon.</p>
+      <ol>
+        <li>Open <strong>All</strong>.</li>
+        <li>For each unresolved thread: reply, snooze to next week, or archive.</li>
+        <li>Anything in <em>Meetings Booked</em> stays for your records.</li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="roadmap">
+    <h2 class="section"><span class="num">18</span>What's coming next</h2>
+    <p>
+      A few features are planned for upcoming phases:
+    </p>
+    <ul>
+      <li><strong>LinkedIn replies</strong> — bring inbound LinkedIn DMs into the same
+        unified inbox.</li>
+      <li><strong>Workflow rules</strong> — automatic actions like "if labeled
+        <em>Meeting Booked</em>, archive after 7 days" or "if labeled <em>Do Not
+        Contact</em>, push to your CRM".</li>
+      <li><strong>Outbound webhooks</strong> — push events (label changes, replies sent)
+        into other tools.</li>
+      <li><strong>Sales intelligence</strong> — surface campaign-level insights from your
+        reply data.</li>
+    </ul>
+    <p>
+      The product is delivered in phases; what you have today is the foundation that makes
+      these additions seamless once they're ready.
+    </p>
+  </section>
+
+  <footer class="footer">
+    Master Inbox · Product Guide · Prepared by Bad Twin Capital
+  </footer>
+</main>
+</body>
+</html>
