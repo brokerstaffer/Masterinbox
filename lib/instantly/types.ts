@@ -5,27 +5,24 @@
 //
 // Cursor pagination: requests take `limit` (max 100) and `starting_after`;
 // responses include `items[]` and `next_starting_after` (absent on last page).
-//
-// Webhooks: live `reply_received` event fires per inbound reply. There is no
-// HMAC signature on the payload — verify with a URL token (same pattern as
-// our EmailBison webhook) and/or re-fetch the email by id to confirm.
 
 export interface InstantlyAddress {
   name?: string;
   address: string;
 }
 
+// Returned by GET /emails and GET /emails/{id}. (NOTE: this differs from the
+// webhook envelope shape — see InstantlyWebhookEnvelope below.)
 export interface InstantlyEmail {
-  id: string;                  // UUID
+  id: string;
   timestamp_created?: string;
   timestamp_email?: string;
-  message_id?: string;         // RFC 2822 Message-ID
+  message_id?: string;
   subject?: string | null;
 
   from_address_email?: string | null;
   from_address_json?: InstantlyAddress[];
 
-  // `to_address_email_list` is a CSV string in some responses, JSON array in others.
   to_address_email_list?: string | null;
   to_address_json?: InstantlyAddress[];
   cc_address_email_list?: string | null;
@@ -33,16 +30,16 @@ export interface InstantlyEmail {
   bcc_address_email_list?: string | null;
   bcc_address_json?: InstantlyAddress[];
 
-  eaccount?: string;           // mailbox identity inside Instantly (= our sender)
+  eaccount?: string;
   campaign_id?: string | null;
-  lead?: string | null;        // lead email
-  lead_id?: string | null;     // lead UUID
-  thread_id?: string;          // Instantly's thread grouping (opaque string)
+  lead?: string | null;
+  lead_id?: string | null;
+  thread_id?: string;
 
-  ue_type?: number;            // 1 = sent (outbound), 2 = received (inbound)
+  ue_type?: number;            // 1 = sent, 2 = received
   is_unread?: number | boolean;
   is_focused?: number | boolean;
-  i_status?: number;           // internal lead interest code (negative = not interested)
+  i_status?: number;
   step?: string;
 
   content_preview?: string;
@@ -55,7 +52,7 @@ export interface InstantlyEmail {
 export interface InstantlyCampaign {
   id: string;
   name: string;
-  status?: number;             // 0=draft,1=active,2=paused,3=completed,4=stopped
+  status?: number;
   timestamp_created?: string;
   timestamp_updated?: string;
   organization?: string;
@@ -78,9 +75,6 @@ export interface InstantlyWebhook {
   timestamp_created?: string;
 }
 
-// Subset of the live event list we care about for sync. The full list also
-// includes email_sent, email_opened, email_bounced, account_error, plus
-// `custom_label_any_positive` / `custom_label_any_negative` for custom labels.
 export type InstantlyEventType =
   | "reply_received"
   | "lead_interested"
@@ -94,33 +88,57 @@ export type InstantlyEventType =
   | "lead_unsubscribed"
   | "campaign_completed";
 
-// Events to subscribe to for inbox sync. Mirror of EmailBison's RELEVANT_EVENTS.
-// Other lead_* events change interest status; we'll surface those as labels
-// later. For now, sync only the actual reply payload.
 export const RELEVANT_EVENTS: InstantlyEventType[] = ["reply_received"];
 
-// Webhook envelope shape. Instantly does not publish an exhaustive schema for
-// each event type; the payload includes the event_type and the relevant
-// entity (email / lead / campaign) inline. We accept it as a loose object
-// and pull out what we need.
+// Real reply_received webhook envelope — observed live in production logs.
+// Field shape is FLAT, NOT nested. Lead custom variables appear as
+// arbitrary top-level keys (firstName, companyName, LicenseNumber, etc).
+//
+// Required-ish for our handler: event_type, email_id, lead_email,
+// campaign_id, campaign_name, reply_subject, reply_text (or reply_html).
+//
+// Everything else is preserved into the lead's custom_fields jsonb so we
+// don't lose any per-lead enrichment Instantly already did for us.
 export interface InstantlyWebhookEnvelope {
-  event_type?: InstantlyEventType | string;
+  event_type?: string;
   timestamp?: string;
-  webhook_id?: string;
+  workspace?: string;
+  unibox_url?: string;          // contains "thread:<id>" — only canonical thread id source
 
-  // Inbound reply payloads include the email object.
-  email?: InstantlyEmail;
-  // Some events also carry a lead reference (without the full email body).
-  lead?: {
-    id?: string;
-    email?: string;
-    first_name?: string | null;
-    last_name?: string | null;
-    company?: string | null;
-    campaign?: string | null;
-  };
-  campaign?: { id?: string; name?: string };
+  // Triggering reply
+  email_id?: string;            // UUID, matches /emails/{id}
+  reply_subject?: string;
+  reply_text?: string;
+  reply_text_snippet?: string;
+  reply_html?: string;
 
-  // Catch-all for fields we don't model yet.
+  // Provider context
+  email_account?: string;       // OUR sending mailbox (the eaccount)
+  campaign_id?: string;
+  campaign_name?: string;       // pre-resolved — no /campaigns/{id} call needed
+  is_first?: boolean;
+  step?: number | string;
+  variant?: number | string;
+
+  // Lead identity (flat)
+  lead_email?: string;
+  email?: string;               // alias of lead_email in some payloads
+  firstName?: string;
+  lastName?: string;
+  companyName?: string;
+  jobTitle?: string;
+  phone?: string;
+  website?: string;
+  linkedIn?: string;
+  City?: string;
+  State?: string;
+  County?: string;
+  location?: string;
+  LicenseNumber?: string;
+  AgencyZip?: string;
+
+  // Custom variables Instantly enriched on the lead — passthrough to
+  // leads.custom_fields. Anything we don't model explicitly above ends up
+  // here via the index signature.
   [key: string]: unknown;
 }
