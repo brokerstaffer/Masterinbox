@@ -1,8 +1,9 @@
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import { createInstantlyClient } from "@/lib/instantly/client";
 import { labelInboundMessage } from "@/lib/ai/run";
 import { loadAgents, loadAgentWithKey, createDraftForAgent } from "@/lib/ai/agent";
 import { deriveClientIdFromCampaign } from "@/lib/clients/derive";
-import type { InstantlyWebhookEnvelope } from "@/lib/instantly/types";
+import type { InstantlyEmail, InstantlyWebhookEnvelope } from "@/lib/instantly/types";
 
 // Inbound-only sync for Instantly's `reply_received` event.
 //
@@ -273,6 +274,101 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+// Parse Instantly's recipient fields into our normalised JSONB shape. The
+// API ships two parallel representations — `to_address_email_list` (CSV)
+// and `to_address_json` (typed array). Prefer the JSON form when present.
+function parseRecipients(email: InstantlyEmail): Record<string, unknown> {
+  const split = (csv: string | null | undefined): string[] =>
+    csv ? csv.split(",").map((s) => s.trim()).filter(Boolean) : [];
+  const json = (rows: { address?: string }[] | undefined): string[] =>
+    rows ? rows.map((r) => r.address ?? "").filter(Boolean) : [];
+  return {
+    to: email.to_address_json ? json(email.to_address_json) : split(email.to_address_email_list),
+    cc: email.cc_address_json ? json(email.cc_address_json) : split(email.cc_address_email_list),
+    bcc: email.bcc_address_json ? json(email.bcc_address_json) : split(email.bcc_address_email_list),
+  };
+}
+
+// Upserts one historical email row (sent or received) by external_message_id.
+// First write wins on raw_payload so we never clobber the original webhook
+// envelope with the slimmer /emails listing record.
+async function upsertHistoricalEmail(
+  ctx: SyncContext,
+  threadId: string,
+  email: InstantlyEmail,
+): Promise<void> {
+  const supabase = createAdminSupabase();
+  const externalMessageId = `in:email:${email.id}`;
+  const direction: "inbound" | "outbound" = email.ue_type === 1 ? "outbound" : "inbound";
+  const html = email.body?.html ?? null;
+  const text = email.body?.text ?? (html ? stripHtml(html) : null);
+
+  const { data: existing } = await supabase
+    .from("messages")
+    .select("id")
+    .eq("workspace_id", ctx.workspaceId)
+    .eq("external_message_id", externalMessageId)
+    .maybeSingle();
+
+  const row = {
+    workspace_id: ctx.workspaceId,
+    thread_id: threadId,
+    channel_id: ctx.channelId,
+    source_provider: "instantly" as const,
+    direction,
+    sender: email.from_address_email ?? null,
+    recipients: parseRecipients(email),
+    subject: email.subject ?? null,
+    body_html: html,
+    body_text: text,
+    sent_at: email.timestamp_email ?? email.timestamp_created ?? new Date().toISOString(),
+    external_message_id: externalMessageId,
+    instantly_email_id: email.id,
+  };
+
+  if (existing) {
+    // Preserve raw_payload (first write wins). Update everything else so
+    // body/subject corrections from the canonical /emails row land.
+    await supabase.from("messages").update(row).eq("id", existing.id);
+  } else {
+    const { error } = await supabase.from("messages").insert({
+      ...row,
+      raw_payload: email as object,
+    });
+    if (error) console.error("[instantly] historical email insert failed", error);
+  }
+}
+
+// Pulls the full per-(lead, campaign) conversation from Instantly and
+// upserts every email. Idempotent via the unique
+// (workspace_id, external_message_id) index on messages.
+//
+// We DO NOT use the `thread_id` filter on /emails — verified live that it
+// is broken (ignored; returns the full mailbox). The `lead + campaign_id`
+// pair is the correct precision: it returns the exact 3-or-so emails of
+// the back-and-forth and shares Instantly's per-conversation thread_id.
+async function backfillInstantlyConversation(
+  ctx: SyncContext,
+  ourThreadId: string,
+  leadEmail: string,
+  campaignId: string | null | undefined,
+): Promise<void> {
+  if (!campaignId) return;
+  try {
+    const client = createInstantlyClient();
+    const res = await client.listEmails({
+      lead: leadEmail,
+      campaign_id: campaignId,
+      limit: 100,
+    });
+    for (const email of res.items ?? []) {
+      await upsertHistoricalEmail(ctx, ourThreadId, email);
+    }
+  } catch (err) {
+    console.error("[instantly] backfill conversation failed", err);
+  }
+}
+
 export async function handleInstantlyEvent(envelope: InstantlyWebhookEnvelope): Promise<{
   ok: boolean;
   reason?: string;
@@ -321,6 +417,11 @@ export async function handleInstantlyEvent(envelope: InstantlyWebhookEnvelope): 
   if (!threadId) return { ok: false, reason: "thread upsert failed" };
 
   await upsertMessage({ ctx, threadId, emailId, envelope, bodyText });
+
+  // Pull the rest of the per-(lead, campaign) conversation from Instantly
+  // so the inbox shows the full back-and-forth, not just the latest reply.
+  // Synchronous: one extra API call per webhook, same model as EmailBison.
+  await backfillInstantlyConversation(ctx, threadId, leadEmail, envelope.campaign_id);
 
   // AI labeling on the inbound message (no-op if not configured for this
   // workspace). Errors swallowed so labeling can never block a webhook ack.
