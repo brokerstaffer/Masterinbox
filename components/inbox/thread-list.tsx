@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Mail, BriefcaseBusiness, Paperclip, ChevronLeft, ChevronRight } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { LabelChip } from "@/components/inbox/label-chip";
@@ -66,7 +65,6 @@ export function ThreadList({
   page?: number;
   pageSize?: number;
 }) {
-  const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // Track thread ids the user just opened. Optimistic so the blue dot
   // disappears on click without waiting for the server round-trip.
@@ -114,19 +112,19 @@ export function ThreadList({
           {threads.map((t) => {
             const active = t.id === activeId;
             const href = `${basePath}/${t.id}`;
-            // Stop click propagation on the checkbox column so the row's
-            // Link wrapper doesn't navigate when toggling selection. This
-            // approach is more reliable across browsers than absolute-overlay
-            // tricks, and supports middle-click "open in new tab" naturally.
+            // Stop click propagation on the checkbox so the row's link
+            // doesn't navigate when toggling selection.
             const eatClick = (e: React.MouseEvent) => {
               e.stopPropagation();
               e.preventDefault();
             };
-            // Custom click handler: bypass Next.js Link's internal navigation
-            // (which has been observed to silently fail in production for some
-            // routes) and call router.push() directly. We still render a real
-            // <a href> via Link so middle-click + cmd-click + screen readers
-            // continue to work correctly.
+            // Brute-force navigation via window.location.assign. Two prior
+            // attempts — plain Next.js Link and Link + router.push — both
+            // silently failed to navigate in production despite firing the
+            // onClick handler (the optimistic "seen" dot disappeared, but
+            // the page didn't change). A real browser navigation is slower
+            // than SPA routing but guaranteed to work; we can revisit
+            // client-side routing once the underlying root cause is found.
             const navigateOnClick = (e: React.MouseEvent) => {
               if (
                 e.button !== 0 ||
@@ -139,14 +137,13 @@ export function ThreadList({
               }
               e.preventDefault();
               markOpened(t.id);
-              router.push(href);
+              window.location.assign(href);
             };
             return (
               <li key={t.id} className="border-b">
-                <Link
+                <a
                   href={href}
                   onClick={navigateOnClick}
-                  prefetch={false}
                   className={cn(
                     "block px-3 py-3 hover:bg-accent/40 transition-colors",
                     active && "bg-accent",
@@ -189,7 +186,7 @@ export function ThreadList({
                       ) : null}
                     </div>
                   </div>
-                </Link>
+                </a>
               </li>
             );
           })}
@@ -243,9 +240,14 @@ export function ThreadList({
                   onCheckedChange={() => toggle(t.id)}
                 />
               </div>
-              <Link
+              <a
                 href={`${basePath}/${t.id}`}
-                onClick={() => markOpened(t.id)}
+                onClick={(e) => {
+                  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                  e.preventDefault();
+                  markOpened(t.id);
+                  window.location.assign(`${basePath}/${t.id}`);
+                }}
                 className="flex items-center gap-3 flex-1 min-w-0"
               >
                 <ChannelIcon provider={t.channel_provider} />
@@ -272,7 +274,7 @@ export function ThreadList({
                 <div className="shrink-0 text-xs text-muted-foreground tabular-nums">
                   {relativeTime(t.last_message_at)}
                 </div>
-              </Link>
+              </a>
             </li>
           ))}
         </ul>
@@ -436,7 +438,7 @@ function PaginationControls({
       <span className={cn("text-xs text-muted-foreground tabular-nums mr-1", compact && "text-[11px]")}>
         Page {cur} / {totalPages}
       </span>
-      <Link
+      <a
         href={prevDisabled ? "#" : href(cur - 1)}
         aria-label="Previous page"
         aria-disabled={prevDisabled}
@@ -448,8 +450,8 @@ function PaginationControls({
         )}
       >
         <ChevronLeft className="size-3.5" />
-      </Link>
-      <Link
+      </a>
+      <a
         href={nextDisabled ? "#" : href(cur + 1)}
         aria-label="Next page"
         aria-disabled={nextDisabled}
@@ -461,7 +463,7 @@ function PaginationControls({
         )}
       >
         <ChevronRight className="size-3.5" />
-      </Link>
+      </a>
     </div>
   );
 }

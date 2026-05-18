@@ -29,15 +29,10 @@ export default async function ThreadDetailPage(props: {
   const filterFromUrl: FilterState | null = f ? decodeFilter(f) : null;
   const pageNum = Math.max(1, Number(page ?? "1") || 1);
 
-  // Mark the thread as seen FIRST so the threads list we render right after
-  // already reflects the new state. The realtime subscription will also
-  // broadcast this change to any other tab in the workspace.
-  await createAdminSupabase()
-    .from("threads")
-    .update({ seen: true })
-    .eq("id", threadId)
-    .eq("workspace_id", session.activeWorkspace.id);
-
+  // Mark the thread as seen alongside the page-load queries instead of
+  // blocking on it before them. The thread list already optimistically
+  // hides the unseen dot on click; realtime broadcasts catch up other tabs.
+  // Including it in Promise.all means it runs in parallel with the reads.
   const [threadPage, detail, views, labels, channels, campaigns, lists, currentView] = await Promise.all([
     loadThreads(session.activeWorkspace.id, view, filterFromUrl, list ?? null, pageNum),
     loadThreadDetail(session.activeWorkspace.id, threadId),
@@ -47,6 +42,14 @@ export default async function ThreadDetailPage(props: {
     loadCampaigns(session.activeWorkspace.id),
     loadLists(session.activeWorkspace.id),
     loadViewBySlug(session.activeWorkspace.id, view),
+    // Fire-and-forget seen=true; runs concurrently with the reads.
+    // Errors are swallowed (logged in the admin client) since the user
+    // experience doesn't depend on the write completing before render.
+    createAdminSupabase()
+      .from("threads")
+      .update({ seen: true })
+      .eq("id", threadId)
+      .eq("workspace_id", session.activeWorkspace.id),
   ]);
   if (!detail) notFound();
 
