@@ -25,7 +25,17 @@ export default async function ThreadDetailPage(props: {
 }) {
   const { view, threadId } = await props.params;
   const { f, list, page } = await props.searchParams;
+
+  // Server-side timing instrumentation — appears in Railway logs as
+  // `[thread-detail t=…ms] step` so we can identify which step actually
+  // dominates wall-clock time per click.
+  const t0 = Date.now();
+  const ts = (label: string) =>
+    console.log(`[thread-detail t=${Date.now() - t0}ms] ${label}`);
+
+  ts("start");
   const session = await requireSession();
+  ts("after requireSession");
   const filterFromUrl: FilterState | null = f ? decodeFilter(f) : null;
   const pageNum = Math.max(1, Number(page ?? "1") || 1);
 
@@ -51,7 +61,9 @@ export default async function ThreadDetailPage(props: {
       .eq("id", threadId)
       .eq("workspace_id", session.activeWorkspace.id),
   ]);
+  ts("after Promise.all (all loaders)");
   if (!detail) notFound();
+  ts("ready to render");
 
   const initialFilter: FilterState =
     filterFromUrl ?? {
