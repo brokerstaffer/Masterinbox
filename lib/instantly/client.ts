@@ -4,6 +4,8 @@ import type {
   InstantlyCampaign,
   InstantlyWebhook,
   InstantlyEventType,
+  InstantlySubsequence,
+  InstantlyLeadSummary,
 } from "./types";
 
 // Thin typed wrapper around Instantly.ai's v2 REST API.
@@ -136,6 +138,31 @@ export function createInstantlyClient(opts: ClientOpts = {}) {
 
     markThreadRead: (threadId: string) =>
       request<{ success?: boolean }>("POST", `/emails/threads/${threadId}/mark-as-read`),
+
+    // Subsequences (per-campaign branches that leads can be moved into)
+    listSubsequences: (parentCampaign: string, params: { limit?: number; starting_after?: string } = {}) =>
+      request<ListResponse<InstantlySubsequence>>("GET", "/subsequences", undefined, {
+        parent_campaign: parentCampaign,
+        limit: params.limit ?? 100,
+        starting_after: params.starting_after,
+      }),
+
+    // Lead UUID lookup — POST /leads/list with `search` is the only way to
+    // resolve a lead's UUID from their email address (the reply_received
+    // webhook payload doesn't carry it).
+    findLeadByEmail: (email: string) =>
+      request<ListResponse<InstantlyLeadSummary>>("POST", "/leads/list", {
+        search: email,
+        limit: 5,
+      }),
+
+    // Move an existing lead into a subsequence. Verified live: body
+    // requires both `id` (lead UUID) and `subsequence_id`.
+    moveLeadToSubsequence: (input: { lead_id: string; subsequence_id: string }) =>
+      request<{ success?: boolean }>("POST", "/leads/subsequence/move", {
+        id: input.lead_id,
+        subsequence_id: input.subsequence_id,
+      }),
 
     // Webhooks
     listWebhooks: () => request<ListResponse<InstantlyWebhook>>("GET", "/webhooks"),

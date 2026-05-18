@@ -60,6 +60,33 @@ export interface InstantlyCampaign {
   stop_on_reply?: boolean;
 }
 
+// Per-campaign subsequence. Verified live: requires `parent_campaign`
+// query param to list. Status seen: 1 (running), 3 (draft/paused).
+export interface InstantlySubsequence {
+  id: string;
+  name: string;
+  parent_campaign: string;
+  status?: number;
+  timestamp_created?: string;
+  timestamp_leads_updated?: string;
+  conditions?: Record<string, unknown>;
+  sequences?: unknown;
+  workspace?: string;
+}
+
+// Slim shape from POST /leads/list. Used only to resolve lead UUID from
+// an email address (the webhook payload doesn't carry the UUID).
+export interface InstantlyLeadSummary {
+  id: string;
+  email: string;
+  campaign?: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  organization?: string;
+  status?: number;
+  timestamp_created?: string;
+}
+
 // Live-verified shape. Quirk: the POST endpoint requires `target_hook_url`
 // (not `webhook_url`) and a singular `event_type` string (not the plural
 // `event_types` array shown in marketing docs). The GET response uses the

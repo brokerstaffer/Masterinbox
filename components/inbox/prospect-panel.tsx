@@ -9,6 +9,7 @@ import {
   Link2,
 } from "lucide-react";
 import { LabelChip } from "@/components/inbox/label-chip";
+import { SubsequencePicker } from "@/components/inbox/subsequence-picker";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { ThreadDetail } from "@/lib/inbox/thread-detail";
@@ -136,6 +137,7 @@ export function ProspectPanel({ detail }: { detail: ThreadDetail }) {
 
         {tab === "details" ? (
           <DetailsTab
+            threadId={detail.id}
             lead={lead}
             emailDomain={emailDomain}
             socials={socials}
@@ -206,6 +208,7 @@ function prettifyKey(key: string): string {
 }
 
 function DetailsTab({
+  threadId,
   lead,
   emailDomain,
   socials,
@@ -215,6 +218,7 @@ function DetailsTab({
   campaignName,
   clientName,
 }: {
+  threadId: string;
   lead: ThreadDetail["lead"];
   emailDomain: string | null;
   socials: SocialEntry[];
@@ -239,6 +243,14 @@ function DetailsTab({
             {clientName ? <FieldPair label="Client" value={clientName} /> : null}
             {campaignName ? <FieldPair label="Campaign" value={campaignName} /> : null}
           </dl>
+          {/* Subsequence picker — only Instantly supports per-campaign
+              subsequences via the public API (verified live; EmailBison's
+              public API has no equivalent endpoint). */}
+          {sourceProvider === "instantly" && campaignName ? (
+            <div className="mt-3">
+              <SubsequencePicker threadId={threadId} />
+            </div>
+          ) : null}
         </Section>
       ) : null}
 
