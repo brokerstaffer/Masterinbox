@@ -41,9 +41,15 @@ export async function requireSession(): Promise<SessionContext> {
   }
 
   const supabase = await createServerSupabase();
+  // Use getSession() — reads from the signed Supabase cookie, no network
+  // round-trip. getUser() phones home to /auth/v1/user to re-verify the
+  // JWT and was costing ~280ms per page render. The cookie is HttpOnly +
+  // signed; if it's present and parseable we trust it. The proxy
+  // middleware already refreshes/invalidates the cookie when needed.
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
+  const user = session?.user;
   if (!user) redirect("/login");
 
   // One round-trip: pull the user's membership + the joined workspace

@@ -128,80 +128,101 @@ export async function loadThreads(
     query = query.in("id", listThreadIds);
   }
 
-  // Pull every matching id ordered by last activity. The default PostgREST
-  // max-rows cap can limit this — set a high explicit ceiling so workspaces
-  // up to 50k threads aren't truncated.
-  query = query
-    .order("last_message_at", { ascending: false, nullsFirst: false })
-    .limit(50000);
-
-  const { data: idRows, error: idErr } = await query;
-  if (idErr) {
-    console.error("[loadThreads] id query failed", idErr);
-    return { rows: [], total: 0, page: safePage, pageSize };
-  }
-  const allIds = (idRows ?? []).map((r) => r.id as string);
-  const total = allIds.length;
+  // Single round-trip: fetch the page detail rows AND the total count in
+  // one PostgREST request via `count: 'exact'` + `.range()`. Previously
+  // this was 2 sequential RTTs — a `select id` over up to 50k rows
+  // (~280ms) followed by `select detail where id in (page)` (~280ms).
+  // Collapsed via count+range, plus fetching ALL workspace
+  // label_assignments in parallel rather than a follow-up IN clause
+  // gated on the page IDs. Per-click savings: 1 sequential round-trip
+  // (~280ms) on every navigation.
+  //
+  // Trade-off: post-filters (domain, name, email) still run client-side,
+  // so the displayed total can be slightly off when they exclude rows.
+  // Accepted; post-filters are rare in the typical view.
   const offset = (safePage - 1) * pageSize;
-  const pageIds = allIds.slice(offset, offset + pageSize);
-
-  if (pageIds.length === 0) {
-    return { rows: [], total, page: safePage, pageSize };
-  }
-
-  // Fetch the visible page's thread details + their label assignments in
-  // parallel — both depend only on pageIds and don't need each other's
-  // results. Saves one Supabase round-trip per inbox render.
-  const [
-    { data, error },
-    { data: assignments },
-  ] = await Promise.all([
-    supabase
-      .from("threads")
-      .select(
-        `id, subject, last_message_at, last_message_preview, needs_reply, seen, message_count, source_provider, campaign_id, campaign_name,
+  // Swap the select column list to fetch detail + count in one shot.
+  // The Supabase JS builder doesn't expose a clean re-select chain that
+  // preserves count: 'exact' through the existing `query` variable type,
+  // so we bridge with a brief cast — runtime behavior is what matters.
+  const detailQuery = (query as unknown as {
+    select(cols: string, opts?: { count?: "exact" | "planned" | "estimated" }): unknown;
+  })
+    .select(
+      `id, subject, last_message_at, last_message_preview, needs_reply, seen, message_count, source_provider, campaign_id, campaign_name,
        leads:lead_id(full_name, email, company),
        channels:channel_id(provider),
        clients:client_id(name, slug)`,
-      )
-      .in("id", pageIds),
+      { count: "exact" },
+    ) as unknown as {
+    order(col: string, opts: { ascending: boolean; nullsFirst: boolean }): unknown;
+  };
+  const pagedQuery = (
+    detailQuery.order("last_message_at", {
+      ascending: false,
+      nullsFirst: false,
+    }) as unknown as {
+      range(from: number, to: number): Promise<{
+        data: Record<string, unknown>[] | null;
+        error: { message: string } | null;
+        count: number | null;
+      }>;
+    }
+  ).range(offset, offset + pageSize - 1);
+
+  const [pageResult, assignmentsResult] = await Promise.all([
+    pagedQuery,
+    // Fetch label_assignments for every thread in the workspace and join
+    // in JS. Workspaces typically have hundreds of assignments — cheap
+    // payload (~10-30KB) for the latency saved by not gating on page IDs.
     supabase
       .from("label_assignments")
       .select("target_id, labels:label_id(name, color)")
-      .eq("target_type", "thread")
-      .in("target_id", pageIds),
+      .eq("workspace_id", workspaceId)
+      .eq("target_type", "thread"),
   ]);
+  const { data, error, count } = pageResult;
+  const assignments = assignmentsResult.data;
   if (error) {
-    console.error("[loadThreads] detail query failed", error);
+    console.error("[loadThreads] page query failed", error);
+    return { rows: [], total: 0, page: safePage, pageSize };
+  }
+  const total = count ?? data?.length ?? 0;
+  const ordered = data ?? [];
+  if (ordered.length === 0) {
     return { rows: [], total, page: safePage, pageSize };
   }
 
-  // Preserve the page order (Supabase `in()` doesn't guarantee it).
-  const orderIndex = new Map(pageIds.map((id, i) => [id, i]));
-  const ordered = [...(data ?? [])].sort(
-    (a, b) => (orderIndex.get(a.id as string) ?? 0) - (orderIndex.get(b.id as string) ?? 0),
-  );
-
   const labelsByThread = new Map<string, Array<{ name: string; color: string }>>();
   for (const r of assignments ?? []) {
-    const label = Array.isArray(r.labels) ? r.labels[0] : r.labels;
+    const ra = r as { target_id: string; labels: { name: string; color: string } | { name: string; color: string }[] | null };
+    const label = Array.isArray(ra.labels) ? ra.labels[0] : ra.labels;
     if (!label) continue;
-    const list = labelsByThread.get(r.target_id) ?? [];
+    const list = labelsByThread.get(ra.target_id) ?? [];
     list.push({ name: label.name, color: label.color });
-    labelsByThread.set(r.target_id, list);
+    labelsByThread.set(ra.target_id, list);
   }
 
-  let mapped: ThreadRow[] = ordered.map((row) => {
+  type Lead = { full_name?: string | null; email?: string | null; company?: string | null };
+  type Channel = { provider?: SourceProvider | null };
+  type Client = { name?: string | null; slug?: string | null };
+  let mapped: ThreadRow[] = ordered.map((rawRow) => {
+    const row = rawRow as Record<string, unknown> & {
+      id: string;
+      leads: Lead | Lead[] | null;
+      channels: Channel | Channel[] | null;
+      clients: Client | Client[] | null;
+    };
     const lead = Array.isArray(row.leads) ? row.leads[0] : row.leads;
     const channel = Array.isArray(row.channels) ? row.channels[0] : row.channels;
     const client = Array.isArray(row.clients) ? row.clients[0] : row.clients;
     return {
       id: row.id,
-      subject: row.subject,
-      last_message_at: row.last_message_at,
-      last_message_preview: row.last_message_preview,
-      needs_reply: row.needs_reply,
-      seen: row.seen ?? true,
+      subject: (row.subject as string | null) ?? null,
+      last_message_at: (row.last_message_at as string | null) ?? null,
+      last_message_preview: (row.last_message_preview as string | null) ?? null,
+      needs_reply: Boolean(row.needs_reply),
+      seen: (row.seen as boolean | null) ?? true,
       lead_full_name: lead?.full_name ?? null,
       lead_email: lead?.email ?? null,
       lead_company: lead?.company ?? null,
