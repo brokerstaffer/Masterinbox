@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Mail, BriefcaseBusiness, Paperclip, ChevronLeft, ChevronRight } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { LabelChip } from "@/components/inbox/label-chip";
@@ -66,6 +66,7 @@ export function ThreadList({
   page?: number;
   pageSize?: number;
 }) {
+  const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // Track thread ids the user just opened. Optimistic so the blue dot
   // disappears on click without waiting for the server round-trip.
@@ -112,6 +113,7 @@ export function ThreadList({
           <ul>
           {threads.map((t) => {
             const active = t.id === activeId;
+            const href = `${basePath}/${t.id}`;
             // Stop click propagation on the checkbox column so the row's
             // Link wrapper doesn't navigate when toggling selection. This
             // approach is more reliable across browsers than absolute-overlay
@@ -120,11 +122,30 @@ export function ThreadList({
               e.stopPropagation();
               e.preventDefault();
             };
+            // Custom click handler: bypass Next.js Link's internal navigation
+            // (which has been observed to silently fail in production for some
+            // routes) and call router.push() directly. We still render a real
+            // <a href> via Link so middle-click + cmd-click + screen readers
+            // continue to work correctly.
+            const navigateOnClick = (e: React.MouseEvent) => {
+              if (
+                e.button !== 0 ||
+                e.metaKey ||
+                e.ctrlKey ||
+                e.shiftKey ||
+                e.altKey
+              ) {
+                return; // let the browser handle modifier/middle clicks
+              }
+              e.preventDefault();
+              markOpened(t.id);
+              router.push(href);
+            };
             return (
               <li key={t.id} className="border-b">
                 <Link
-                  href={`${basePath}/${t.id}`}
-                  onClick={() => markOpened(t.id)}
+                  href={href}
+                  onClick={navigateOnClick}
                   prefetch={false}
                   className={cn(
                     "block px-3 py-3 hover:bg-accent/40 transition-colors",

@@ -298,6 +298,20 @@ function parseRecipients(email: InstantlyEmail): Record<string, unknown> {
   };
 }
 
+// Direction by mailbox identity, NOT ue_type. Live shows Instantly's
+// ue_type takes at least three values: 1 = sent (initial), 3 = sent
+// (reply/manual?), 2 = received. Treating only 1 as outbound misroutes
+// ue_type=3 rows into inbound. The from-address vs eaccount comparison
+// catches every case and degrades cleanly when ue_type is missing.
+function directionForEmail(email: InstantlyEmail): "inbound" | "outbound" {
+  const from = email.from_address_email?.toLowerCase();
+  const mailbox = email.eaccount?.toLowerCase();
+  if (from && mailbox && from === mailbox) return "outbound";
+  if (email.ue_type === 1 || email.ue_type === 3) return "outbound";
+  if (email.ue_type === 2) return "inbound";
+  return "inbound";
+}
+
 // Upserts one historical email row (sent or received) by external_message_id.
 // First write wins on raw_payload so we never clobber the original webhook
 // envelope with the slimmer /emails listing record.
@@ -308,7 +322,7 @@ async function upsertHistoricalEmail(
 ): Promise<void> {
   const supabase = createAdminSupabase();
   const externalMessageId = `in:email:${email.id}`;
-  const direction: "inbound" | "outbound" = email.ue_type === 1 ? "outbound" : "inbound";
+  const direction = directionForEmail(email);
   const html = email.body?.html ?? null;
   const text = email.body?.text ?? (html ? stripHtml(html) : null);
 
