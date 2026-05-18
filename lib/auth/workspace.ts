@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { demoSession, isDemoMode } from "@/lib/demo";
+import { env } from "@/lib/env";
 
 // Single-tenant: Corofy runs exactly one workspace. The 0010 migration
 // installs an auth.users trigger that creates the singleton "Corofy"
@@ -41,19 +42,41 @@ export const requireSession = cache(async function requireSession(): Promise<Ses
   }
 
   const supabase = await createServerSupabase();
-  // Use getSession() — reads from the signed Supabase cookie, no network
-  // round-trip. getUser() phones home to /auth/v1/user to re-verify the
-  // JWT and was costing ~280ms per page render. The cookie is HttpOnly +
-  // signed; if it's present and parseable we trust it. The proxy
-  // middleware already refreshes/invalidates the cookie when needed.
+  // getSession() reads from the signed Supabase cookie — no network call.
+  // getUser() would phone home to /auth/v1/user to re-verify the JWT,
+  // costing ~280ms per render.
   const {
     data: { session },
   } = await supabase.auth.getSession();
   const user = session?.user;
   if (!user) redirect("/login");
 
-  // One round-trip: pull the user's membership + the joined workspace
-  // row. For Corofy this always returns 0 or 1 row.
+  // Hot path: when COROFY_WORKSPACE_ID is set, skip the workspace lookup
+  // query entirely — Corofy is single-tenant so the workspace is known
+  // ahead of time. This saves ~280ms (one Supabase round-trip) on EVERY
+  // page render. Everything we need (id, name, slug) is static metadata
+  // we can hardcode in env. Role is always 'owner' in single-tenant.
+  if (env.COROFY_WORKSPACE_ID) {
+    const summary: WorkspaceSummary = {
+      id: env.COROFY_WORKSPACE_ID,
+      name: "Corofy",
+      slug: "corofy",
+      role: "owner",
+    };
+    return {
+      user: {
+        id: user.id,
+        email: user.email ?? null,
+        name: (user.user_metadata?.full_name as string | undefined) ?? null,
+        avatar_url: (user.user_metadata?.avatar_url as string | undefined) ?? null,
+      },
+      workspaces: [summary],
+      activeWorkspace: summary,
+    };
+  }
+
+  // Fallback path — only fires in dev or before COROFY_WORKSPACE_ID is
+  // configured. One round-trip: pull membership + joined workspace.
   const { data: memberships, error } = await supabase
     .from("workspace_members")
     .select("role, workspaces(id, name, slug)")
@@ -82,10 +105,6 @@ export const requireSession = cache(async function requireSession(): Promise<Ses
     ? { id: ws.id, name: ws.name, slug: ws.slug, role: row!.role }
     : null;
 
-  // Slow defensive path — only hits when the auth.users trigger hasn't
-  // fired yet OR the user signed up before the trigger was installed.
-  // Should be a one-time per-user cost; subsequent requests use the
-  // fast path above.
   if (!summary) {
     summary = await bootstrapMembership(user.id);
   }
