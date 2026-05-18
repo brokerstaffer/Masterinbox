@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createServerSupabase } from "@/lib/supabase/server";
 
 export interface CampaignOption {
@@ -11,7 +12,9 @@ export interface CampaignOption {
 // "Campaigns" picker in the FilterBuilder. Cheap: there are typically tens to
 // low hundreds of campaigns per workspace, and the index on threads
 // (workspace_id, campaign_id) keeps the distinct scan fast.
-export async function loadCampaigns(workspaceId: string): Promise<CampaignOption[]> {
+export const loadCampaigns = cache(async function loadCampaigns(
+  workspaceId: string,
+): Promise<CampaignOption[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
     .from("threads")
@@ -32,4 +35,4 @@ export async function loadCampaigns(workspaceId: string): Promise<CampaignOption
     });
   }
   return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
-}
+});

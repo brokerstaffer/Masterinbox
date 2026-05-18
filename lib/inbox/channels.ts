@@ -1,9 +1,12 @@
+import { cache } from "react";
 import { createServerSupabase } from "@/lib/supabase/server";
 import type { ChannelRow } from "./channels-shared";
 
 export type { ChannelRow } from "./channels-shared";
 
-export async function loadChannels(workspaceId: string): Promise<ChannelRow[]> {
+export const loadChannels = cache(async function loadChannels(
+  workspaceId: string,
+): Promise<ChannelRow[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
     .from("channels")
@@ -16,4 +19,4 @@ export async function loadChannels(workspaceId: string): Promise<ChannelRow[]> {
     return [];
   }
   return (data ?? []) as ChannelRow[];
-}
+});

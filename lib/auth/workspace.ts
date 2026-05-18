@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
@@ -29,13 +30,12 @@ export interface SessionContext {
   activeWorkspace: WorkspaceSummary;
 }
 
-// Fast path: ONE auth call + ONE joined Supabase query. Mirrors the
-// original multi-workspace implementation's two-round-trip shape, just
-// constrained to "always exactly one workspace". Splitting these into
-// three sequential queries (the previous Corofy implementation) added
-// 200-300ms of Supabase latency to every page render, which manifested
-// as visible lag on every thread switch.
-export async function requireSession(): Promise<SessionContext> {
+// Fast path: ONE cookie read (getSession) + ONE joined Supabase query.
+// Wrapped in React.cache so multiple call sites within a single render
+// (page server component, child components, etc.) share the same query.
+// Without cache(), every component calling requireSession() would fire
+// another full RTT to Supabase.
+export const requireSession = cache(async function requireSession(): Promise<SessionContext> {
   if (isDemoMode()) {
     return demoSession;
   }
@@ -100,7 +100,7 @@ export async function requireSession(): Promise<SessionContext> {
     workspaces: [summary],
     activeWorkspace: summary,
   };
-}
+});
 
 // Defensive path: look up the singleton workspace; create it if it
 // doesn't exist; insert a membership row for this user. Uses the admin

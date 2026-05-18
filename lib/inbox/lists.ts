@@ -1,9 +1,12 @@
+import { cache } from "react";
 import { createServerSupabase } from "@/lib/supabase/server";
 import type { ListRow } from "./lists-shared";
 
 export type { ListRow } from "./lists-shared";
 
-export async function loadLists(workspaceId: string): Promise<ListRow[]> {
+export const loadLists = cache(async function loadLists(
+  workspaceId: string,
+): Promise<ListRow[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
     .from("lists")
@@ -15,7 +18,7 @@ export async function loadLists(workspaceId: string): Promise<ListRow[]> {
     return [];
   }
   return (data ?? []) as ListRow[];
-}
+});
 
 export async function loadListCounts(workspaceId: string): Promise<Map<string, number>> {
   const supabase = await createServerSupabase();
