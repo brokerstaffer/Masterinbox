@@ -32,12 +32,19 @@ export function RealtimeRefresher({ workspaceId }: { workspaceId: string }) {
       }, 250);
     }
 
+    // CRITICAL: do NOT subscribe to threads UPDATE. The detail page fires
+    // a `seen=true` UPDATE on every navigation, and that event would
+    // trigger router.refresh() ~250ms later — which races against the
+    // in-flight client-side navigation and silently cancels it. This
+    // produced the "click another thread, blue dot disappears, but page
+    // doesn't change" bug. Only listen for events that surface NEW data
+    // the user couldn't see: new threads, new messages, new labels.
     const channel = supabase
       .channel(`workspace:${workspaceId}`)
       .on(
         "postgres_changes",
         {
-          event: "*",
+          event: "INSERT",
           schema: "public",
           table: "threads",
           filter: `workspace_id=eq.${workspaceId}`,
@@ -57,7 +64,7 @@ export function RealtimeRefresher({ workspaceId }: { workspaceId: string }) {
       .on(
         "postgres_changes",
         {
-          event: "*",
+          event: "INSERT",
           schema: "public",
           table: "label_assignments",
           filter: `workspace_id=eq.${workspaceId}`,

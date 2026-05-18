@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Mail, BriefcaseBusiness, Paperclip, ChevronLeft, ChevronRight } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -118,32 +119,11 @@ export function ThreadList({
               e.stopPropagation();
               e.preventDefault();
             };
-            // Brute-force navigation via window.location.assign. Two prior
-            // attempts — plain Next.js Link and Link + router.push — both
-            // silently failed to navigate in production despite firing the
-            // onClick handler (the optimistic "seen" dot disappeared, but
-            // the page didn't change). A real browser navigation is slower
-            // than SPA routing but guaranteed to work; we can revisit
-            // client-side routing once the underlying root cause is found.
-            const navigateOnClick = (e: React.MouseEvent) => {
-              if (
-                e.button !== 0 ||
-                e.metaKey ||
-                e.ctrlKey ||
-                e.shiftKey ||
-                e.altKey
-              ) {
-                return; // let the browser handle modifier/middle clicks
-              }
-              e.preventDefault();
-              markOpened(t.id);
-              window.location.assign(href);
-            };
             return (
               <li key={t.id} className="border-b">
-                <a
+                <Link
                   href={href}
-                  onClick={navigateOnClick}
+                  onClick={() => markOpened(t.id)}
                   className={cn(
                     "block px-3 py-3 hover:bg-accent/40 transition-colors",
                     active && "bg-accent",
@@ -186,7 +166,7 @@ export function ThreadList({
                       ) : null}
                     </div>
                   </div>
-                </a>
+                </Link>
               </li>
             );
           })}
@@ -240,14 +220,9 @@ export function ThreadList({
                   onCheckedChange={() => toggle(t.id)}
                 />
               </div>
-              <a
+              <Link
                 href={`${basePath}/${t.id}`}
-                onClick={(e) => {
-                  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                  e.preventDefault();
-                  markOpened(t.id);
-                  window.location.assign(`${basePath}/${t.id}`);
-                }}
+                onClick={() => markOpened(t.id)}
                 className="flex items-center gap-3 flex-1 min-w-0"
               >
                 <ChannelIcon provider={t.channel_provider} />
@@ -274,7 +249,7 @@ export function ThreadList({
                 <div className="shrink-0 text-xs text-muted-foreground tabular-nums">
                   {relativeTime(t.last_message_at)}
                 </div>
-              </a>
+              </Link>
             </li>
           ))}
         </ul>
@@ -438,7 +413,7 @@ function PaginationControls({
       <span className={cn("text-xs text-muted-foreground tabular-nums mr-1", compact && "text-[11px]")}>
         Page {cur} / {totalPages}
       </span>
-      <a
+      <Link
         href={prevDisabled ? "#" : href(cur - 1)}
         aria-label="Previous page"
         aria-disabled={prevDisabled}
@@ -450,8 +425,8 @@ function PaginationControls({
         )}
       >
         <ChevronLeft className="size-3.5" />
-      </a>
-      <a
+      </Link>
+      <Link
         href={nextDisabled ? "#" : href(cur + 1)}
         aria-label="Next page"
         aria-disabled={nextDisabled}
@@ -463,7 +438,7 @@ function PaginationControls({
         )}
       >
         <ChevronRight className="size-3.5" />
-      </a>
+      </Link>
     </div>
   );
 }
