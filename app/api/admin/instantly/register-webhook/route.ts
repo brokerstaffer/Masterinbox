@@ -57,7 +57,7 @@ export async function POST(request: Request) {
     const existing = await instantly.listWebhooks();
     const items = existing.items ?? [];
     for (const hook of items) {
-      const hookUrl = hook.webhook_url ?? "";
+      const hookUrl = hook.target_hook_url ?? "";
       if (hookUrl.startsWith(`${base}/api/webhooks/instantly`)) {
         try {
           await instantly.deleteWebhook(hook.id);
@@ -71,22 +71,28 @@ export async function POST(request: Request) {
     console.error("[instantly] listWebhooks failed", err);
   }
 
-  let created;
-  try {
-    created = await instantly.createWebhook({
-      name: "Corofy Master Inbox",
-      webhook_url: targetUrl,
-      event_types: RELEVANT_EVENTS,
-      campaign_ids: body.campaign_ids,
-    });
-  } catch (err) {
-    return NextResponse.json(
-      {
-        ok: false,
+  // Instantly is one webhook per event type — POST per event in RELEVANT_EVENTS.
+  const created: Array<{ id: string; event_type: string }> = [];
+  const errors: Array<{ event_type: string; error: string }> = [];
+  for (const ev of RELEVANT_EVENTS) {
+    try {
+      const c = await instantly.createWebhook({
+        name: `Corofy Master Inbox — ${ev}`,
+        target_hook_url: targetUrl,
+        event_type: ev,
+      });
+      created.push({ id: c.id, event_type: c.event_type });
+    } catch (err) {
+      errors.push({
+        event_type: ev,
         error: err instanceof Error ? err.message : "createWebhook failed",
-        target_url: targetUrl,
-        deleted,
-      },
+      });
+    }
+  }
+
+  if (created.length === 0 && errors.length > 0) {
+    return NextResponse.json(
+      { ok: false, errors, target_url: targetUrl, deleted_stale: deleted },
       { status: 502 },
     );
   }
@@ -95,9 +101,8 @@ export async function POST(request: Request) {
     {
       ok: true,
       target_url: targetUrl,
-      webhook_id: created.id,
-      event_types: created.event_types,
-      campaign_ids: created.campaign_ids ?? [],
+      created,
+      errors,
       deleted_stale: deleted,
     },
     { status: 200 },

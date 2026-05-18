@@ -63,12 +63,17 @@ export interface InstantlyCampaign {
   stop_on_reply?: boolean;
 }
 
+// Live-verified shape. Quirk: the POST endpoint requires `target_hook_url`
+// (not `webhook_url`) and a singular `event_type` string (not the plural
+// `event_types` array shown in marketing docs). The GET response uses the
+// same names — there's only one event_type per webhook, so multi-event
+// subscriptions require multiple webhook rows.
 export interface InstantlyWebhook {
   id: string;
   name?: string;
-  webhook_url: string;
-  event_types: string[];
-  campaign_ids?: string[];
+  target_hook_url: string;
+  event_type: string;
+  organization?: string;
   status?: number;
   timestamp_created?: string;
 }

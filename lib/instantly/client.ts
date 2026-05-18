@@ -141,11 +141,13 @@ export function createInstantlyClient(opts: ClientOpts = {}) {
     listWebhooks: () => request<ListResponse<InstantlyWebhook>>("GET", "/webhooks"),
     listWebhookEventTypes: () =>
       request<{ items?: string[] } | string[]>("GET", "/webhooks/event-types"),
+    // Instantly's create endpoint takes a single `event_type` (string) — for
+    // multi-event subscriptions, the caller must POST once per event. See
+    // InstantlyWebhook for the field-name quirk vs the marketing docs.
     createWebhook: (input: {
       name: string;
-      webhook_url: string;
-      event_types: InstantlyEventType[] | string[];
-      campaign_ids?: string[];
+      target_hook_url: string;
+      event_type: InstantlyEventType | string;
     }) => request<InstantlyWebhook>("POST", "/webhooks", input),
     deleteWebhook: (id: string) =>
       request<{ success?: boolean }>("DELETE", `/webhooks/${id}`),
