@@ -54,37 +54,61 @@ export async function loadThreadDetail(
 ): Promise<ThreadDetail | null> {
   const supabase = await createServerSupabase();
 
-  const { data: thread, error } = await supabase
-    .from("threads")
-    .select(
-      `id, workspace_id, subject, status, outbound_sender_email, source_provider, campaign_id, campaign_name,
+  // All five queries below depend only on threadId + workspaceId — fan them
+  // out in parallel instead of awaiting each one sequentially. Before this,
+  // a thread open took 5 × ~100ms Supabase round-trips in series (~500ms).
+  // With Promise.all it's bounded by the slowest single query (~100-150ms).
+  const [
+    { data: thread, error },
+    { data: messages },
+    { data: signatureRow },
+    { data: labelAssignments },
+    { data: drafts },
+  ] = await Promise.all([
+    supabase
+      .from("threads")
+      .select(
+        `id, workspace_id, subject, status, outbound_sender_email, source_provider, campaign_id, campaign_name,
        leads:lead_id(id, full_name, email, company, title, linkedin_url, custom_fields),
        channels:channel_id(provider, display_name),
        clients:client_id(name)`,
-    )
-    .eq("id", threadId)
-    .eq("workspace_id", workspaceId)
-    .maybeSingle();
+      )
+      .eq("id", threadId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle(),
+    supabase
+      .from("messages")
+      .select("id, direction, sender, recipients, subject, body_html, body_text, sent_at")
+      .eq("thread_id", threadId)
+      .order("sent_at", { ascending: true }),
+    // Pull the most recent inbound's raw_payload (signature lives there).
+    supabase
+      .from("messages")
+      .select("raw_payload")
+      .eq("thread_id", threadId)
+      .eq("direction", "inbound")
+      .order("sent_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("label_assignments")
+      .select("labels:label_id(id, name, color, sentiment)")
+      .eq("target_type", "thread")
+      .eq("target_id", threadId),
+    // Most recent pending draft (if any).
+    supabase
+      .from("reply_drafts")
+      .select(
+        "id, agent_id, generated_body, created_at, reply_agents:agent_id(name)",
+      )
+      .eq("thread_id", threadId)
+      .eq("status", "pending")
+      .not("generated_body", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1),
+  ]);
   if (error || !thread) return null;
 
-  const { data: messages } = await supabase
-    .from("messages")
-    .select("id, direction, sender, recipients, subject, body_html, body_text, sent_at")
-    .eq("thread_id", threadId)
-    .order("sent_at", { ascending: true });
-
-  // Pull the EmailBison sender_email.email_signature from the most recent
-  // inbound's raw_payload. Single round trip — we use head:false so we get
-  // the actual row back. Only inbound rows reliably carry the full webhook
-  // envelope.
-  const { data: signatureRow } = await supabase
-    .from("messages")
-    .select("raw_payload")
-    .eq("thread_id", threadId)
-    .eq("direction", "inbound")
-    .order("sent_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
   let outboundSignature: string | null = null;
   if (signatureRow?.raw_payload) {
     const p = signatureRow.raw_payload as Record<string, unknown>;
@@ -95,24 +119,6 @@ export async function loadThreadDetail(
     }
   }
 
-  const { data: labelAssignments } = await supabase
-    .from("label_assignments")
-    .select("labels:label_id(id, name, color, sentiment)")
-    .eq("target_type", "thread")
-    .eq("target_id", threadId);
-
-  // Most recent pending draft (if any) for this thread. We surface it in
-  // the composer as the starting body — the user can edit and send.
-  const { data: drafts } = await supabase
-    .from("reply_drafts")
-    .select(
-      "id, agent_id, generated_body, created_at, reply_agents:agent_id(name)",
-    )
-    .eq("thread_id", threadId)
-    .eq("status", "pending")
-    .not("generated_body", "is", null)
-    .order("created_at", { ascending: false })
-    .limit(1);
   const draftRow = drafts?.[0];
   const draftAgent = draftRow
     ? Array.isArray(draftRow.reply_agents)

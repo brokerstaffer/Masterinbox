@@ -149,16 +149,28 @@ export async function loadThreads(
     return { rows: [], total, page: safePage, pageSize };
   }
 
-  // Fetch the full row data only for the visible page.
-  const { data, error } = await supabase
-    .from("threads")
-    .select(
-      `id, subject, last_message_at, last_message_preview, needs_reply, seen, message_count, source_provider, campaign_id, campaign_name,
+  // Fetch the visible page's thread details + their label assignments in
+  // parallel — both depend only on pageIds and don't need each other's
+  // results. Saves one Supabase round-trip per inbox render.
+  const [
+    { data, error },
+    { data: assignments },
+  ] = await Promise.all([
+    supabase
+      .from("threads")
+      .select(
+        `id, subject, last_message_at, last_message_preview, needs_reply, seen, message_count, source_provider, campaign_id, campaign_name,
        leads:lead_id(full_name, email, company),
        channels:channel_id(provider),
        clients:client_id(name, slug)`,
-    )
-    .in("id", pageIds);
+      )
+      .in("id", pageIds),
+    supabase
+      .from("label_assignments")
+      .select("target_id, labels:label_id(name, color)")
+      .eq("target_type", "thread")
+      .in("target_id", pageIds),
+  ]);
   if (error) {
     console.error("[loadThreads] detail query failed", error);
     return { rows: [], total, page: safePage, pageSize };
@@ -171,19 +183,12 @@ export async function loadThreads(
   );
 
   const labelsByThread = new Map<string, Array<{ name: string; color: string }>>();
-  if (pageIds.length > 0) {
-    const { data: assignments } = await supabase
-      .from("label_assignments")
-      .select("target_id, labels:label_id(name, color)")
-      .eq("target_type", "thread")
-      .in("target_id", pageIds);
-    for (const r of assignments ?? []) {
-      const label = Array.isArray(r.labels) ? r.labels[0] : r.labels;
-      if (!label) continue;
-      const list = labelsByThread.get(r.target_id) ?? [];
-      list.push({ name: label.name, color: label.color });
-      labelsByThread.set(r.target_id, list);
-    }
+  for (const r of assignments ?? []) {
+    const label = Array.isArray(r.labels) ? r.labels[0] : r.labels;
+    if (!label) continue;
+    const list = labelsByThread.get(r.target_id) ?? [];
+    list.push({ name: label.name, color: label.color });
+    labelsByThread.set(r.target_id, list);
   }
 
   let mapped: ThreadRow[] = ordered.map((row) => {
