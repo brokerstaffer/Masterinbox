@@ -165,12 +165,14 @@ export async function upsertThread(
     seen?: boolean;
     outbound_sender_email?: string | null;
     client_id?: string | null;
+    campaign_id?: string | null;
+    campaign_name?: string | null;
   },
 ): Promise<string | null> {
   const supabase = createAdminSupabase();
   const { data: existing } = await supabase
     .from("threads")
-    .select("id, subject, client_id")
+    .select("id, subject, client_id, campaign_name")
     .eq("workspace_id", ctx.workspaceId)
     .eq("emailbison_thread_id", externalThreadId)
     .maybeSingle();
@@ -189,11 +191,18 @@ export async function upsertThread(
   if (defaults.outbound_sender_email !== undefined)
     update.outbound_sender_email = defaults.outbound_sender_email;
   if (defaults.client_id !== undefined) update.client_id = defaults.client_id;
+  if (defaults.campaign_id !== undefined) update.campaign_id = defaults.campaign_id;
+  if (defaults.campaign_name !== undefined) update.campaign_name = defaults.campaign_name;
 
   if (existing) {
     if (existing.subject) delete update.subject;
     // Don't clobber an already-derived client_id — first match wins.
     if (existing.client_id) delete update.client_id;
+    // Same for campaign — set once on first webhook touch.
+    if (existing.campaign_name) {
+      delete update.campaign_name;
+      delete update.campaign_id;
+    }
     await supabase.from("threads").update(update).eq("id", existing.id);
     return existing.id;
   }
@@ -496,6 +505,8 @@ export async function handleEmailBisonEvent(envelope: EmailBisonWebhookEnvelope)
     // OUR-side address for the thread. Pin it so the UI never has to guess.
     outbound_sender_email: payload.sender_email?.email ?? null,
     client_id: clientId,
+    campaign_id: payload.campaign?.id != null ? String(payload.campaign.id) : null,
+    campaign_name: payload.campaign?.name ?? null,
   });
   if (!threadId) return { ok: false, reason: "thread upsert failed" };
 

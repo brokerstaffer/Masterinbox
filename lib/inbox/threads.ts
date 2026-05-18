@@ -18,6 +18,8 @@ export interface ThreadRow {
   source_provider: SourceProvider | null;
   client_name: string | null;
   client_slug: string | null;
+  campaign_id: string | null;
+  campaign_name: string | null;
   labels: Array<{ name: string; color: string }>;
 }
 
@@ -151,7 +153,7 @@ export async function loadThreads(
   const { data, error } = await supabase
     .from("threads")
     .select(
-      `id, subject, last_message_at, last_message_preview, needs_reply, seen, message_count, source_provider,
+      `id, subject, last_message_at, last_message_preview, needs_reply, seen, message_count, source_provider, campaign_id, campaign_name,
        leads:lead_id(full_name, email, company),
        channels:channel_id(provider),
        clients:client_id(name, slug)`,
@@ -208,6 +210,8 @@ export async function loadThreads(
           null),
       client_name: client?.name ?? null,
       client_slug: client?.slug ?? null,
+      campaign_id: (row.campaign_id as string | null) ?? null,
+      campaign_name: (row.campaign_name as string | null) ?? null,
       labels: labelsByThread.get(row.id) ?? [],
     };
   });
@@ -288,6 +292,19 @@ function applyRowToQuery(
       if (ids.length === 0) return query;
       if (row.operator === "is") return query.in("channel_id", ids) as Q;
       if (row.operator === "not") return query.not("channel_id", "in", `(${ids.join(",")})`) as Q;
+      return query;
+    }
+    case "campaigns": {
+      // Values are campaign_id strings (text). Empty list means "no filter".
+      const ids = Array.isArray(row.value) ? (row.value as string[]) : [];
+      if (ids.length === 0) return query;
+      if (row.operator === "is") return query.in("campaign_id", ids) as Q;
+      if (row.operator === "not") {
+        // PostgREST string interpolation: campaign_id values are opaque
+        // (UUIDs or numeric strings) — no embedded commas — so a simple
+        // join is safe.
+        return query.not("campaign_id", "in", `(${ids.join(",")})`) as Q;
+      }
       return query;
     }
     default:

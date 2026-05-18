@@ -141,6 +141,9 @@ export function ProspectPanel({ detail }: { detail: ThreadDetail }) {
             socials={socials}
             aboutExtras={aboutExtras}
             customExtras={customExtras}
+            sourceProvider={detail.source_provider}
+            campaignName={detail.campaign_name}
+            clientName={detail.client_name}
           />
         ) : null}
         {tab === "attachments" ? (
@@ -208,15 +211,36 @@ function DetailsTab({
   socials,
   aboutExtras,
   customExtras,
+  sourceProvider,
+  campaignName,
+  clientName,
 }: {
   lead: ThreadDetail["lead"];
   emailDomain: string | null;
   socials: SocialEntry[];
   aboutExtras: AboutExtra[];
   customExtras: AboutExtra[];
+  sourceProvider: ThreadDetail["source_provider"];
+  campaignName: string | null;
+  clientName: string | null;
 }) {
   return (
     <div className="space-y-4">
+
+      {(sourceProvider || campaignName || clientName) ? (
+        <Section title="Campaign" defaultOpen>
+          <dl className="grid grid-cols-[80px_1fr] gap-x-3 gap-y-1.5 text-sm">
+            {sourceProvider && sourceProvider !== "unipile" ? (
+              <FieldPair
+                label="Source"
+                value={sourceProvider === "instantly" ? "Instantly" : "EmailBison"}
+              />
+            ) : null}
+            {clientName ? <FieldPair label="Client" value={clientName} /> : null}
+            {campaignName ? <FieldPair label="Campaign" value={campaignName} /> : null}
+          </dl>
+        </Section>
+      ) : null}
 
       <Section title="About" defaultOpen>
         <dl className="grid grid-cols-[80px_1fr] gap-x-3 gap-y-1.5 text-sm">

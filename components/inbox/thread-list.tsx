@@ -112,57 +112,63 @@ export function ThreadList({
           <ul>
           {threads.map((t) => {
             const active = t.id === activeId;
+            // Stop click propagation on the checkbox column so the row's
+            // Link wrapper doesn't navigate when toggling selection. This
+            // approach is more reliable across browsers than absolute-overlay
+            // tricks, and supports middle-click "open in new tab" naturally.
+            const eatClick = (e: React.MouseEvent) => {
+              e.stopPropagation();
+              e.preventDefault();
+            };
             return (
-              <li
-                key={t.id}
-                className={cn(
-                  "relative border-b hover:bg-accent/40 transition-colors",
-                  active && "bg-accent",
-                )}
-              >
-                {/* Full-row Link overlay — fixes the "clicks near edges don't
-                    switch threads" bug. The Checkbox sits above it with
-                    pointer-events-auto so it stays independently clickable. */}
+              <li key={t.id} className="border-b">
                 <Link
                   href={`${basePath}/${t.id}`}
                   onClick={() => markOpened(t.id)}
                   prefetch={false}
-                  className="absolute inset-0 z-0"
-                  aria-label={`Open thread: ${t.subject ?? t.lead_full_name ?? t.lead_email ?? "thread"}`}
-                />
-                <div className="flex items-start gap-2 px-3 py-3 pointer-events-none relative z-[1]">
-                  <div className="flex items-center gap-1.5 pt-0.5 pointer-events-auto">
-                    <UnseenDot seen={isSeen(t)} />
-                    <Checkbox
-                      checked={selected.has(t.id)}
-                      onCheckedChange={() => toggle(t.id)}
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0 flex flex-col gap-1 text-[13px]">
-                    <div className="flex items-center gap-2">
-                      <ChannelIcon provider={t.channel_provider} />
-                      <span className={cn("truncate flex-1", !isSeen(t) ? "font-semibold" : "font-medium")}>
-                        {t.lead_full_name || t.lead_email || "Unknown"}
-                      </span>
-                      <span className="text-[11px] text-muted-foreground tabular-nums">
-                        {relativeTime(t.last_message_at)}
-                      </span>
+                  className={cn(
+                    "block px-3 py-3 hover:bg-accent/40 transition-colors",
+                    active && "bg-accent",
+                  )}
+                >
+                  <div className="flex items-start gap-2">
+                    <div
+                      className="flex items-center gap-1.5 pt-0.5"
+                      onClick={eatClick}
+                    >
+                      <UnseenDot seen={isSeen(t)} />
+                      <Checkbox
+                        checked={selected.has(t.id)}
+                        onCheckedChange={() => toggle(t.id)}
+                      />
                     </div>
-                    <div className="truncate font-medium">{t.subject || "(no subject)"}</div>
-                    <div className="truncate text-muted-foreground">
-                      {t.last_message_preview}
-                    </div>
-                    {(t.source_provider || t.client_name || t.labels.length > 0) ? (
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <SourceBadge source={t.source_provider} />
-                        <ClientChip name={t.client_name} slug={t.client_slug} />
-                        {t.labels.slice(0, 2).map((l) => (
-                          <LabelChip key={l.name} name={l.name} color={l.color} />
-                        ))}
+                    <div className="flex-1 min-w-0 flex flex-col gap-1 text-[13px]">
+                      <div className="flex items-center gap-2">
+                        <ChannelIcon provider={t.channel_provider} />
+                        <span className={cn("truncate flex-1", !isSeen(t) ? "font-semibold" : "font-medium")}>
+                          {t.lead_full_name || t.lead_email || "Unknown"}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground tabular-nums">
+                          {relativeTime(t.last_message_at)}
+                        </span>
                       </div>
-                    ) : null}
+                      <div className="truncate font-medium">{t.subject || "(no subject)"}</div>
+                      <div className="truncate text-muted-foreground">
+                        {t.last_message_preview}
+                      </div>
+                      {(t.source_provider || t.client_name || t.campaign_name || t.labels.length > 0) ? (
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <SourceBadge source={t.source_provider} />
+                          <ClientChip name={t.client_name} slug={t.client_slug} />
+                          <CampaignChip name={t.campaign_name} />
+                          {t.labels.slice(0, 2).map((l) => (
+                            <LabelChip key={l.name} name={l.name} color={l.color} />
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
+                </Link>
               </li>
             );
           })}
@@ -225,10 +231,11 @@ export function ThreadList({
                 <div className={cn("w-40 shrink-0 truncate text-[13px]", !isSeen(t) ? "font-semibold" : "font-medium")}>
                   {t.lead_full_name || t.lead_email || "Unknown"}
                 </div>
-                {(t.source_provider || t.client_name || t.labels.length > 0) ? (
+                {(t.source_provider || t.client_name || t.campaign_name || t.labels.length > 0) ? (
                   <div className="flex items-center gap-1 shrink-0">
                     <SourceBadge source={t.source_provider} />
                     <ClientChip name={t.client_name} slug={t.client_slug} />
+                    <CampaignChip name={t.campaign_name} />
                     {t.labels.slice(0, 2).map((l) => (
                       <LabelChip key={l.name} name={l.name} color={l.color} />
                     ))}
@@ -317,6 +324,21 @@ function ClientChip({ name, slug }: { name: string | null; slug: string | null }
       title={`Client: ${name}`}
     >
       {name}
+    </span>
+  );
+}
+
+// Raw campaign name as stored on the provider. Long, so we truncate to a
+// reasonable display width and rely on the title tooltip for the full name.
+function CampaignChip({ name }: { name: string | null }) {
+  if (!name) return null;
+  const truncated = name.length > 32 ? name.slice(0, 30) + "…" : name;
+  return (
+    <span
+      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border whitespace-nowrap bg-sky-50 text-sky-700 border-sky-200 max-w-[14rem] truncate"
+      title={`Campaign: ${name}`}
+    >
+      {truncated}
     </span>
   );
 }

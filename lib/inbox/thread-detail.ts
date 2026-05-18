@@ -29,6 +29,10 @@ export interface ThreadDetail {
   // Extracted from any inbound message's raw_payload.data.sender_email.email_signature.
   // Used by the composer when the "Add signature" checkbox is on.
   outbound_sender_signature: string | null;
+  source_provider: "emailbison" | "instantly" | "unipile" | null;
+  campaign_id: string | null;
+  campaign_name: string | null;
+  client_name: string | null;
   pending_draft: PendingDraft | null;
   lead: {
     id: string | null;
@@ -39,7 +43,7 @@ export interface ThreadDetail {
     linkedin_url: string | null;
     custom_fields: Record<string, unknown>;
   };
-  channel: { provider: "emailbison" | "unipile" | null; display_name: string | null };
+  channel: { provider: "emailbison" | "instantly" | "unipile" | null; display_name: string | null };
   messages: MessageRow[];
   labels: Array<{ id: string; name: string; color: string; sentiment: string }>;
 }
@@ -53,9 +57,10 @@ export async function loadThreadDetail(
   const { data: thread, error } = await supabase
     .from("threads")
     .select(
-      `id, workspace_id, subject, status, outbound_sender_email,
+      `id, workspace_id, subject, status, outbound_sender_email, source_provider, campaign_id, campaign_name,
        leads:lead_id(id, full_name, email, company, title, linkedin_url, custom_fields),
-       channels:channel_id(provider, display_name)`,
+       channels:channel_id(provider, display_name),
+       clients:client_id(name)`,
     )
     .eq("id", threadId)
     .eq("workspace_id", workspaceId)
@@ -117,6 +122,7 @@ export async function loadThreadDetail(
 
   const lead = Array.isArray(thread.leads) ? thread.leads[0] : thread.leads;
   const channel = Array.isArray(thread.channels) ? thread.channels[0] : thread.channels;
+  const client = Array.isArray(thread.clients) ? thread.clients[0] : thread.clients;
   const labels = (labelAssignments ?? [])
     .map((row) => (Array.isArray(row.labels) ? row.labels[0] : row.labels))
     .filter(Boolean) as ThreadDetail["labels"];
@@ -128,6 +134,10 @@ export async function loadThreadDetail(
     status: (thread.status as ThreadDetail["status"]) ?? "open",
     outbound_sender_email: (thread.outbound_sender_email as string | null) ?? null,
     outbound_sender_signature: outboundSignature,
+    source_provider: (thread.source_provider as ThreadDetail["source_provider"]) ?? null,
+    campaign_id: (thread.campaign_id as string | null) ?? null,
+    campaign_name: (thread.campaign_name as string | null) ?? null,
+    client_name: (client?.name as string | null) ?? null,
     pending_draft: draftRow
       ? {
           id: draftRow.id as string,
@@ -147,7 +157,7 @@ export async function loadThreadDetail(
       custom_fields: (lead?.custom_fields as Record<string, unknown>) ?? {},
     },
     channel: {
-      provider: (channel?.provider ?? null) as "emailbison" | "unipile" | null,
+      provider: (channel?.provider ?? null) as ThreadDetail["channel"]["provider"],
       display_name: channel?.display_name ?? null,
     },
     messages: (messages ?? []) as MessageRow[],

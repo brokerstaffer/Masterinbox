@@ -170,12 +170,14 @@ async function upsertThread(
     seen: boolean;
     outbound_sender_email?: string | null;
     client_id?: string | null;
+    campaign_id?: string | null;
+    campaign_name?: string | null;
   },
 ): Promise<string | null> {
   const supabase = createAdminSupabase();
   const { data: existing } = await supabase
     .from("threads")
-    .select("id, subject, client_id")
+    .select("id, subject, client_id, campaign_name")
     .eq("workspace_id", ctx.workspaceId)
     .eq("instantly_thread_id", externalThreadId)
     .maybeSingle();
@@ -196,10 +198,17 @@ async function upsertThread(
     update.outbound_sender_email = defaults.outbound_sender_email;
   }
   if (defaults.client_id !== undefined) update.client_id = defaults.client_id;
+  if (defaults.campaign_id !== undefined) update.campaign_id = defaults.campaign_id;
+  if (defaults.campaign_name !== undefined) update.campaign_name = defaults.campaign_name;
 
   if (existing) {
     if (existing.subject) delete update.subject;
     if (existing.client_id) delete update.client_id;
+    if (existing.campaign_name) {
+      // First-set wins on campaign_name (and campaign_id together).
+      delete update.campaign_name;
+      delete update.campaign_id;
+    }
     await supabase.from("threads").update(update).eq("id", existing.id);
     return existing.id;
   }
@@ -413,6 +422,8 @@ export async function handleInstantlyEvent(envelope: InstantlyWebhookEnvelope): 
     seen: false,
     outbound_sender_email: envelope.email_account ?? null,
     client_id: clientId,
+    campaign_id: envelope.campaign_id ?? null,
+    campaign_name: envelope.campaign_name ?? null,
   });
   if (!threadId) return { ok: false, reason: "thread upsert failed" };
 

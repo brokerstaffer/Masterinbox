@@ -7,18 +7,21 @@ import { Button } from "@/components/ui/button";
 import { FilterBuilder } from "@/components/inbox/filter-builder";
 import type { LabelRow } from "@/lib/inbox/labels-shared";
 import type { ChannelRow } from "@/lib/inbox/channels-shared";
+import type { CampaignOption } from "@/lib/inbox/campaigns";
 import { countActiveRows, type FilterState } from "@/lib/inbox/filters";
 
 export function FilterBar({
   initialFilter = { rows: [] },
   labels = [],
   channels = [],
+  campaigns = [],
   currentViewId = null,
   currentViewName = null,
 }: {
   initialFilter?: FilterState;
   labels?: LabelRow[];
   channels?: ChannelRow[];
+  campaigns?: CampaignOption[];
   currentViewId?: string | null;
   currentViewName?: string | null;
 }) {
@@ -64,6 +67,7 @@ export function FilterBar({
         initial={initialFilter}
         labels={labels}
         channels={channels}
+        campaigns={campaigns}
         currentViewId={currentViewId}
         currentViewName={currentViewName}
       />

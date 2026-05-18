@@ -11,6 +11,7 @@
 export type FilterField =
   | "labels"
   | "channels"
+  | "campaigns"
   | "reply_since"
   | "last_message_from"
   | "message_counts"
@@ -88,6 +89,10 @@ export function defaultRow(field: FilterField): FilterRow {
       return { id, enabled: true, field, operator: "is", value: [] };
     case "channels":
       return { id, enabled: true, field, operator: "is", value: [] };
+    case "campaigns":
+      // Stored as an array of campaign_id strings (text). Falls through to
+      // the same multi-select UI shape as labels/channels.
+      return { id, enabled: true, field, operator: "is", value: [] };
     case "reply_since":
       return {
         id,
@@ -122,6 +127,7 @@ export function defaultRow(field: FilterField): FilterRow {
 export const FIELD_LABELS: Record<FilterField, string> = {
   labels: "Labels",
   channels: "Channels",
+  campaigns: "Campaigns",
   reply_since: "Reply Since",
   last_message_from: "Last Message From",
   message_counts: "Message Counts",
