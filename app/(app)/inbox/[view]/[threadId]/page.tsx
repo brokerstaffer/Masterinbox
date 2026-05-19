@@ -14,6 +14,7 @@ import { loadViews, loadViewBySlug } from "@/lib/inbox/views";
 import { loadLabels } from "@/lib/inbox/labels";
 import { loadChannels } from "@/lib/inbox/channels";
 import { loadCampaigns } from "@/lib/inbox/campaigns";
+import { loadClients } from "@/lib/inbox/clients";
 import { loadLists } from "@/lib/inbox/lists";
 import { decodeFilter, type FilterState } from "@/lib/inbox/filters";
 import { createAdminSupabase } from "@/lib/supabase/admin";
@@ -51,13 +52,14 @@ export default async function ThreadDetailPage(props: {
     });
   };
 
-  const [threadPage, detail, views, labels, channels, campaigns, lists, currentView] = await Promise.all([
+  const [threadPage, detail, views, labels, channels, campaigns, clients, lists, currentView] = await Promise.all([
     timed("loadThreads", loadThreads(session.activeWorkspace.id, view, filterFromUrl, list ?? null, pageNum)),
     timed("loadThreadDetail", loadThreadDetail(session.activeWorkspace.id, threadId)),
     timed("loadViews", loadViews(session.activeWorkspace.id)),
     timed("loadLabels", loadLabels(session.activeWorkspace.id)),
     timed("loadChannels", loadChannels(session.activeWorkspace.id)),
     timed("loadCampaigns", loadCampaigns(session.activeWorkspace.id)),
+    timed("loadClients", loadClients(session.activeWorkspace.id)),
     timed("loadLists", loadLists(session.activeWorkspace.id)),
     timed("loadViewBySlug", loadViewBySlug(session.activeWorkspace.id, view)),
     timed(
@@ -91,6 +93,7 @@ export default async function ThreadDetailPage(props: {
         labels={labels}
         channels={channels}
         campaigns={campaigns}
+        clients={clients}
         currentViewId={currentView?.id ?? null}
         currentViewName={currentView?.name ?? null}
       />

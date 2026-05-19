@@ -340,6 +340,16 @@ function applyRowToQuery(
       }
       return query;
     }
+    case "clients": {
+      // Values are client_id UUIDs. Empty list means "no filter".
+      const ids = Array.isArray(row.value) ? (row.value as string[]) : [];
+      if (ids.length === 0) return query;
+      if (row.operator === "is") return query.in("client_id", ids) as Q;
+      if (row.operator === "not") {
+        return query.not("client_id", "in", `(${ids.join(",")})`) as Q;
+      }
+      return query;
+    }
     default:
       return query;
   }

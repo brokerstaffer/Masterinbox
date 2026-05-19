@@ -10,6 +10,7 @@ import { loadViews, loadViewBySlug } from "@/lib/inbox/views";
 import { loadLabels } from "@/lib/inbox/labels";
 import { loadChannels } from "@/lib/inbox/channels";
 import { loadCampaigns } from "@/lib/inbox/campaigns";
+import { loadClients } from "@/lib/inbox/clients";
 import { loadLists } from "@/lib/inbox/lists";
 import { decodeFilter, type FilterState } from "@/lib/inbox/filters";
 
@@ -24,12 +25,13 @@ export default async function InboxView(props: {
   const session = await requireSession();
   const filterFromUrl: FilterState | null = f ? decodeFilter(f) : null;
   const pageNum = Math.max(1, Number(page ?? "1") || 1);
-  const [threadPage, views, labels, channels, campaigns, lists, currentView] = await Promise.all([
+  const [threadPage, views, labels, channels, campaigns, clients, lists, currentView] = await Promise.all([
     loadThreads(session.activeWorkspace.id, view, filterFromUrl, list ?? null, pageNum),
     loadViews(session.activeWorkspace.id),
     loadLabels(session.activeWorkspace.id),
     loadChannels(session.activeWorkspace.id),
     loadCampaigns(session.activeWorkspace.id),
+    loadClients(session.activeWorkspace.id),
     loadLists(session.activeWorkspace.id),
     loadViewBySlug(session.activeWorkspace.id, view),
   ]);
@@ -50,6 +52,7 @@ export default async function InboxView(props: {
         labels={labels}
         channels={channels}
         campaigns={campaigns}
+        clients={clients}
         currentViewId={currentView?.id ?? null}
         currentViewName={currentView?.name ?? null}
       />

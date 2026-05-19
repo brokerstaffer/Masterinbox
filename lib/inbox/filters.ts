@@ -12,6 +12,7 @@ export type FilterField =
   | "labels"
   | "channels"
   | "campaigns"
+  | "clients"
   | "reply_since"
   | "last_message_from"
   | "message_counts"
@@ -93,6 +94,10 @@ export function defaultRow(field: FilterField): FilterRow {
       // Stored as an array of campaign_id strings (text). Falls through to
       // the same multi-select UI shape as labels/channels.
       return { id, enabled: true, field, operator: "is", value: [] };
+    case "clients":
+      // Stored as an array of client_id UUIDs. Same multi-select shape as
+      // campaigns; threads.client_id is set at sync time by deriveClient.
+      return { id, enabled: true, field, operator: "is", value: [] };
     case "reply_since":
       return {
         id,
@@ -128,6 +133,7 @@ export const FIELD_LABELS: Record<FilterField, string> = {
   labels: "Labels",
   channels: "Channels",
   campaigns: "Campaigns",
+  clients: "Clients",
   reply_since: "Reply Since",
   last_message_from: "Last Message From",
   message_counts: "Message Counts",

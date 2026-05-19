@@ -18,6 +18,7 @@ import {
   Clock4,
   FileText,
   Megaphone,
+  Building2,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ import { cn } from "@/lib/utils";
 import type { LabelRow } from "@/lib/inbox/labels-shared";
 import type { ChannelRow } from "@/lib/inbox/channels-shared";
 import type { CampaignOption } from "@/lib/inbox/campaigns";
+import type { ClientOption } from "@/lib/inbox/clients";
 import {
   defaultRow,
   encodeFilter,
@@ -48,6 +50,7 @@ const FIELD_ICONS: Record<FilterField, React.ComponentType<{ className?: string 
   labels: TagIcon,
   channels: Hash,
   campaigns: Megaphone,
+  clients: Building2,
   reply_since: Clock4,
   last_message_from: MessageSquare,
   message_counts: RotateCcw,
@@ -63,6 +66,7 @@ const FIELD_OPTIONS: FilterField[] = [
   "labels",
   "channels",
   "campaigns",
+  "clients",
   "reply_since",
   "last_message_from",
   "message_counts",
@@ -78,6 +82,7 @@ const OPERATORS_BY_FIELD: Record<FilterField, FilterOperator[]> = {
   labels: ["is", "not"],
   channels: ["is", "not"],
   campaigns: ["is", "not"],
+  clients: ["is", "not"],
   reply_since: ["greater_than", "less_than"],
   last_message_from: ["equals"],
   message_counts: ["equals", "greater_than", "less_than"],
@@ -115,6 +120,7 @@ export function FilterBuilder({
   labels,
   channels,
   campaigns,
+  clients,
   currentViewId,
   currentViewName,
 }: {
@@ -124,6 +130,7 @@ export function FilterBuilder({
   labels: LabelRow[];
   channels: ChannelRow[];
   campaigns: CampaignOption[];
+  clients: ClientOption[];
   currentViewId?: string | null;
   currentViewName?: string | null;
 }) {
@@ -221,6 +228,7 @@ export function FilterBuilder({
               labels={labels}
               channels={channels}
               campaigns={campaigns}
+              clients={clients}
               onChange={(patch) => updateRow(row.id, patch)}
               onRemove={() => removeRow(row.id)}
             />
@@ -314,6 +322,7 @@ function FilterRowEditor({
   labels,
   channels,
   campaigns,
+  clients,
   onChange,
   onRemove,
 }: {
@@ -321,6 +330,7 @@ function FilterRowEditor({
   labels: LabelRow[];
   channels: ChannelRow[];
   campaigns: CampaignOption[];
+  clients: ClientOption[];
   onChange: (patch: Partial<FilterRow>) => void;
   onRemove: () => void;
 }) {
@@ -403,7 +413,7 @@ function FilterRowEditor({
 
       {/* Value editor — depends on field */}
       <div className="flex-1 min-w-0">
-        <ValueEditor row={row} labels={labels} channels={channels} campaigns={campaigns} onChange={onChange} />
+        <ValueEditor row={row} labels={labels} channels={channels} campaigns={campaigns} clients={clients} onChange={onChange} />
       </div>
 
       <button
@@ -457,12 +467,14 @@ function ValueEditor({
   labels,
   channels,
   campaigns,
+  clients,
   onChange,
 }: {
   row: FilterRow;
   labels: LabelRow[];
   channels: ChannelRow[];
   campaigns: CampaignOption[];
+  clients: ClientOption[];
   onChange: (patch: Partial<FilterRow>) => void;
 }) {
   if (row.field === "campaigns") {
@@ -470,6 +482,16 @@ function ValueEditor({
     return (
       <MultiPickerCampaigns
         all={campaigns}
+        selected={selected}
+        onChange={(next) => onChange({ value: next })}
+      />
+    );
+  }
+  if (row.field === "clients") {
+    const selected = Array.isArray(row.value) ? (row.value as string[]) : [];
+    return (
+      <MultiPickerClients
+        all={clients}
         selected={selected}
         onChange={(next) => onChange({ value: next })}
       />
@@ -813,6 +835,80 @@ function MultiPickerCampaigns({
                     {c.source}
                   </span>
                 ) : null}
+              </button>
+            );
+          })
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function MultiPickerClients({
+  all,
+  selected,
+  onChange,
+}: {
+  all: ClientOption[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+}) {
+  function toggle(id: string) {
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  }
+  const selectedClients = all.filter((c) => selected.includes(c.id));
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            className="min-h-9 w-full px-2.5 py-1 inline-flex items-center gap-1 border rounded-md bg-background text-sm flex-wrap hover:bg-accent/30"
+          >
+            {selectedClients.length === 0 ? (
+              <span className="text-muted-foreground">Select clients…</span>
+            ) : (
+              selectedClients.map((c) => (
+                <span
+                  key={c.id}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-muted rounded text-xs max-w-[18rem]"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <span className="truncate">{c.name}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggle(c.id);
+                    }}
+                    className="size-3.5 inline-flex items-center justify-center text-muted-foreground hover:text-foreground shrink-0"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ))
+            )}
+            <ChevronDown className="size-3.5 ml-auto text-muted-foreground" />
+          </button>
+        }
+      />
+      <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto w-80">
+        {all.length === 0 ? (
+          <p className="text-xs text-muted-foreground p-3">
+            No clients yet. Clients appear here as replies arrive.
+          </p>
+        ) : (
+          all.map((c) => {
+            const isOn = selected.includes(c.id);
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => toggle(c.id)}
+                className="w-full flex items-center gap-2 px-2 py-1.5 text-left rounded hover:bg-accent text-sm"
+              >
+                <span className={cn("size-3.5 rounded border shrink-0", isOn ? "bg-foreground border-foreground" : "border-muted-foreground/40")} />
+                <span className="truncate">{c.name}</span>
               </button>
             );
           })
