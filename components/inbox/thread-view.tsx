@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Composer } from "@/components/inbox/composer";
 import { LabelPickerButton } from "@/components/inbox/label-picker";
 import { SnoozeButton } from "@/components/inbox/snooze-button";
+import { useInboxContextOptional } from "@/components/inbox/inbox-context";
 import { cn } from "@/lib/utils";
 import type { ThreadDetail, MessageRow } from "@/lib/inbox/thread-detail";
 import type { LabelRow } from "@/lib/inbox/labels-shared";
@@ -51,9 +52,9 @@ function initials(name: string | null | undefined, email: string | null | undefi
 
 export function ThreadView({
   detail,
-  availableLabels = [],
-  prevThreadHref = null,
-  nextThreadHref = null,
+  availableLabels: availableLabelsProp,
+  prevThreadHref: prevThreadHrefProp = null,
+  nextThreadHref: nextThreadHrefProp = null,
   backHref = "..",
 }: {
   detail: ThreadDetail;
@@ -62,6 +63,26 @@ export function ThreadView({
   nextThreadHref?: string | null;
   backHref?: string;
 }) {
+  // Pull labels + adjacent threads from the inbox-wide context that the
+  // [view]/layout.tsx provides. Falls back to props for any caller that
+  // still passes them explicitly (kept for backwards-compat — the
+  // architectural refactor that hoisted the shell into the layout is
+  // the canonical source now).
+  const inbox = useInboxContextOptional();
+  const availableLabels = availableLabelsProp ?? inbox?.labels ?? [];
+  let prevThreadHref = prevThreadHrefProp;
+  let nextThreadHref = nextThreadHrefProp;
+  if (inbox && (prevThreadHref === null || nextThreadHref === null)) {
+    const idx = inbox.threads.findIndex((t) => t.id === detail.id);
+    if (idx >= 0) {
+      if (prevThreadHref === null && idx > 0) {
+        prevThreadHref = `${inbox.basePath}/${inbox.threads[idx - 1].id}`;
+      }
+      if (nextThreadHref === null && idx < inbox.threads.length - 1) {
+        nextThreadHref = `${inbox.basePath}/${inbox.threads[idx + 1].id}`;
+      }
+    }
+  }
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   // composeState tracks both reply + forward — they share the composer UI
