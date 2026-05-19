@@ -2,21 +2,22 @@ import { createAdminSupabase } from "@/lib/supabase/admin";
 
 // Maps a campaign name (e.g. "Brooklyn Group (2) - The Arc New Rochelle (copy)")
 // to the matching Corofy client (e.g. "Brooklyn Group"). Falls back to the
-// "Unknown" client when no name matches.
+// "Unknown" client when nothing matches.
 //
 // Matching rules:
-//   - case-insensitive substring scan over the seeded client.name values
-//   - the LONGEST matching name wins (so "Howard Hanna NYC" beats a campaign
-//     that happens to also contain "Howard Hanna")
-//   - a single in-memory cache of clients keyed by slug, refreshed lazily on
-//     a 5-minute TTL — clients change rarely so this avoids per-webhook
-//     Supabase reads. The serverless cold-start invalidates the cache for
-//     free; long-lived processes get the TTL refresh.
+//   - Case-insensitive SUBSTRING scan over each client's `name` PLUS every
+//     entry in its `aliases` array (admin-managed via /settings/clients).
+//   - The LONGEST matching needle wins, so a longer/more-specific alias
+//     beats a shorter generic one (prevents "Howard Hanna" from claiming
+//     a thread that actually belongs to "Howard Hanna NYC").
+//   - Single in-memory cache keyed by slug, 5-minute TTL — clients change
+//     rarely, and webhooks should not hammer Supabase for the catalog.
 
 interface ClientRow {
   id: string;
   name: string;
   slug: string;
+  aliases: string[];
 }
 
 let cache: { rows: ClientRow[]; loadedAt: number } | null = null;
@@ -29,13 +30,19 @@ async function loadClients(): Promise<ClientRow[]> {
   const supabase = createAdminSupabase();
   const { data, error } = await supabase
     .from("clients")
-    .select("id, name, slug");
+    .select("id, name, slug, aliases");
   if (error || !data) {
     console.error("[clients] failed to load clients table", error);
     return cache?.rows ?? [];
   }
-  cache = { rows: data, loadedAt: Date.now() };
-  return data;
+  const rows: ClientRow[] = data.map((d) => ({
+    id: d.id as string,
+    name: d.name as string,
+    slug: d.slug as string,
+    aliases: (d.aliases as string[] | null) ?? [],
+  }));
+  cache = { rows, loadedAt: Date.now() };
+  return rows;
 }
 
 export async function deriveClientIdFromCampaign(
@@ -44,7 +51,7 @@ export async function deriveClientIdFromCampaign(
   const rows = await loadClients();
   if (rows.length === 0) return null;
 
-  // Always resolvable fallback. Returned when no real client matches.
+  // Always-resolvable fallback when nothing matches.
   const unknown = rows.find((r) => r.slug === "unknown") ?? null;
 
   if (!campaignName) return unknown?.id ?? null;
@@ -53,17 +60,26 @@ export async function deriveClientIdFromCampaign(
   // Exclude "Unknown" from the match scan — it's the fallback, not a target.
   const candidates = rows.filter((r) => r.slug !== "unknown");
 
-  let best: ClientRow | null = null;
+  let bestClient: ClientRow | null = null;
+  let bestLength = 0;
   for (const c of candidates) {
-    const needle = c.name.toLowerCase();
-    if (!needle || !haystack.includes(needle)) continue;
-    if (!best || c.name.length > best.name.length) best = c;
+    const needles: string[] = [c.name, ...(c.aliases ?? [])];
+    for (const raw of needles) {
+      const needle = raw?.toLowerCase().trim();
+      if (!needle) continue;
+      if (!haystack.includes(needle)) continue;
+      if (needle.length > bestLength) {
+        bestClient = c;
+        bestLength = needle.length;
+      }
+    }
   }
-  if (best) return best.id;
+  if (bestClient) return bestClient.id;
   return unknown?.id ?? null;
 }
 
-// Bypass the cache. Useful for tests or after a fresh seed.
+// Bypass the cache. Called after add/edit/delete on the clients table
+// so the next webhook sees fresh data instead of waiting 5 minutes.
 export function _invalidateClientCache(): void {
   cache = null;
 }
