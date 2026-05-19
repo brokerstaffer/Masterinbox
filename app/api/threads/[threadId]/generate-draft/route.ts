@@ -28,14 +28,16 @@ export async function POST(
     .maybeSingle();
   if (!thread) return NextResponse.json({ error: "Thread not found" }, { status: 404 });
 
-  const { data: lastInbound } = await admin
+  // Pull the FULL conversation (both directions), oldest → newest. The
+  // last inbound entry is what we're replying to; everything before it
+  // gives the model the context of prior exchanges.
+  const { data: allMessages } = await admin
     .from("messages")
-    .select("id, sender, subject, body_text, body_html, raw_payload")
+    .select("id, direction, sender, subject, body_text, body_html, sent_at, raw_payload")
     .eq("thread_id", threadId)
-    .eq("direction", "inbound")
-    .order("sent_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("sent_at", { ascending: true });
+
+  const lastInbound = [...(allMessages ?? [])].reverse().find((m) => m.direction === "inbound");
   if (!lastInbound) {
     return NextResponse.json(
       { error: "No inbound message on this thread to draft against." },
@@ -88,7 +90,15 @@ export async function POST(
       .replace(/<[^>]+>/g, "")
       .replace(/\s+/g, " ")
       .trim();
-  const inboundBody = lastInbound.body_text ?? stripHtml(lastInbound.body_html ?? "");
+
+  // Build the conversation transcript for the agent. Strip HTML for any
+  // turn that lacks a plain-text body. Empty turns are kept so numbering
+  // stays consistent with what's visible in the thread view.
+  const conversation = (allMessages ?? []).map((m) => ({
+    direction: m.direction as "inbound" | "outbound",
+    sentAt: (m.sent_at as string | null) ?? null,
+    body: (m.body_text as string | null) ?? stripHtml((m.body_html as string | null) ?? ""),
+  }));
 
   const result = await createDraftForAgent({
     workspaceId: session.activeWorkspace.id,
@@ -99,7 +109,7 @@ export async function POST(
     ourName: senderEmail?.name ?? null,
     ourEmail: senderEmail?.email ?? null,
     subject: lastInbound.subject ?? thread.subject,
-    inboundBody,
+    conversation,
   });
 
   switch (result.status) {

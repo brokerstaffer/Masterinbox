@@ -478,6 +478,19 @@ export async function handleInstantlyEvent(envelope: InstantlyWebhookEnvelope): 
     if (candidate) {
       const full = await loadAgentWithKey(candidate.id);
       if (full && full.api_key) {
+        // Full thread context — both directions, oldest → newest. The
+        // just-upserted inbound is included since upsertMessage above
+        // already committed it.
+        const { data: allMessages } = await createAdminSupabase()
+          .from("messages")
+          .select("direction, sent_at, body_text, body_html")
+          .eq("thread_id", threadId)
+          .order("sent_at", { ascending: true });
+        const conversation = (allMessages ?? []).map((m) => ({
+          direction: m.direction as "inbound" | "outbound",
+          sentAt: (m.sent_at as string | null) ?? null,
+          body: (m.body_text as string | null) ?? stripHtml((m.body_html as string | null) ?? ""),
+        }));
         await createDraftForAgent({
           workspaceId: ctx.workspaceId,
           threadId,
@@ -487,7 +500,7 @@ export async function handleInstantlyEvent(envelope: InstantlyWebhookEnvelope): 
           ourName: null,
           ourEmail: envelope.email_account ?? null,
           subject: envelope.reply_subject ?? null,
-          inboundBody: bodyText ?? "",
+          conversation,
         });
       }
     }

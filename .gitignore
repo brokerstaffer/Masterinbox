@@ -37,6 +37,7 @@ yarn-error.log*
 
 # local scripts that contain secrets (api keys, encryption keys)
 /scripts/setup_ai_labeling.sql
+/scripts/setup_reply_agent.sql
 
 # vercel
 .vercel

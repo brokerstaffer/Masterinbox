@@ -584,7 +584,20 @@ export async function handleEmailBisonEvent(envelope: EmailBisonWebhookEnvelope)
     if (candidate) {
       const full = await loadAgentWithKey(candidate.id);
       if (full && full.api_key) {
-        const inboundBody = msg.body_text ?? stripHtml(msg.body_html ?? "");
+        // Pull the full thread (both directions, oldest → newest) so the
+        // agent has the prior pitch + any back-and-forth as context, not
+        // just the latest inbound. The just-inserted reply is included in
+        // this query — upsertMessage above has already committed it.
+        const { data: allMessages } = await createAdminSupabase()
+          .from("messages")
+          .select("direction, sent_at, body_text, body_html")
+          .eq("thread_id", threadId)
+          .order("sent_at", { ascending: true });
+        const conversation = (allMessages ?? []).map((m) => ({
+          direction: m.direction as "inbound" | "outbound",
+          sentAt: (m.sent_at as string | null) ?? null,
+          body: (m.body_text as string | null) ?? stripHtml((m.body_html as string | null) ?? ""),
+        }));
         try {
           const r = await createDraftForAgent({
             workspaceId: ctx.workspaceId,
@@ -597,7 +610,7 @@ export async function handleEmailBisonEvent(envelope: EmailBisonWebhookEnvelope)
             ourName: payload.sender_email?.name ?? null,
             ourEmail: payload.sender_email?.email ?? null,
             subject: msg.subject,
-            inboundBody,
+            conversation,
           });
           if (r.status === "ok") {
             console.log(`[agent:${candidate.name}] drafted reply for thread ${threadId}`);

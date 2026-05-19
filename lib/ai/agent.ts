@@ -1,6 +1,6 @@
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
-import { generateReplyDraft, DEFAULT_REPLY_SYSTEM_PROMPT } from "@/lib/ai/reply";
+import { generateReplyDraft, DEFAULT_REPLY_SYSTEM_PROMPT, type ConversationTurn } from "@/lib/ai/reply";
 import type { AiProvider } from "@/lib/ai/label";
 
 export type ChannelFilter = "email" | "both";
@@ -200,7 +200,9 @@ interface DraftContext {
   ourName: string | null;
   ourEmail: string | null;
   subject: string | null;
-  inboundBody: string;
+  // Full thread, oldest → newest. The last entry must be the most recent
+  // inbound message — what the draft is replying to.
+  conversation: ConversationTurn[];
 }
 
 export type CreateDraftResult =
@@ -251,7 +253,7 @@ export async function createDraftForAgent(ctx: DraftContext): Promise<CreateDraf
       ourName: ctx.ourName,
       ourEmail: ctx.ourEmail,
       subject: ctx.subject,
-      inboundBody: ctx.inboundBody,
+      conversation: ctx.conversation,
     });
 
     await admin
