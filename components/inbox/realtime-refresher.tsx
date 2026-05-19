@@ -10,11 +10,17 @@ import { createClient } from "@/lib/supabase/client";
 // state (open dialogs, composer drafts, scroll position) is preserved.
 //
 // Listens to:
-//   - threads INSERT/UPDATE  (new conversation or last_message_at change)
-//   - messages INSERT        (new message arrives)
+//   - threads INSERT     (new conversation arrives)
+//   - messages INSERT    (new message lands on an existing thread)
+//   - label_assignments INSERT (server-side labeling assigns a label)
 //
-// All scoped to the active workspace_id via PostgreSQL `filter` so we don't
-// thrash on activity in workspaces the user can't see anyway.
+// Polling fallback: every POLL_MS we also fire a router.refresh() regardless
+// of realtime status. Supabase Realtime has known JWT-timing / reconnection
+// edge cases — the poll guarantees the user never has to hit refresh
+// manually. Cheap: router.refresh() reuses React.cache and the page query
+// is fast. Paused while the tab is hidden so background tabs stay quiet.
+
+const POLL_MS = 15_000;
 
 export function RealtimeRefresher({ workspaceId }: { workspaceId: string }) {
   const router = useRouter();
@@ -31,6 +37,11 @@ export function RealtimeRefresher({ workspaceId }: { workspaceId: string }) {
         router.refresh();
       }, 250);
     }
+
+    const poll = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      router.refresh();
+    }, POLL_MS);
 
     // CRITICAL: do NOT subscribe to threads UPDATE. The detail page fires
     // a `seen=true` UPDATE on every navigation, and that event would
@@ -75,6 +86,7 @@ export function RealtimeRefresher({ workspaceId }: { workspaceId: string }) {
 
     return () => {
       if (pending.current) clearTimeout(pending.current);
+      clearInterval(poll);
       void supabase.removeChannel(channel);
     };
   }, [workspaceId, router]);

@@ -52,6 +52,7 @@ export function Composer({
   initialBody,
   mode = "reply",
   signatureHtml = null,
+  sourceProvider = null,
   onClose,
 }: {
   threadId: string;
@@ -62,6 +63,10 @@ export function Composer({
   fromName?: string | null;
   quoted?: QuotedMessage | null;
   draft?: DraftSeed | null;
+  // Provider this thread came from. Drives provider-specific UX: Instantly
+  // does not support sending attachments, so we hide the Attach buttons for
+  // Instantly threads. EmailBison keeps them.
+  sourceProvider?: "emailbison" | "instantly" | null;
   // Pre-fills the body — used by Forward to seed the quoted block before
   // the user adds their own note above it. Takes priority over draft.
   initialBody?: string;
@@ -430,16 +435,20 @@ export function Composer({
       {/* Footer toolbar + Send */}
       <div className="px-4 py-3 border-t flex items-center justify-between shrink-0">
         <div className="flex items-center gap-0.5 text-muted-foreground">
-          <IconButton
-            icon={Paperclip}
-            label="Attach file"
-            onClick={() => fileInputRef.current?.click()}
-          />
-          <IconButton
-            icon={ImageIcon}
-            label="Attach image"
-            onClick={() => imageInputRef.current?.click()}
-          />
+          {sourceProvider !== "instantly" ? (
+            <>
+              <IconButton
+                icon={Paperclip}
+                label="Attach file"
+                onClick={() => fileInputRef.current?.click()}
+              />
+              <IconButton
+                icon={ImageIcon}
+                label="Attach image"
+                onClick={() => imageInputRef.current?.click()}
+              />
+            </>
+          ) : null}
           <button
             type="button"
             onClick={generateAiReply}

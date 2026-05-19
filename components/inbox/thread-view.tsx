@@ -194,6 +194,7 @@ export function ThreadView({
           mode={composeState.mode}
           threadId={detail.id}
           signatureHtml={detail.outbound_sender_signature ?? null}
+          sourceProvider={detail.source_provider}
           subject={
             composeState.mode === "forward"
               ? `Fwd: ${composeState.source.subject ?? detail.subject ?? ""}`
