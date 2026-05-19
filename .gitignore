@@ -35,6 +35,9 @@ yarn-error.log*
 .env.*
 !.env.example
 
+# local scripts that contain secrets (api keys, encryption keys)
+/scripts/setup_ai_labeling.sql
+
 # vercel
 .vercel
 

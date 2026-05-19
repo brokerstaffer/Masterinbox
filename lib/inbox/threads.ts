@@ -65,13 +65,15 @@ export async function loadThreads(
     }
   }
 
-  // Build a SINGLE filtered ID query. We fetch every matching thread id
-  // (id is 36 bytes — even 10k threads is < 400 KB), then derive the count
-  // and the current page from it. This avoids mirroring the filter chain
-  // across two builders and sidesteps PostgREST's inline count flakiness.
+  // Build a SINGLE filtered query. `count: 'exact'` MUST be on this first
+  // .select() — supabase-js only honors the count option on
+  // PostgrestQueryBuilder.select(); the chained .select(detailCols, …) later
+  // goes through PostgrestTransformBuilder.select() which silently ignores
+  // the options arg. Without count here the response Content-Range is
+  // omitted, `count` comes back null, and pagination caps at data.length.
   let query = supabase
     .from("threads")
-    .select("id, last_message_at")
+    .select("id, last_message_at", { count: "exact" })
     .eq("workspace_id", workspaceId);
 
   // Sidebar destinations (not custom_views).
@@ -152,22 +154,16 @@ export async function loadThreads(
   // so the displayed total can be slightly off when they exclude rows.
   // Accepted; post-filters are rare in the typical view.
   const offset = (safePage - 1) * pageSize;
-  // Swap the select column list to fetch detail + count in one shot.
-  // The Supabase JS builder doesn't expose a clean re-select chain that
-  // preserves count: 'exact' through the existing `query` variable type,
-  // so we bridge with a brief cast — runtime behavior is what matters.
-  const detailQuery = (query as unknown as {
-    select(cols: string, opts?: { count?: "exact" | "planned" | "estimated" }): unknown;
-  })
-    .select(
-      `id, subject, last_message_at, last_message_preview, needs_reply, seen, message_count, source_provider, campaign_id, campaign_name,
+  // Swap the select column list to fetch detail rows. The count option lives
+  // on the initial QueryBuilder.select() above — this second call goes
+  // through TransformBuilder.select() and only updates the `select=` URL
+  // param. The Prefer: count=exact header set earlier is preserved.
+  const detailQuery = query.select(
+    `id, subject, last_message_at, last_message_preview, needs_reply, seen, message_count, source_provider, campaign_id, campaign_name,
        leads:lead_id(full_name, email, company),
        channels:channel_id(provider),
        clients:client_id(name, slug)`,
-      { count: "exact" },
-    ) as unknown as {
-    order(col: string, opts: { ascending: boolean; nullsFirst: boolean }): unknown;
-  };
+  );
   const pagedQuery = (
     detailQuery.order("last_message_at", {
       ascending: false,
