@@ -7,6 +7,7 @@ import { Mail, BriefcaseBusiness, Paperclip, ChevronLeft, ChevronRight } from "l
 import { Checkbox } from "@/components/ui/checkbox";
 import { LabelChip } from "@/components/inbox/label-chip";
 import { BulkActionsBar } from "@/components/inbox/bulk-actions-bar";
+import { RelativeTime } from "@/components/inbox/relative-time";
 import { cn } from "@/lib/utils";
 import type { ThreadRow } from "@/lib/inbox/threads";
 import type { LabelRow } from "@/lib/inbox/labels-shared";
@@ -34,15 +35,12 @@ function useScrollMemory(basePath: string) {
   return ref;
 }
 
+// Kept as a stub for any straggler call sites — the live thread-list
+// rows now use the <RelativeTime /> client component to avoid hydration
+// mismatches (Node default locale != browser default locale = React #418
+// + full re-render of the list every click).
 function relativeTime(ts: string | null): string {
-  if (!ts) return "";
-  const d = new Date(ts);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) {
-    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  }
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return ts ?? "";
 }
 
 export function ThreadList({
@@ -162,7 +160,7 @@ export function ThreadList({
                           {t.lead_full_name || t.lead_email || "Unknown"}
                         </span>
                         <span className="text-[11px] text-muted-foreground tabular-nums">
-                          {relativeTime(t.last_message_at)}
+                          <RelativeTime iso={t.last_message_at} />
                         </span>
                       </div>
                       <div className="truncate font-medium">{t.subject || "(no subject)"}</div>
@@ -262,7 +260,7 @@ export function ThreadList({
                   {t.last_message_preview}
                 </div>
                 <div className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                  {relativeTime(t.last_message_at)}
+                  <RelativeTime iso={t.last_message_at} />
                 </div>
               </Link>
             </li>
@@ -379,11 +377,16 @@ function CountAndRange({
   const size = pageSize ?? shown;
   const start = total === 0 ? 0 : (p - 1) * size + 1;
   const end = Math.min(p * size, total);
+  // Force en-US grouping so server (Node, en-US default) and client
+  // (browser default — could be en-IN with 1,23,456 grouping) produce
+  // the same string. Avoids React hydration mismatch on every list
+  // render.
+  const fmt = (n: number) => n.toLocaleString("en-US");
   return (
     <span className="ml-3 text-xs text-muted-foreground tabular-nums">
       {total === 0
         ? "0 conversations"
-        : `${start.toLocaleString()}–${end.toLocaleString()} of ${total.toLocaleString()}`}
+        : `${fmt(start)}–${fmt(end)} of ${fmt(total)}`}
     </span>
   );
 }
