@@ -102,15 +102,17 @@ async function upsertLead(
     [envelope.firstName, envelope.lastName].filter(Boolean).join(" ") || null;
   const customFields = deriveCustomFields(envelope);
 
-  // Lookup priority: by (workspace, email) — Instantly doesn't ship a
-  // stable lead UUID on the webhook payload, so email is the canonical
-  // identity. If a future payload includes a numeric lead id we'll add
-  // a fallback lookup on instantly_lead_id.
+  // Lookup by (workspace, email) — Instantly doesn't ship a stable lead UUID
+  // on the webhook payload, so email is the canonical identity. We scope the
+  // match to leads that DON'T already belong to EmailBison so that the same
+  // address appearing in both providers gets two separate lead rows (one per
+  // provider) instead of being merged into a single EB-origin lead.
   const { data: existing } = await supabase
     .from("leads")
     .select("id, custom_fields")
     .eq("workspace_id", ctx.workspaceId)
     .eq("email", leadEmail)
+    .is("emailbison_lead_id", null)
     .maybeSingle();
 
   if (existing) {
