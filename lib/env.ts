@@ -46,12 +46,6 @@ export const env = {
   get EMAILBISON_API_KEY() {
     return lazyOptional("EMAILBISON_API_KEY")();
   },
-  get UNIPILE_DSN() {
-    return lazyOptional("UNIPILE_DSN")();
-  },
-  get UNIPILE_API_KEY() {
-    return lazyOptional("UNIPILE_API_KEY")();
-  },
   // Symmetric key used by pgcrypto to encrypt per-workspace API keys
   // (AI provider keys, OAuth tokens). Must be set in production.
   get APP_ENCRYPTION_KEY() {

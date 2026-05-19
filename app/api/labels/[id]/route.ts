@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 const COLORS = ["green", "red", "amber", "zinc", "stone", "pink", "blue"] as const;
 const SENTIMENTS = ["positive", "negative", "neutral"] as const;
-const PLATFORMS = ["email", "linkedin", "both"] as const;
+const PLATFORMS = ["email", "both"] as const;
 
 const patchSchema = z.object({
   name: z.string().min(1).max(80).optional(),

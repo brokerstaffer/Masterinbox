@@ -4,9 +4,8 @@ import { createAdminSupabase } from "@/lib/supabase/admin";
 import { isSuperAdmin } from "@/lib/auth/super-admin";
 
 // Wipes EmailBison-sourced threads + messages + leads so the new sync logic
-// can repopulate cleanly. Does NOT touch:
-//   - workspaces, channels, labels, custom_views, members
-//   - Unipile threads (channel_provider = 'unipile')
+// can repopulate cleanly. Does NOT touch workspaces, channels, labels,
+// custom_views, members.
 //
 // Auth: super admin session OR ?token=<service-role>.
 

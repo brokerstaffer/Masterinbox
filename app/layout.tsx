@@ -10,7 +10,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "Corofy Master Inbox",
-  description: "Unified sales inbox for cold outreach replies — email + LinkedIn.",
+  description: "Unified sales inbox for cold outreach email replies.",
 };
 
 export default function RootLayout({

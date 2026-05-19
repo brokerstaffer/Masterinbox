@@ -3,7 +3,7 @@ import { env } from "@/lib/env";
 import { generateReplyDraft, DEFAULT_REPLY_SYSTEM_PROMPT } from "@/lib/ai/reply";
 import type { AiProvider } from "@/lib/ai/label";
 
-export type ChannelFilter = "email" | "linkedin" | "both";
+export type ChannelFilter = "email" | "both";
 
 export interface ReplyAgent {
   id: string;

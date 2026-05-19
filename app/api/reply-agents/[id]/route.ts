@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 const PROVIDERS = ["openai", "anthropic", "openrouter", "vllm"] as const;
 const MODES = ["human_in_loop", "auto"] as const;
 const LENGTHS = ["short", "medium", "long", "variable"] as const;
-const CHANNEL_FILTERS = ["email", "linkedin", "both"] as const;
+const CHANNEL_FILTERS = ["email", "both"] as const;
 
 const patchSchema = z.object({
   name: z.string().min(1).max(80).optional(),

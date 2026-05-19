@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Mail, BriefcaseBusiness, Paperclip, ChevronLeft, ChevronRight } from "lucide-react";
+import { Mail, Paperclip, ChevronLeft, ChevronRight } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { LabelChip } from "@/components/inbox/label-chip";
 import { BulkActionsBar } from "@/components/inbox/bulk-actions-bar";
@@ -283,16 +283,10 @@ function UnseenDot({ seen }: { seen: boolean }) {
   );
 }
 
-function ChannelIcon({ provider }: { provider: ThreadRow["channel_provider"] }) {
-  const Icon = provider === "unipile" ? BriefcaseBusiness : Mail;
+function ChannelIcon({ provider: _provider }: { provider: ThreadRow["channel_provider"] }) {
   return (
-    <div
-      className={cn(
-        "size-6 rounded flex items-center justify-center shrink-0",
-        provider === "unipile" ? "bg-blue-50 text-blue-600" : "bg-zinc-100 text-zinc-600",
-      )}
-    >
-      <Icon className="size-3.5" strokeWidth={2} />
+    <div className="size-6 rounded flex items-center justify-center shrink-0 bg-zinc-100 text-zinc-600">
+      <Mail className="size-3.5" strokeWidth={2} />
     </div>
   );
 }
@@ -300,7 +294,7 @@ function ChannelIcon({ provider }: { provider: ThreadRow["channel_provider"] }) 
 // Per-thread badge showing which outreach platform the reply came from.
 // Tiny purple/indigo chips, distinct from label chips so they don't blend in.
 function SourceBadge({ source }: { source: ThreadRow["source_provider"] }) {
-  if (!source || source === "unipile") return null;
+  if (!source) return null;
   const label = source === "instantly" ? "Instantly" : "EmailBison";
   const classes =
     source === "instantly"

@@ -2,7 +2,7 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import { loadViewBySlug, type CustomView } from "@/lib/inbox/views";
 import type { FilterRow, FilterState } from "@/lib/inbox/filters";
 
-export type SourceProvider = "emailbison" | "instantly" | "unipile";
+export type SourceProvider = "emailbison" | "instantly";
 
 export interface ThreadRow {
   id: string;

@@ -4,7 +4,7 @@ import { createServerSupabase } from "@/lib/supabase/server";
 export interface CampaignOption {
   id: string;          // campaign_id text (EB numeric id or Instantly uuid)
   name: string;        // human-readable name from the provider
-  source: "emailbison" | "instantly" | "unipile" | null;
+  source: "emailbison" | "instantly" | null;
 }
 
 // Returns the distinct list of (campaign_id, campaign_name, source_provider)

@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
 import { createEmailBisonClient } from "@/lib/emailbison/client";
-import { createUnipileClient } from "@/lib/unipile/client";
 import { RELEVANT_EVENTS } from "@/lib/emailbison/types";
 
-// Registers (or replaces) webhook URLs with EmailBison and Unipile so they
-// start pushing events into our app.
+// Registers (or replaces) webhook URLs with EmailBison so it starts pushing
+// events into our app.
 //
 // EmailBison is multi-workspace ("team") — webhooks are scoped per team, so we
 // iterate every team the API key can see, switch context, then upsert the
-// webhook URL there. Unipile is global (single account), one webhook.
+// webhook URL there.
 //
 // Idempotent: list existing webhooks, delete any pointing at our URL, create
 // fresh ones.
@@ -31,7 +30,6 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as { base_url?: string };
   const base = (body.base_url ?? DEFAULT_BASE).replace(/\/$/, "");
   const ebUrl = `${base}/api/webhooks/emailbison`;
-  const upUrl = `${base}/api/webhooks/unipile`;
 
   const emailbisonResults: Array<{
     workspace_id: number;
@@ -41,7 +39,6 @@ export async function POST(request: Request) {
     error?: string;
   }> = [];
 
-  // ---- EmailBison: register in every workspace ----
   try {
     const eb = createEmailBisonClient();
     const workspaces = await eb.listWorkspaces();
@@ -83,31 +80,6 @@ export async function POST(request: Request) {
     });
   }
 
-  // ---- Unipile: single webhook ----
-  let unipileResult: { ok: boolean; webhook_id?: string; url: string; error?: string };
-  try {
-    const up = createUnipileClient();
-    const existing = await up.listWebhooks().catch(() => ({ items: [] as unknown[] }));
-    for (const hook of existing.items ?? []) {
-      const h = hook as { id?: string; request_url?: string };
-      if (h.request_url === upUrl && h.id) {
-        await up.deleteWebhook(h.id).catch(() => undefined);
-      }
-    }
-    const created = await up.createWebhook({
-      source: "messaging",
-      request_url: upUrl,
-      name: "Corofy Master Inbox",
-    });
-    unipileResult = { ok: true, webhook_id: created.id, url: upUrl };
-  } catch (err) {
-    unipileResult = {
-      ok: false,
-      url: upUrl,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-
   const okCount = emailbisonResults.filter((r) => r.ok).length;
   return NextResponse.json(
     {
@@ -115,11 +87,9 @@ export async function POST(request: Request) {
       summary: {
         emailbison_workspaces_registered: okCount,
         emailbison_workspaces_total: emailbisonResults.length,
-        unipile_registered: unipileResult.ok,
       },
-      target_urls: { emailbison: ebUrl, unipile: upUrl },
+      target_urls: { emailbison: ebUrl },
       emailbison: emailbisonResults,
-      unipile: unipileResult,
     },
     { status: 200 },
   );
@@ -128,10 +98,9 @@ export async function POST(request: Request) {
 export async function GET() {
   return NextResponse.json({
     ok: true,
-    note: "POST here with ?token=<service-role-key> to register webhook URLs in every EmailBison workspace and once in Unipile.",
+    note: "POST here with ?token=<service-role-key> to register webhook URLs in every EmailBison workspace.",
     target_urls: {
       emailbison: `${DEFAULT_BASE}/api/webhooks/emailbison`,
-      unipile: `${DEFAULT_BASE}/api/webhooks/unipile`,
     },
   });
 }

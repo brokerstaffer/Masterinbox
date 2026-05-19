@@ -19,7 +19,7 @@ import type { LabelRow } from "@/lib/inbox/labels-shared";
 
 type Color = "green" | "red" | "amber" | "zinc" | "stone" | "pink" | "blue";
 type Sentiment = "positive" | "negative" | "neutral";
-type Platform = "email" | "linkedin" | "both";
+type Platform = "email" | "both";
 
 const COLOR_OPTIONS: { value: Color; swatch: string }[] = [
   { value: "green", swatch: "bg-emerald-400" },
@@ -261,7 +261,6 @@ export function LabelsManager({ labels }: { labels: LabelRow[] }) {
                 >
                   <option value="both">Both</option>
                   <option value="email">Email only</option>
-                  <option value="linkedin">LinkedIn only</option>
                 </select>
               </div>
             </div>

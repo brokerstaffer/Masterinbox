@@ -29,7 +29,7 @@ export interface ThreadDetail {
   // Extracted from any inbound message's raw_payload.data.sender_email.email_signature.
   // Used by the composer when the "Add signature" checkbox is on.
   outbound_sender_signature: string | null;
-  source_provider: "emailbison" | "instantly" | "unipile" | null;
+  source_provider: "emailbison" | "instantly" | null;
   campaign_id: string | null;
   campaign_name: string | null;
   client_name: string | null;
@@ -43,7 +43,7 @@ export interface ThreadDetail {
     linkedin_url: string | null;
     custom_fields: Record<string, unknown>;
   };
-  channel: { provider: "emailbison" | "instantly" | "unipile" | null; display_name: string | null };
+  channel: { provider: "emailbison" | "instantly" | null; display_name: string | null };
   messages: MessageRow[];
   labels: Array<{ id: string; name: string; color: string; sentiment: string }>;
 }
@@ -159,7 +159,7 @@ export async function loadThreadDetail(
       email: lead?.email ?? null,
       company: lead?.company ?? null,
       title: lead?.title ?? null,
-      linkedin_url: lead?.linkedin_url ?? null,
+      linkedin_url: (lead?.linkedin_url as string | null) ?? null,
       custom_fields: (lead?.custom_fields as Record<string, unknown>) ?? {},
     },
     channel: {

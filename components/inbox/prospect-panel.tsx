@@ -234,7 +234,7 @@ function DetailsTab({
       {(sourceProvider || campaignName || clientName) ? (
         <Section title="Campaign" defaultOpen>
           <dl className="grid grid-cols-[80px_1fr] gap-x-3 gap-y-1.5 text-sm">
-            {sourceProvider && sourceProvider !== "unipile" ? (
+            {sourceProvider ? (
               <FieldPair
                 label="Source"
                 value={sourceProvider === "instantly" ? "Instantly" : "EmailBison"}

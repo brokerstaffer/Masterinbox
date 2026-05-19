@@ -5,7 +5,7 @@ export interface LabelRow {
   name: string;
   color: string;
   sentiment: "positive" | "negative" | "neutral";
-  platform: "email" | "linkedin" | "both";
+  platform: "email" | "both";
   obligation: boolean;
   mirror_to_emailbison: boolean;
   sort_order: number;

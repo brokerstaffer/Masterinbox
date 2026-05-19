@@ -569,7 +569,7 @@ export async function handleEmailBisonEvent(envelope: EmailBisonWebhookEnvelope)
   // agent whose channel filter matches wins. EmailBison webhooks are
   // always channel_type='email', so filter agents accordingly.
   try {
-    const channelType: "email" | "linkedin" = "email";
+    const channelType = "email" as const;
     const candidate = (await loadAgents(ctx.workspaceId))
       .filter((a) => a.active)
       .filter((a) => a.channel_filter === "both" || a.channel_filter === channelType)

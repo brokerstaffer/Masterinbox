@@ -3,6 +3,6 @@
 export interface ChannelRow {
   id: string;
   display_name: string | null;
-  provider: "emailbison" | "unipile" | null;
-  type: "email" | "linkedin" | null;
+  provider: "emailbison" | "instantly" | null;
+  type: "email" | null;
 }

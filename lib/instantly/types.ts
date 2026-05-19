@@ -156,7 +156,6 @@ export interface InstantlyWebhookEnvelope {
   jobTitle?: string;
   phone?: string;
   website?: string;
-  linkedIn?: string;
   City?: string;
   State?: string;
   County?: string;

@@ -83,7 +83,7 @@ const TOKEN_OPTIONS = [
 
 type Provider = "openai" | "anthropic" | "openrouter" | "vllm";
 type Length = "short" | "medium" | "long" | "variable";
-type ChannelFilter = "email" | "linkedin" | "both";
+type ChannelFilter = "email" | "both";
 
 interface FormState {
   name: string;
@@ -263,7 +263,7 @@ export function ReplyAgentsManager({ agents }: { agents: ReplyAgent[] }) {
           </li>
           <li>
             <span className="font-medium">Channel Integration:</span> Works with your existing
-            email and LinkedIn channels
+            email channels
           </li>
         </ul>
       </div>
@@ -448,9 +448,8 @@ export function ReplyAgentsManager({ agents }: { agents: ReplyAgent[] }) {
                     }
                     className="w-full h-9 rounded-md border bg-background px-3 text-sm"
                   >
-                    <option value="both">Both (Email + LinkedIn)</option>
+                    <option value="both">All channels</option>
                     <option value="email">Email only</option>
-                    <option value="linkedin">LinkedIn only</option>
                   </select>
                   <p className="text-[11px] text-muted-foreground">
                     Limits which inbound channels the agent drafts for.
@@ -665,6 +664,5 @@ function StepBadge({
 
 function channelLabel(filter: ChannelFilter): string {
   if (filter === "email") return "Email";
-  if (filter === "linkedin") return "LinkedIn";
-  return "Email + LinkedIn";
+  return "All";
 }

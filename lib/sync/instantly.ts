@@ -71,7 +71,7 @@ async function resolveContext(eaccount: string | null | undefined): Promise<Sync
 
 // Build the lead.custom_fields jsonb from every field on the envelope that
 // isn't part of the canonical message/metadata set. Instantly enriches leads
-// with phone, LinkedIn, jobTitle, license number, GCI, etc. — we want all
+// with phone, jobTitle, license number, GCI, etc. — we want all
 // of that preserved on the lead row.
 function deriveCustomFields(envelope: InstantlyWebhookEnvelope): Record<string, unknown> {
   const RESERVED = new Set([

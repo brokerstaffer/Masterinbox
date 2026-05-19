@@ -44,9 +44,7 @@ export async function POST(
   }
 
   // Find the active agent that matches this thread's channel type.
-  // Email-only or both. (LinkedIn wiring follows the same path once
-  // Unipile inbound webhooks are flowing.)
-  const channelType: "email" | "linkedin" = "email";
+  const channelType = "email" as const;
   const candidate = (await loadAgents(session.activeWorkspace.id))
     .filter((a) => a.active)
     .filter((a) => a.channel_filter === "both" || a.channel_filter === channelType)
