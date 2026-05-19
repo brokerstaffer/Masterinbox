@@ -6,6 +6,7 @@ import { ThreadList } from "@/components/inbox/thread-list";
 import { ThreadView } from "@/components/inbox/thread-view";
 import { ProspectPanel } from "@/components/inbox/prospect-panel";
 import { RealtimeRefresher } from "@/components/inbox/realtime-refresher";
+import { ClickRenderTiming } from "@/components/inbox/perf-timing";
 import { requireSession } from "@/lib/auth/workspace";
 import { loadThreads } from "@/lib/inbox/threads";
 import { loadThreadDetail } from "@/lib/inbox/thread-detail";
@@ -128,6 +129,7 @@ export default async function ThreadDetailPage(props: {
         <ProspectPanel detail={detail} />
       </div>
       <RealtimeRefresher workspaceId={session.activeWorkspace.id} />
+      <ClickRenderTiming threadId={threadId} />
     </>
   );
 }

@@ -119,11 +119,26 @@ export function ThreadList({
               e.stopPropagation();
               e.preventDefault();
             };
+            // Perf instrumentation: record the moment the user clicks a
+            // thread; the destination page reads it and logs the total
+            // click-to-render time to the browser console.
+            const onLinkClick = () => {
+              markOpened(t.id);
+              try {
+                sessionStorage.setItem(
+                  "mi:lastClickAt",
+                  String(performance.now()),
+                );
+                sessionStorage.setItem("mi:lastClickTarget", t.id);
+              } catch {
+                /* sessionStorage can be disabled in private mode */
+              }
+            };
             return (
               <li key={t.id} className="border-b">
                 <Link
                   href={href}
-                  onClick={() => markOpened(t.id)}
+                  onClick={onLinkClick}
                   className={cn(
                     "block px-3 py-3 hover:bg-accent/40 transition-colors",
                     active && "bg-accent",
