@@ -67,24 +67,42 @@ interface FilterRowLite {
 //     filter shapes get 0 for now.
 export const loadViewCounts = cache(async function loadViewCounts(
   workspaceId: string,
+  listId?: string | null,
 ): Promise<Record<string, number>> {
   const supabase = await createServerSupabase();
   const views = await loadViews(workspaceId);
 
+  // If a client list is active, resolve its client_id so we can narrow
+  // every count to that client. Empty client_id (or no listId) → counts
+  // are workspace-global, same as the "All Email" view.
+  let listClientId: string | null = null;
+  if (listId) {
+    const { data: listRow } = await supabase
+      .from("lists")
+      .select("client_id")
+      .eq("id", listId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    listClientId = (listRow?.client_id as string | null) ?? null;
+  }
+
   // Two-step query — simpler than embed-with-inner-join which silently
   // misbehaves when PostgREST gets the filter path wrong on a boolean
-  // column. Step 1: every open + unseen thread id. Step 2: label
-  // assignments restricted to those ids. Both queries use explicit ranges
-  // to defeat Supabase's default 1000-row implicit limit.
-  const threadIdsReq = supabase
+  // column. Step 1: every open + unseen thread id (narrowed by the
+  // active list's client_id when present). Step 2: label assignments
+  // restricted to those ids. Both queries use explicit ranges to defeat
+  // Supabase's default 1000-row implicit limit.
+  let threadIdsReq = supabase
     .from("threads")
     .select("id", { count: "exact" })
     .eq("workspace_id", workspaceId)
     .eq("status", "open")
-    .eq("seen", false)
-    .range(0, 49_999);
+    .eq("seen", false);
+  if (listClientId) {
+    threadIdsReq = threadIdsReq.eq("client_id", listClientId);
+  }
 
-  const threadIdsRes = await threadIdsReq;
+  const threadIdsRes = await threadIdsReq.range(0, 49_999);
   const ids = (threadIdsRes.data ?? []).map((t) => t.id as string);
   const total = threadIdsRes.count ?? ids.length;
 

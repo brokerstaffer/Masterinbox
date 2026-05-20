@@ -28,7 +28,7 @@ export default async function InboxView(props: {
   const [threadPage, views, viewCounts, labels, channels, campaigns, clients, lists, currentView] = await Promise.all([
     loadThreads(session.activeWorkspace.id, view, filterFromUrl, list ?? null, pageNum),
     loadViews(session.activeWorkspace.id),
-    loadViewCounts(session.activeWorkspace.id),
+    loadViewCounts(session.activeWorkspace.id, list ?? null),
     loadLabels(session.activeWorkspace.id),
     loadChannels(session.activeWorkspace.id),
     loadCampaigns(session.activeWorkspace.id),

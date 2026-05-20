@@ -56,7 +56,7 @@ export default async function ThreadDetailPage(props: {
     timed("loadThreads", loadThreads(session.activeWorkspace.id, view, filterFromUrl, list ?? null, pageNum)),
     timed("loadThreadDetail", loadThreadDetail(session.activeWorkspace.id, threadId)),
     timed("loadViews", loadViews(session.activeWorkspace.id)),
-    timed("loadViewCounts", loadViewCounts(session.activeWorkspace.id)),
+    timed("loadViewCounts", loadViewCounts(session.activeWorkspace.id, list ?? null)),
     timed("loadLabels", loadLabels(session.activeWorkspace.id)),
     timed("loadChannels", loadChannels(session.activeWorkspace.id)),
     timed("loadCampaigns", loadCampaigns(session.activeWorkspace.id)),
