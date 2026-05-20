@@ -71,35 +71,45 @@ export const loadViewCounts = cache(async function loadViewCounts(
   const supabase = await createServerSupabase();
   const views = await loadViews(workspaceId);
 
-  const totalReq = supabase
+  // Two-step query — simpler than embed-with-inner-join which silently
+  // misbehaves when PostgREST gets the filter path wrong on a boolean
+  // column. Step 1: every open + unseen thread id. Step 2: label
+  // assignments restricted to those ids. Both queries use explicit ranges
+  // to defeat Supabase's default 1000-row implicit limit.
+  const threadIdsReq = supabase
     .from("threads")
-    .select("id", { count: "exact", head: true })
+    .select("id", { count: "exact" })
     .eq("workspace_id", workspaceId)
     .eq("status", "open")
-    .eq("seen", false);
+    .eq("seen", false)
+    .range(0, 49_999);
 
-  const labelsReq = supabase
-    .from("label_assignments")
-    .select("label_id, threads!inner(id, status, seen, workspace_id)")
-    .eq("workspace_id", workspaceId)
-    .eq("target_type", "thread")
-    .eq("threads.status", "open")
-    .eq("threads.seen", false);
+  const threadIdsRes = await threadIdsReq;
+  const ids = (threadIdsRes.data ?? []).map((t) => t.id as string);
+  const total = threadIdsRes.count ?? ids.length;
 
-  const [totalRes, labelsRes] = await Promise.all([totalReq, labelsReq]);
-
-  const total = totalRes.count ?? 0;
-  const unseenByLabel = new Map<string, Set<string>>();
-  for (const row of labelsRes.data ?? []) {
-    const r = row as {
-      label_id: string;
-      threads: { id: string } | { id: string }[] | null;
-    };
-    const thread = Array.isArray(r.threads) ? r.threads[0] : r.threads;
-    if (!thread?.id) continue;
-    const set = unseenByLabel.get(r.label_id) ?? new Set<string>();
-    set.add(thread.id);
-    unseenByLabel.set(r.label_id, set);
+  let unseenByLabel = new Map<string, Set<string>>();
+  if (ids.length > 0) {
+    // PostgREST's `in` filter has a URL length cap; chunk to be safe.
+    const CHUNK = 500;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK);
+      const { data: assignments } = await supabase
+        .from("label_assignments")
+        .select("label_id, target_id")
+        .eq("workspace_id", workspaceId)
+        .eq("target_type", "thread")
+        .in("target_id", slice)
+        .range(0, 49_999);
+      for (const row of assignments ?? []) {
+        const r = row as { label_id: string; target_id: string };
+        const set = unseenByLabel.get(r.label_id) ?? new Set<string>();
+        set.add(r.target_id);
+        unseenByLabel.set(r.label_id, set);
+      }
+    }
+  } else {
+    unseenByLabel = new Map();
   }
 
   const counts: Record<string, number> = {};
