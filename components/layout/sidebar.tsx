@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Eye,
   Plus,
@@ -12,11 +12,28 @@ import {
   Building2,
   LogOut,
   Search,
+  MoreHorizontal,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { CreateListDialog } from "@/components/inbox/create-list-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import type { SessionContext } from "@/lib/auth/workspace";
 import type { ListRow } from "@/lib/inbox/lists-shared";
 
@@ -46,6 +63,9 @@ export function Sidebar({ session, lists }: { session: SessionContext; lists: Li
   const activeListId = searchParams.get("list");
   const [createOpen, setCreateOpen] = useState(false);
   const [listSearch, setListSearch] = useState("");
+  const [editingList, setEditingList] = useState<ListRow | null>(null);
+  const [deletingList, setDeletingList] = useState<ListRow | null>(null);
+  const router = useRouter();
   const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
   const [resizing, setResizing] = useState(false);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -180,17 +200,13 @@ export function Sidebar({ session, lists }: { session: SessionContext; lists: Li
           .map((list) => {
             const active = activeListId === list.id;
             return (
-              <Link
+              <ListRow
                 key={list.id}
-                href={`/inbox/all-email?list=${list.id}`}
-                className={cn(
-                  "group flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13.5px] font-medium text-foreground/80 hover:bg-accent hover:text-foreground transition-colors",
-                  active && "bg-accent text-foreground",
-                )}
-              >
-                <span className="text-base leading-none shrink-0">{list.icon ?? "📁"}</span>
-                <span className="truncate">{list.name}</span>
-              </Link>
+                list={list}
+                active={active}
+                onEdit={() => setEditingList(list)}
+                onDelete={() => setDeletingList(list)}
+              />
             );
           })}
 
@@ -230,6 +246,22 @@ export function Sidebar({ session, lists }: { session: SessionContext; lists: Li
       </div>
 
       <CreateListDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <EditListDialog
+        list={editingList}
+        onClose={() => setEditingList(null)}
+        onSaved={() => {
+          setEditingList(null);
+          router.refresh();
+        }}
+      />
+      <DeleteListDialog
+        list={deletingList}
+        onClose={() => setDeletingList(null)}
+        onDeleted={() => {
+          setDeletingList(null);
+          router.refresh();
+        }}
+      />
 
       {/* Resize handle — sits flush against the right border. A 6px-wide hit
           target so it's easy to grab without being visually heavy. */}
@@ -256,6 +288,222 @@ function WorkspaceBadge({ session }: { session: SessionContext }) {
         {session.activeWorkspace.name}
       </span>
     </div>
+  );
+}
+
+// One sidebar row for a sales-list (per-client live list). Renders the
+// emoji + name as a Link; a hover-revealed kebab menu offers Rename
+// (which also covers emoji edit) and Delete. Parent owns the modal state
+// so multiple rows can't open conflicting dialogs.
+function ListRow({
+  list,
+  active,
+  onEdit,
+  onDelete,
+}: {
+  list: ListRow;
+  active: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "group relative flex items-center rounded-md hover:bg-accent transition-colors",
+        active && "bg-accent",
+      )}
+    >
+      <Link
+        href={`/inbox/all-email?list=${list.id}`}
+        className={cn(
+          "flex-1 min-w-0 flex items-center gap-2.5 px-2 py-1.5 text-[13.5px] font-medium text-foreground/80 hover:text-foreground transition-colors",
+          active && "text-foreground",
+        )}
+      >
+        <span className="text-base leading-none shrink-0">{list.icon ?? "📁"}</span>
+        <span className="truncate">{list.name}</span>
+      </Link>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <button
+              type="button"
+              aria-label="List actions"
+              className={cn(
+                "shrink-0 size-6 mr-1 rounded flex items-center justify-center text-muted-foreground/60 hover:bg-background hover:text-foreground transition-opacity",
+                active ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+              )}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreHorizontal className="size-3.5" />
+            </button>
+          }
+        />
+        <DropdownMenuContent align="start" className="text-sm">
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.preventDefault();
+              onEdit();
+            }}
+          >
+            Rename / change emoji
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.preventDefault();
+              onDelete();
+            }}
+            className="text-red-600 focus:text-red-600"
+          >
+            Delete list
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+// Rename + emoji editor. PATCH /api/lists/{id} accepts either or both
+// fields, so we send only what changed.
+function EditListDialog({
+  list,
+  onClose,
+  onSaved,
+}: {
+  list: ListRow | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [icon, setIcon] = useState("");
+  const [pending, startTransition] = useTransition();
+
+  // Reset the form whenever the dialog is opened on a different list.
+  useEffect(() => {
+    if (!list) return;
+    setName(list.name);
+    setIcon(list.icon ?? "");
+  }, [list?.id, list?.name, list?.icon, list]);
+
+  const open = list !== null;
+  if (!open) return null;
+
+  async function save() {
+    if (!list) return;
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      toast.error("Name can't be empty");
+      return;
+    }
+    const patch: Record<string, string | null> = {};
+    if (trimmedName !== list.name) patch.name = trimmedName;
+    // Allow clearing the emoji by leaving the field blank.
+    const trimmedIcon = icon.trim();
+    if ((list.icon ?? "") !== trimmedIcon) {
+      patch.icon = trimmedIcon.length > 0 ? trimmedIcon : null;
+    }
+    if (Object.keys(patch).length === 0) {
+      onClose();
+      return;
+    }
+    const res = await fetch(`/api/lists/${list.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      toast.error(json.error ?? "Save failed");
+      return;
+    }
+    startTransition(() => onSaved());
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit list</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium">Emoji</label>
+            <Input
+              value={icon}
+              onChange={(e) => setIcon(e.target.value)}
+              placeholder="🏢"
+              maxLength={4}
+              className="w-20 text-lg text-center"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Leave blank for the default 📁 icon.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium">Name</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={save} disabled={pending || !name.trim()}>
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// DELETE /api/lists/{id}. Hard delete — thread_list_items cascades via
+// the FK; threads keep their client_id intact (the list was just a view).
+function DeleteListDialog({
+  list,
+  onClose,
+  onDeleted,
+}: {
+  list: ListRow | null;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  if (!list) return null;
+  async function confirmDelete() {
+    if (!list) return;
+    const res = await fetch(`/api/lists/${list.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      toast.error(json.error ?? "Delete failed");
+      return;
+    }
+    startTransition(() => onDeleted());
+  }
+  return (
+    <Dialog open={true} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Delete &quot;{list.name}&quot;?</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          The list will be removed from the sidebar. Threads themselves stay
+          intact — you can recreate the list later if you change your mind.
+        </p>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            onClick={confirmDelete}
+            disabled={pending}
+            className="bg-red-600 hover:bg-red-700 text-white"
+          >
+            Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
