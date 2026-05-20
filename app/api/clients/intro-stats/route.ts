@@ -88,31 +88,48 @@ export async function GET(request: Request) {
     .neq("slug", "unknown")
     .order("name", { ascending: true });
 
-  // All label_assignments for this label, joined to the thread so we can
-  // group by client_id. assigned_at is the per-row timestamp set when the
-  // label landed (label_assignments.assigned_at).
-  const { data: assignments } = await admin
+  // Two-step: assignments first, then resolve each target thread's
+  // client_id with an `in()` lookup. The embedded `threads!inner(...)`
+  // approach silently drops fields on some PostgREST shapes (same bug
+  // that was hiding view-count pills) — explicit second query is robust.
+  const { data: rawAssignments } = await admin
     .from("label_assignments")
-    .select("assigned_at, threads!inner(client_id, workspace_id)")
+    .select("assigned_at, target_id")
     .eq("workspace_id", workspaceId)
     .eq("target_type", "thread")
-    .eq("label_id", labelRow.id);
+    .eq("label_id", labelRow.id)
+    .range(0, 49_999);
 
   const buckets = new Map<string, { count: number; last: string | null }>();
-  for (const row of assignments ?? []) {
-    const r = row as {
-      assigned_at: string;
-      threads: { client_id: string | null } | { client_id: string | null }[] | null;
-    };
-    const t = Array.isArray(r.threads) ? r.threads[0] : r.threads;
-    const cid = t?.client_id;
-    if (!cid) continue;
-    const prev = buckets.get(cid) ?? { count: 0, last: null };
-    prev.count += 1;
-    if (!prev.last || (r.assigned_at && r.assigned_at > prev.last)) {
-      prev.last = r.assigned_at;
+  const assignmentList = (rawAssignments ?? []) as Array<{
+    assigned_at: string;
+    target_id: string;
+  }>;
+  if (assignmentList.length > 0) {
+    const threadIds = Array.from(new Set(assignmentList.map((a) => a.target_id)));
+    const threadClient = new Map<string, string | null>();
+    // PostgREST URL length cap → chunk the in() filter.
+    const CHUNK = 500;
+    for (let i = 0; i < threadIds.length; i += CHUNK) {
+      const slice = threadIds.slice(i, i + CHUNK);
+      const { data: threads } = await admin
+        .from("threads")
+        .select("id, client_id")
+        .in("id", slice);
+      for (const t of (threads ?? []) as Array<{ id: string; client_id: string | null }>) {
+        threadClient.set(t.id, t.client_id);
+      }
     }
-    buckets.set(cid, prev);
+    for (const a of assignmentList) {
+      const cid = threadClient.get(a.target_id);
+      if (!cid) continue;
+      const prev = buckets.get(cid) ?? { count: 0, last: null };
+      prev.count += 1;
+      if (!prev.last || (a.assigned_at && a.assigned_at > prev.last)) {
+        prev.last = a.assigned_at;
+      }
+      buckets.set(cid, prev);
+    }
   }
 
   const stats: ClientStat[] = (clientRows ?? []).map((c) => {
