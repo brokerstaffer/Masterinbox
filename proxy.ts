@@ -19,6 +19,21 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Any /api/* request that carries `?token=<SUPABASE_SERVICE_ROLE_KEY>`
+  // (or the equivalent x-admin-token header) is treated as service-role:
+  // skip the proxy auth gate and let the route handler verify the token
+  // itself. Used for diagnostic CLI calls against endpoints (e.g.
+  // /api/clients/intro-stats) that normally rely on a user session.
+  if (pathname.startsWith("/api/")) {
+    const supplied =
+      request.nextUrl.searchParams.get("token") ??
+      request.headers.get("x-admin-token");
+    const expected = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (supplied && expected && supplied === expected) {
+      return NextResponse.next();
+    }
+  }
+
   // Demo mode: skip auth entirely so the UI shell is publicly visible while
   // Supabase isn't configured yet.
   if (process.env.DEMO_MODE === "true") {
