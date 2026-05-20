@@ -67,7 +67,11 @@ export function ThreadView({
   // composeState tracks both reply + forward — they share the composer UI
   // but differ in initial To/body. null = composer closed.
   const [composeState, setComposeState] = useState<
-    | { mode: "reply"; source: MessageRow | null }
+    // Reply mode tracks BOTH the source message (per-message icon → that
+    // message; bottom button → null = latest inbound) and a replyAll flag
+    // that decides how we build the CC list (single message vs entire
+    // thread participants).
+    | { mode: "reply"; source: MessageRow | null; replyAll: boolean }
     | { mode: "forward"; source: MessageRow }
     | null
   >(null);
@@ -172,7 +176,8 @@ export function ThreadView({
                 leadEmail={detail.lead.email ?? null}
                 youName={youName}
                 ourSenderEmail={ourSenderEmail}
-                onReply={() => setComposeState({ mode: "reply", source: m })}
+                onReply={() => setComposeState({ mode: "reply", source: m, replyAll: false })}
+                onReplyAll={() => setComposeState({ mode: "reply", source: m, replyAll: true })}
                 onForward={() => setComposeState({ mode: "forward", source: m })}
               />
             ))
@@ -182,7 +187,7 @@ export function ThreadView({
 
       {/* Floating Reply */}
       <Button
-        onClick={() => setComposeState({ mode: "reply", source: null })}
+        onClick={() => setComposeState({ mode: "reply", source: null, replyAll: false })}
         className="absolute bottom-4 right-4 gap-1.5 shadow-lg z-10"
       >
         <ReplyIcon className="size-4" />
@@ -227,6 +232,11 @@ export function ThreadView({
           subjectLocked={composeState.mode === "reply"}
           toEmail={composeState.mode === "forward" ? "" : detail.lead.email ?? ""}
           toName={composeState.mode === "forward" ? null : detail.lead.full_name ?? null}
+          ccInitial={
+            composeState.mode === "reply"
+              ? buildReplyCcList(composeState, detail).join(", ")
+              : ""
+          }
           draft={composeState.mode === "reply" ? detail.pending_draft : null}
           // Forward seeds the body with a quoted block of the source message
           // so the user just types their note above it.
@@ -287,6 +297,73 @@ function buildForwardBody(source: MessageRow, detail: ThreadDetail): string {
   ].join("\n");
 }
 
+// Extracts the CC list off a stored message's recipients jsonb. The sync
+// code on EmailBison/Instantly normalises this to { to, cc, bcc } where cc
+// is usually a string[] but can be null or a comma-joined string depending
+// on which provider/handler wrote the row.
+function ccsFromMessage(m: MessageRow): string[] {
+  const r = (m.recipients ?? {}) as { cc?: unknown };
+  const raw = r.cc;
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw.filter((x): x is string => typeof x === "string" && x.includes("@"));
+  }
+  if (typeof raw === "string") {
+    return raw
+      .split(/[,;]/)
+      .map((s) => s.trim())
+      .filter((s) => s.includes("@"));
+  }
+  return [];
+}
+
+// Builds the CC list for a Reply or Reply All composer pre-fill.
+//
+// Reply (replyAll=false): CC = sender + ccs of the SOURCE message (or the
+//   latest inbound if source is null — that's the bottom Reply button case).
+// Reply all (replyAll=true): CC = every unique non-us, non-lead participant
+//   that has ever appeared as sender or in a cc field across the thread.
+//
+// In both cases we exclude the lead's address (it's the TO) and our own
+// sending mailbox (don't email ourselves).
+function buildReplyCcList(
+  state: { mode: "reply"; source: MessageRow | null; replyAll: boolean },
+  detail: ThreadDetail,
+): string[] {
+  const lower = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
+  const leadAddr = lower(detail.lead.email);
+  const ourAddr = lower(detail.outbound_sender_email);
+  const exclude = new Set([leadAddr, ourAddr].filter(Boolean));
+
+  const collected = new Set<string>();
+  const order: string[] = []; // preserve insertion order for predictable UI
+  const add = (addr: string | null | undefined) => {
+    const l = lower(addr);
+    if (!l || !l.includes("@")) return;
+    if (exclude.has(l)) return;
+    if (collected.has(l)) return;
+    collected.add(l);
+    order.push((addr ?? "").trim());
+  };
+
+  if (state.replyAll) {
+    for (const m of detail.messages) {
+      add(m.sender);
+      for (const cc of ccsFromMessage(m)) add(cc);
+    }
+  } else {
+    const source =
+      state.source ??
+      [...detail.messages].reverse().find((m) => m.direction === "inbound") ??
+      null;
+    if (source) {
+      add(source.sender);
+      for (const cc of ccsFromMessage(source)) add(cc);
+    }
+  }
+  return order;
+}
+
 function ToolbarIconButton({
   icon: Icon,
   label,
@@ -332,6 +409,7 @@ function MessageBlock({
   youName,
   ourSenderEmail,
   onReply,
+  onReplyAll,
   onForward,
 }: {
   message: MessageRow;
@@ -340,6 +418,7 @@ function MessageBlock({
   youName: string;
   ourSenderEmail: string | null;
   onReply: () => void;
+  onReplyAll: () => void;
   onForward: () => void;
 }) {
   const outbound = message.direction === "outbound";
@@ -407,7 +486,7 @@ function MessageBlock({
             {!outbound ? (
               <>
                 <CardIcon icon={Reply} label="Reply" onClick={onReply} />
-                <CardIcon icon={ReplyAll} label="Reply all" onClick={onReply} />
+                <CardIcon icon={ReplyAll} label="Reply all" onClick={onReplyAll} />
                 <CardIcon icon={Forward} label="Forward" onClick={onForward} />
               </>
             ) : null}

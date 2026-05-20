@@ -54,6 +54,7 @@ export function Composer({
   signatureHtml = null,
   sourceProvider = null,
   subjectLocked = false,
+  ccInitial = "",
   onClose,
 }: {
   threadId: string;
@@ -73,6 +74,11 @@ export function Composer({
   // side threading (Gmail/Outlook use subject + In-Reply-To to thread).
   // Forward mode leaves this off so the user can fully edit.
   subjectLocked?: boolean;
+  // Comma-separated CC addresses to pre-fill. Caller (thread-view) builds
+  // this from the source message's sender + ccs (Reply) or every thread
+  // participant (Reply all). When non-empty, the CC row auto-opens so the
+  // user can see who's getting looped in before sending.
+  ccInitial?: string;
   // Pre-fills the body — used by Forward to seed the quoted block before
   // the user adds their own note above it. Takes priority over draft.
   initialBody?: string;
@@ -90,9 +96,11 @@ export function Composer({
   );
   const [composerSubject, setComposerSubject] = useState(subject || "");
   const [to, setTo] = useState(toEmail);
-  const [cc, setCc] = useState("");
+  const [cc, setCc] = useState(ccInitial);
   const [bcc, setBcc] = useState("");
-  const [showCc, setShowCc] = useState(false);
+  // Auto-open the CC row when we pre-filled it — otherwise the user has no
+  // visual signal that anyone's being looped in.
+  const [showCc, setShowCc] = useState(ccInitial.trim().length > 0);
   const [showBcc, setShowBcc] = useState(false);
   const [addSignature, setAddSignature] = useState(false);
   const [sending, setSending] = useState(false);
