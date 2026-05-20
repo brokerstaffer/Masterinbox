@@ -237,6 +237,12 @@ export function ThreadView({
               ? buildReplyCcList(composeState, detail).join(", ")
               : ""
           }
+          sourceMessageId={
+            // Per-message Reply / Reply all → that specific message.
+            // Bottom Reply button (source: null) → undefined; the API
+            // will fall back to the latest inbound.
+            composeState.mode === "reply" ? composeState.source?.id ?? null : null
+          }
           draft={composeState.mode === "reply" ? detail.pending_draft : null}
           // Forward seeds the body with a quoted block of the source message
           // so the user just types their note above it.

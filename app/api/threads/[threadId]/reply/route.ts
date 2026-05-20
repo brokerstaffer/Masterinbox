@@ -38,6 +38,12 @@ const schema = z.object({
   bcc: z.array(recipientSchema).optional(),
   reply_all: z.boolean().default(false),
   inject_previous_email_body: z.boolean().default(true),
+  // messages.id of the specific message the user clicked Reply on. When
+  // omitted (the bottom floating Reply button) we fall back to the latest
+  // inbound. When set, we use THAT message's provider id (Instantly
+  // email_id / EmailBison reply_id) as the reply target so the outbound's
+  // In-Reply-To header points at the right ancestor for Gmail threading.
+  source_message_id: z.string().uuid().optional(),
 });
 
 type ParsedInput = z.infer<typeof schema>;
@@ -170,17 +176,33 @@ export async function POST(
     );
   }
 
-  // Find the most recent inbound message with an emailbison_reply_id —
-  // that's the EmailBison reply we hang our response off of.
-  const { data: lastInbound } = await admin
-    .from("messages")
-    .select("id, emailbison_reply_id, raw_payload")
-    .eq("thread_id", threadId)
-    .eq("direction", "inbound")
-    .not("emailbison_reply_id", "is", null)
-    .order("sent_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // Pick the EmailBison reply to hang our response off of. Same logic as
+  // the Instantly path: prefer the user-clicked source message (so the
+  // outbound's In-Reply-To header points at the right ancestor for Gmail
+  // threading), fall back to the latest inbound for the bottom Reply
+  // button which doesn't carry a source_message_id.
+  let lastInbound: { id: string; emailbison_reply_id: string | null; raw_payload: unknown } | null = null;
+  if (payload.source_message_id) {
+    const { data } = await admin
+      .from("messages")
+      .select("id, emailbison_reply_id, raw_payload")
+      .eq("id", payload.source_message_id)
+      .eq("thread_id", threadId)
+      .maybeSingle();
+    lastInbound = data ?? null;
+  }
+  if (!lastInbound?.emailbison_reply_id) {
+    const { data } = await admin
+      .from("messages")
+      .select("id, emailbison_reply_id, raw_payload")
+      .eq("thread_id", threadId)
+      .eq("direction", "inbound")
+      .not("emailbison_reply_id", "is", null)
+      .order("sent_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    lastInbound = data ?? null;
+  }
   if (!lastInbound?.emailbison_reply_id) {
     return NextResponse.json(
       { error: "No inbound EmailBison reply found to reply to." },
@@ -348,18 +370,35 @@ async function sendInstantlyReply(args: {
     );
   }
 
-  // Find the most recent inbound Instantly email — that's the message we
-  // tell Instantly to reply to.
-  const { data: lastInbound } = await admin
-    .from("messages")
-    .select("id, instantly_email_id, sender")
-    .eq("thread_id", threadId)
-    .eq("direction", "inbound")
-    .not("instantly_email_id", "is", null)
-    .order("sent_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (!lastInbound?.instantly_email_id) {
+  // Pick the message Instantly should reply to. Preference order:
+  //   1. The specific source message the user clicked Reply on
+  //      (payload.source_message_id) — required for correct Gmail threading
+  //      when the user replies to an older message in the conversation.
+  //   2. Latest inbound on the thread — used by the bottom floating Reply
+  //      button (source_message_id will be undefined).
+  let replyTarget: { id: string; instantly_email_id: string | null; sender: string | null } | null = null;
+  if (payload.source_message_id) {
+    const { data } = await admin
+      .from("messages")
+      .select("id, instantly_email_id, sender")
+      .eq("id", payload.source_message_id)
+      .eq("thread_id", threadId)
+      .maybeSingle();
+    replyTarget = data ?? null;
+  }
+  if (!replyTarget?.instantly_email_id) {
+    const { data: lastInbound } = await admin
+      .from("messages")
+      .select("id, instantly_email_id, sender")
+      .eq("thread_id", threadId)
+      .eq("direction", "inbound")
+      .not("instantly_email_id", "is", null)
+      .order("sent_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    replyTarget = lastInbound ?? null;
+  }
+  if (!replyTarget?.instantly_email_id) {
     return NextResponse.json(
       { error: "No inbound Instantly reply found to reply to." },
       { status: 400 },
@@ -375,7 +414,7 @@ async function sendInstantlyReply(args: {
   try {
     const instantly = createInstantlyClient();
     const res = await instantly.sendReply({
-      reply_to_uuid: lastInbound.instantly_email_id,
+      reply_to_uuid: replyTarget.instantly_email_id,
       subject: payload.subject,
       body:
         payload.content_type === "html"

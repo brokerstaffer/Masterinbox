@@ -55,6 +55,7 @@ export function Composer({
   sourceProvider = null,
   subjectLocked = false,
   ccInitial = "",
+  sourceMessageId = null,
   onClose,
 }: {
   threadId: string;
@@ -79,6 +80,12 @@ export function Composer({
   // participant (Reply all). When non-empty, the CC row auto-opens so the
   // user can see who's getting looped in before sending.
   ccInitial?: string;
+  // messages.id of the message the user clicked Reply on (per-message
+  // icon). Sent to the /reply API so it uses THAT message's provider id
+  // as the reply target — required for recipient-side threading when
+  // replying to an older message. Null = bottom Reply button → API falls
+  // back to the latest inbound.
+  sourceMessageId?: string | null;
   // Pre-fills the body — used by Forward to seed the quoted block before
   // the user adds their own note above it. Takes priority over draft.
   initialBody?: string;
@@ -190,6 +197,7 @@ export function Composer({
         if (bccArr) form.append("bcc", JSON.stringify(bccArr));
         form.append("reply_all", "0");
         form.append("inject_previous_email_body", "1");
+        if (sourceMessageId) form.append("source_message_id", sourceMessageId);
         for (const f of files) form.append("attachments", f, f.name);
         res = await fetch(`/api/threads/${threadId}/reply`, {
           method: "POST",
@@ -206,6 +214,7 @@ export function Composer({
             to: toArr,
             cc: ccArr,
             bcc: bccArr,
+            source_message_id: sourceMessageId ?? undefined,
           }),
         });
       }
