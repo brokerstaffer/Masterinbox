@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
+import type { ListRow } from "@/lib/inbox/lists-shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -41,21 +42,63 @@ export function CreateListDialog({
   open,
   onOpenChange,
   onCreated,
+  // When set, the dialog is in edit mode: title says "Update", initial
+  // values come from this list, submit PATCHes /api/lists/{id} instead
+  // of POSTing a new row.
+  editing = null,
+  onUpdated,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onCreated?: (id: string) => void;
+  editing?: ListRow | null;
+  onUpdated?: () => void;
 }) {
   const router = useRouter();
-  const [name, setName] = useState("");
-  const [icon, setIcon] = useState("🚀");
+  const isEdit = editing !== null;
+  const [name, setName] = useState(editing?.name ?? "");
+  const [icon, setIcon] = useState(editing?.icon ?? "🚀");
   const [iconOpen, setIconOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  // Reset form whenever we switch into editing a different list (or open
+  // the create dialog after a previous edit closed).
+  useEffect(() => {
+    if (!open) return;
+    setName(editing?.name ?? "");
+    setIcon(editing?.icon ?? "🚀");
+    setIconOpen(false);
+    setQuery("");
+    setError(null);
+  }, [open, editing?.id, editing?.name, editing?.icon, editing]);
+
   async function submit() {
     setError(null);
+    if (isEdit && editing) {
+      const patch: Record<string, string | null> = {};
+      if (name.trim() !== editing.name) patch.name = name.trim();
+      if ((editing.icon ?? "") !== icon) patch.icon = icon;
+      if (Object.keys(patch).length === 0) {
+        onOpenChange(false);
+        return;
+      }
+      const res = await fetch(`/api/lists/${editing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setError(json.error ?? "Update failed");
+        return;
+      }
+      onOpenChange(false);
+      onUpdated?.();
+      startTransition(() => router.refresh());
+      return;
+    }
     const res = await fetch("/api/lists", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -85,7 +128,7 @@ export function CreateListDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Create list item</DialogTitle>
+          <DialogTitle>{isEdit ? "Update list item" : "Create list item"}</DialogTitle>
         </DialogHeader>
 
         <div className="grid grid-cols-[auto_1fr] gap-4 items-start">
@@ -164,7 +207,7 @@ export function CreateListDialog({
             Cancel
           </Button>
           <Button onClick={submit} disabled={!name.trim() || pending}>
-            Save
+            {isEdit ? "Update" : "Save"}
           </Button>
         </DialogFooter>
       </DialogContent>

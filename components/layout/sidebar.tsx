@@ -32,7 +32,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import type { SessionContext } from "@/lib/auth/workspace";
 import type { ListRow } from "@/lib/inbox/lists-shared";
@@ -246,10 +245,11 @@ export function Sidebar({ session, lists }: { session: SessionContext; lists: Li
       </div>
 
       <CreateListDialog open={createOpen} onOpenChange={setCreateOpen} />
-      <EditListDialog
-        list={editingList}
-        onClose={() => setEditingList(null)}
-        onSaved={() => {
+      <CreateListDialog
+        open={editingList !== null}
+        onOpenChange={(v) => !v && setEditingList(null)}
+        editing={editingList}
+        onUpdated={() => {
           setEditingList(null);
           router.refresh();
         }}
@@ -346,7 +346,7 @@ function ListRow({
               onEdit();
             }}
           >
-            Rename / change emoji
+            Edit
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={(e) => {
@@ -355,105 +355,11 @@ function ListRow({
             }}
             className="text-red-600 focus:text-red-600"
           >
-            Delete list
+            Delete
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
-  );
-}
-
-// Rename + emoji editor. PATCH /api/lists/{id} accepts either or both
-// fields, so we send only what changed.
-function EditListDialog({
-  list,
-  onClose,
-  onSaved,
-}: {
-  list: ListRow | null;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [name, setName] = useState("");
-  const [icon, setIcon] = useState("");
-  const [pending, startTransition] = useTransition();
-
-  // Reset the form whenever the dialog is opened on a different list.
-  useEffect(() => {
-    if (!list) return;
-    setName(list.name);
-    setIcon(list.icon ?? "");
-  }, [list?.id, list?.name, list?.icon, list]);
-
-  const open = list !== null;
-  if (!open) return null;
-
-  async function save() {
-    if (!list) return;
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      toast.error("Name can't be empty");
-      return;
-    }
-    const patch: Record<string, string | null> = {};
-    if (trimmedName !== list.name) patch.name = trimmedName;
-    // Allow clearing the emoji by leaving the field blank.
-    const trimmedIcon = icon.trim();
-    if ((list.icon ?? "") !== trimmedIcon) {
-      patch.icon = trimmedIcon.length > 0 ? trimmedIcon : null;
-    }
-    if (Object.keys(patch).length === 0) {
-      onClose();
-      return;
-    }
-    const res = await fetch(`/api/lists/${list.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    if (!res.ok) {
-      const json = await res.json().catch(() => ({}));
-      toast.error(json.error ?? "Save failed");
-      return;
-    }
-    startTransition(() => onSaved());
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Edit list</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium">Emoji</label>
-            <Input
-              value={icon}
-              onChange={(e) => setIcon(e.target.value)}
-              placeholder="🏢"
-              maxLength={4}
-              className="w-20 text-lg text-center"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Leave blank for the default 📁 icon.
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium">Name</label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={save} disabled={pending || !name.trim()}>
-            Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
