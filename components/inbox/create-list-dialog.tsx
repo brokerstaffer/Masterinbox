@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Search } from "lucide-react";
 import type { ListRow } from "@/lib/inbox/lists-shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +16,7 @@ import { cn } from "@/lib/utils";
 
 // Lightweight emoji picker. Categories match the masterinbox UI; we
 // hard-code a useful subset rather than pulling in a full emoji library.
+// No search bar — the grid is small enough to scan visually.
 const CATEGORIES: { name: string; items: string[] }[] = [
   {
     name: "Smileys & emotion",
@@ -59,7 +59,6 @@ export function CreateListDialog({
   const [name, setName] = useState(editing?.name ?? "");
   const [icon, setIcon] = useState(editing?.icon ?? "🚀");
   const [iconOpen, setIconOpen] = useState(false);
-  const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -70,7 +69,6 @@ export function CreateListDialog({
     setName(editing?.name ?? "");
     setIcon(editing?.icon ?? "🚀");
     setIconOpen(false);
-    setQuery("");
     setError(null);
   }, [open, editing?.id, editing?.name, editing?.icon, editing]);
 
@@ -117,13 +115,6 @@ export function CreateListDialog({
     startTransition(() => router.refresh());
   }
 
-  const filtered = query.trim().length > 0
-    ? CATEGORIES.map((c) => ({
-        name: c.name,
-        items: c.items.filter(() => true), // emoji codepoint filtering is hard; just leave unfiltered
-      }))
-    : CATEGORIES;
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -161,19 +152,8 @@ export function CreateListDialog({
 
         {iconOpen ? (
           <div className="rounded-md border bg-card max-h-72 overflow-y-auto">
-            <div className="sticky top-0 bg-card border-b p-2">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-                <Input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search…"
-                  className="pl-8 h-8 text-sm"
-                />
-              </div>
-            </div>
             <div className="p-3 space-y-3">
-              {filtered.map((c) => (
+              {CATEGORIES.map((c) => (
                 <div key={c.name}>
                   <p className="text-xs text-muted-foreground mb-1.5">{c.name}</p>
                   <div className="grid grid-cols-10 gap-1">
