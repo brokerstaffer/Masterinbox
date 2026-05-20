@@ -10,7 +10,7 @@ import { ClickRenderTiming } from "@/components/inbox/perf-timing";
 import { requireSession } from "@/lib/auth/workspace";
 import { loadThreads } from "@/lib/inbox/threads";
 import { loadThreadDetail } from "@/lib/inbox/thread-detail";
-import { loadViews, loadViewBySlug } from "@/lib/inbox/views";
+import { loadViews, loadViewBySlug, loadViewCounts } from "@/lib/inbox/views";
 import { loadLabels } from "@/lib/inbox/labels";
 import { loadChannels } from "@/lib/inbox/channels";
 import { loadCampaigns } from "@/lib/inbox/campaigns";
@@ -52,10 +52,11 @@ export default async function ThreadDetailPage(props: {
     });
   };
 
-  const [threadPage, detail, views, labels, channels, campaigns, clients, lists, currentView] = await Promise.all([
+  const [threadPage, detail, views, viewCounts, labels, channels, campaigns, clients, lists, currentView] = await Promise.all([
     timed("loadThreads", loadThreads(session.activeWorkspace.id, view, filterFromUrl, list ?? null, pageNum)),
     timed("loadThreadDetail", loadThreadDetail(session.activeWorkspace.id, threadId)),
     timed("loadViews", loadViews(session.activeWorkspace.id)),
+    timed("loadViewCounts", loadViewCounts(session.activeWorkspace.id)),
     timed("loadLabels", loadLabels(session.activeWorkspace.id)),
     timed("loadChannels", loadChannels(session.activeWorkspace.id)),
     timed("loadCampaigns", loadCampaigns(session.activeWorkspace.id)),
@@ -87,7 +88,7 @@ export default async function ThreadDetailPage(props: {
   return (
     <>
       <TopBar />
-      <TabBar views={views} activeSlug={view} labels={labels} />
+      <TabBar views={views} activeSlug={view} labels={labels} viewCounts={viewCounts} />
       <FilterBar
         initialFilter={initialFilter}
         labels={labels}

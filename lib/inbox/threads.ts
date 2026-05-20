@@ -48,35 +48,42 @@ export async function loadThreads(
   const supabase = await createServerSupabase();
 
   // If a list filter is active, resolve which mode to use:
-  //   - filter_json set on the list ("live" list, e.g. one per client) →
-  //     fold its rows into the effective FilterState below, skip the
-  //     thread_list_items lookup entirely.
-  //   - filter_json null (legacy manually-curated lists) → restrict by
+  //   - lists.client_id set ("live" list seeded one-per-client) → narrow
+  //     by threads.client_id directly. Cleanest path; no UUIDs embedded
+  //     in JSON.
+  //   - filter_json set (live list with a custom filter — speculative,
+  //     not used by the current seed but kept for future extensions) →
+  //     fold its rows into the effective FilterState below.
+  //   - both null (legacy manually-curated lists) → restrict by
   //     thread_list_items membership.
   const pageSize = THREAD_PAGE_SIZE;
   const safePage = Math.max(1, Math.floor(page));
 
   let listFilterRows: FilterRow[] = [];
+  let listClientId: string | null = null;
   let listThreadIds: string[] | null = null;
   if (listId) {
     const { data: listRow } = await supabase
       .from("lists")
-      .select("filter_json")
+      .select("client_id, filter_json")
       .eq("id", listId)
       .eq("workspace_id", workspaceId)
       .maybeSingle();
-    const fj = (listRow?.filter_json as { rows?: FilterRow[] } | null) ?? null;
-    if (fj?.rows && fj.rows.length > 0) {
-      listFilterRows = fj.rows;
-    } else {
-      const { data } = await supabase
-        .from("thread_list_items")
-        .select("thread_id")
-        .eq("list_id", listId)
-        .eq("workspace_id", workspaceId);
-      listThreadIds = (data ?? []).map((r) => r.thread_id as string);
-      if (listThreadIds.length === 0) {
-        return { rows: [], total: 0, page: safePage, pageSize };
+    listClientId = (listRow?.client_id as string | null) ?? null;
+    if (!listClientId) {
+      const fj = (listRow?.filter_json as { rows?: FilterRow[] } | null) ?? null;
+      if (fj?.rows && fj.rows.length > 0) {
+        listFilterRows = fj.rows;
+      } else {
+        const { data } = await supabase
+          .from("thread_list_items")
+          .select("thread_id")
+          .eq("list_id", listId)
+          .eq("workspace_id", workspaceId);
+        listThreadIds = (data ?? []).map((r) => r.thread_id as string);
+        if (listThreadIds.length === 0) {
+          return { rows: [], total: 0, page: safePage, pageSize };
+        }
       }
     }
   }
@@ -159,6 +166,9 @@ export async function loadThreads(
     }
   }
 
+  if (listClientId) {
+    query = query.eq("client_id", listClientId) as typeof query;
+  }
   if (listThreadIds !== null) {
     query = query.in("id", listThreadIds);
   }

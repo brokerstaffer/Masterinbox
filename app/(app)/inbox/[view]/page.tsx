@@ -6,7 +6,7 @@ import { ThreadList } from "@/components/inbox/thread-list";
 import { RealtimeRefresher } from "@/components/inbox/realtime-refresher";
 import { requireSession } from "@/lib/auth/workspace";
 import { loadThreads } from "@/lib/inbox/threads";
-import { loadViews, loadViewBySlug } from "@/lib/inbox/views";
+import { loadViews, loadViewBySlug, loadViewCounts } from "@/lib/inbox/views";
 import { loadLabels } from "@/lib/inbox/labels";
 import { loadChannels } from "@/lib/inbox/channels";
 import { loadCampaigns } from "@/lib/inbox/campaigns";
@@ -25,9 +25,10 @@ export default async function InboxView(props: {
   const session = await requireSession();
   const filterFromUrl: FilterState | null = f ? decodeFilter(f) : null;
   const pageNum = Math.max(1, Number(page ?? "1") || 1);
-  const [threadPage, views, labels, channels, campaigns, clients, lists, currentView] = await Promise.all([
+  const [threadPage, views, viewCounts, labels, channels, campaigns, clients, lists, currentView] = await Promise.all([
     loadThreads(session.activeWorkspace.id, view, filterFromUrl, list ?? null, pageNum),
     loadViews(session.activeWorkspace.id),
+    loadViewCounts(session.activeWorkspace.id),
     loadLabels(session.activeWorkspace.id),
     loadChannels(session.activeWorkspace.id),
     loadCampaigns(session.activeWorkspace.id),
@@ -46,7 +47,7 @@ export default async function InboxView(props: {
   return (
     <>
       <TopBar />
-      <TabBar views={views} activeSlug={view} labels={labels} />
+      <TabBar views={views} activeSlug={view} labels={labels} viewCounts={viewCounts} />
       <FilterBar
         initialFilter={initialFilter}
         labels={labels}

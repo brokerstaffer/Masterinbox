@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { MoreHorizontal, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CustomView } from "@/lib/inbox/views-shared";
@@ -28,13 +28,24 @@ export function TabBar({
   views,
   activeSlug,
   labels = [],
+  viewCounts = {},
 }: {
   views: CustomView[];
   activeSlug: string | null;
   labels?: LabelRow[];
+  // Map of view.id → unseen-thread count. Computed server-side once per
+  // page render; rendered as a "N new" pill next to each tab (cap at "99+").
+  viewCounts?: Record<string, number>;
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // Preserve the active sidebar list when switching tabs so opening
+  // "Interested" while on the Brooklyn Group list narrows to
+  // Brooklyn × Interested, not all clients × Interested.
+  const activeListParam = searchParams.get("list");
+  const buildHref = (slug: string) =>
+    activeListParam ? `/inbox/${slug}?list=${activeListParam}` : `/inbox/${slug}`;
   const [newViewOpen, setNewViewOpen] = useState(false);
   const [renaming, setRenaming] = useState<CustomView | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -80,13 +91,14 @@ export function TabBar({
           return (
             <div key={view.id} className="relative flex items-stretch">
               <Link
-                href={`/inbox/${view.slug}`}
+                href={buildHref(view.slug)}
                 className={cn(
                   "group flex items-center gap-1.5 px-3 h-12 text-[13.5px] font-medium text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap",
                   isActive && "text-foreground",
                 )}
               >
                 <span>{view.name}</span>
+                <CountPill n={viewCounts[view.id] ?? 0} />
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     render={
@@ -164,5 +176,16 @@ export function TabBar({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function CountPill({ n }: { n: number }) {
+  if (!n) return null;
+  // Cap visible count at 99+; same UX as the screenshot reference.
+  const label = n > 99 ? "99+ new" : `${n} new`;
+  return (
+    <span className="ml-0.5 inline-flex items-center px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-semibold leading-none whitespace-nowrap">
+      {label}
+    </span>
   );
 }

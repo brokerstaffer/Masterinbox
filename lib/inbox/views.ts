@@ -48,3 +48,79 @@ export const loadViewBySlug = cache(async function loadViewBySlug(
   const views = await loadViews(workspaceId);
   return views.find((v) => v.slug === slug) ?? null;
 });
+
+interface FilterRowLite {
+  field?: string;
+  value?: unknown;
+}
+
+// Computes the "N new" count for each tab in the TabBar. "New" =
+// unseen open threads matching the view's filter — same definition the
+// blue dot on the thread list uses.
+//
+// Strategy:
+//   - One head-only count gives total unseen open (drives the "All" pill).
+//   - One join query gives every (label_id, thread_id) pair where the
+//     thread is open + unseen; we bucket by label_id in JS.
+//   - For each view, pick the label_id out of its filter_json and look up
+//     the count. Views with no filter rows → total. Views with other
+//     filter shapes get 0 for now.
+export const loadViewCounts = cache(async function loadViewCounts(
+  workspaceId: string,
+): Promise<Record<string, number>> {
+  const supabase = await createServerSupabase();
+  const views = await loadViews(workspaceId);
+
+  const totalReq = supabase
+    .from("threads")
+    .select("id", { count: "exact", head: true })
+    .eq("workspace_id", workspaceId)
+    .eq("status", "open")
+    .eq("seen", false);
+
+  const labelsReq = supabase
+    .from("label_assignments")
+    .select("label_id, threads!inner(id, status, seen, workspace_id)")
+    .eq("workspace_id", workspaceId)
+    .eq("target_type", "thread")
+    .eq("threads.status", "open")
+    .eq("threads.seen", false);
+
+  const [totalRes, labelsRes] = await Promise.all([totalReq, labelsReq]);
+
+  const total = totalRes.count ?? 0;
+  const unseenByLabel = new Map<string, Set<string>>();
+  for (const row of labelsRes.data ?? []) {
+    const r = row as {
+      label_id: string;
+      threads: { id: string } | { id: string }[] | null;
+    };
+    const thread = Array.isArray(r.threads) ? r.threads[0] : r.threads;
+    if (!thread?.id) continue;
+    const set = unseenByLabel.get(r.label_id) ?? new Set<string>();
+    set.add(thread.id);
+    unseenByLabel.set(r.label_id, set);
+  }
+
+  const counts: Record<string, number> = {};
+  for (const v of views) {
+    const rows = ((v.filter_json as { rows?: FilterRowLite[] } | null)?.rows) ?? [];
+    if (rows.length === 0) {
+      counts[v.id] = total;
+      continue;
+    }
+    const labelsRow = rows.find((r) => r?.field === "labels");
+    if (labelsRow && Array.isArray(labelsRow.value)) {
+      const labelIds = labelsRow.value as string[];
+      const ids = new Set<string>();
+      for (const lid of labelIds) {
+        const set = unseenByLabel.get(lid);
+        if (set) for (const id of set) ids.add(id);
+      }
+      counts[v.id] = ids.size;
+      continue;
+    }
+    counts[v.id] = 0;
+  }
+  return counts;
+});

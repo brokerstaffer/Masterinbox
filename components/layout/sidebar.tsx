@@ -11,6 +11,7 @@ import {
   Trash2,
   Building2,
   LogOut,
+  Search,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -44,6 +45,7 @@ export function Sidebar({ session, lists }: { session: SessionContext; lists: Li
   const searchParams = useSearchParams();
   const activeListId = searchParams.get("list");
   const [createOpen, setCreateOpen] = useState(false);
+  const [listSearch, setListSearch] = useState("");
   const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
   const [resizing, setResizing] = useState(false);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -130,7 +132,7 @@ export function Sidebar({ session, lists }: { session: SessionContext; lists: Li
         <h2 className="text-sm font-semibold tracking-tight">Sales inbox</h2>
       </div>
 
-      <nav className="px-2 flex flex-col gap-px">
+      <nav className="px-2 flex flex-col gap-px shrink-0">
         {inboxLists.map((item) => {
           const Icon = item.icon;
           const active = (pathname === item.href || pathname.startsWith(`${item.href}/`)) && !activeListId;
@@ -148,23 +150,49 @@ export function Sidebar({ session, lists }: { session: SessionContext; lists: Li
             </Link>
           );
         })}
+      </nav>
 
-        {lists.map((list) => {
-          const active = activeListId === list.id;
-          return (
-            <Link
-              key={list.id}
-              href={`/inbox/all-email?list=${list.id}`}
-              className={cn(
-                "group flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13.5px] font-medium text-foreground/80 hover:bg-accent hover:text-foreground transition-colors",
-                active && "bg-accent text-foreground",
-              )}
-            >
-              <span className="text-base leading-none shrink-0">{list.icon ?? "📁"}</span>
-              <span className="truncate">{list.name}</span>
-            </Link>
-          );
-        })}
+      {/* Search input — filters the lists below. Always visible above the
+          scrollable lists area so it never falls off-screen. */}
+      <div className="px-2 pt-2 pb-1 shrink-0">
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            type="text"
+            value={listSearch}
+            onChange={(e) => setListSearch(e.target.value)}
+            placeholder="Search lists…"
+            className="w-full h-8 pl-7 pr-2 rounded-md border bg-background text-[13px] placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+      </div>
+
+      {/* Scrollable lists area. flex-1 + overflow-y-auto so a long client
+          catalog scrolls inside the sidebar rather than pushing
+          Reminders/Archive/Trash/Logout off-screen. */}
+      <nav className="px-2 flex flex-col gap-px overflow-y-auto flex-1 min-h-0">
+        {lists
+          .filter((l) =>
+            listSearch.trim().length === 0
+              ? true
+              : l.name.toLowerCase().includes(listSearch.trim().toLowerCase()),
+          )
+          .map((list) => {
+            const active = activeListId === list.id;
+            return (
+              <Link
+                key={list.id}
+                href={`/inbox/all-email?list=${list.id}`}
+                className={cn(
+                  "group flex items-center gap-2.5 px-2 py-1.5 rounded-md text-[13.5px] font-medium text-foreground/80 hover:bg-accent hover:text-foreground transition-colors",
+                  active && "bg-accent text-foreground",
+                )}
+              >
+                <span className="text-base leading-none shrink-0">{list.icon ?? "📁"}</span>
+                <span className="truncate">{list.name}</span>
+              </Link>
+            );
+          })}
 
         <button
           type="button"
@@ -175,8 +203,6 @@ export function Sidebar({ session, lists }: { session: SessionContext; lists: Li
           <span>Create list item</span>
         </button>
       </nav>
-
-      <div className="flex-1" />
 
       <nav className="px-2 pb-2 flex flex-col gap-px">
         {folderLinks.map((item) => {
