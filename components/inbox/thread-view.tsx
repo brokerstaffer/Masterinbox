@@ -198,23 +198,33 @@ export function ThreadView({
           subject={
             composeState.mode === "forward"
               ? `Fwd: ${composeState.source.subject ?? detail.subject ?? ""}`
-              : // For replies we want the subject of the MESSAGE we're
-                // replying to, not the thread's first-ever subject — that
-                // way Gmail/clients on the recipient side actually thread
-                // the conversation. A long-running thread where the lead
-                // switched subjects mid-stream (e.g. moved into a
-                // subsequence) would otherwise break threading because we
-                // would force the original subject back onto the reply.
+              : // Reply subject must match the message we're replying to,
+                // not the thread's first-ever subject — otherwise on long
+                // threads where the subject changed mid-stream (e.g. lead
+                // moved into a subsequence with new outreach copy) the
+                // outgoing email goes out with the stale original and
+                // Gmail breaks threading on the recipient side.
+                //
+                // Two reply entry points:
+                //   - per-message icon → composeState.source is that
+                //     specific message; use ITS subject
+                //   - floating bottom Reply button → source is null; use
+                //     the latest inbound's subject
                 ((): string => {
-                  const lastInbound = [...detail.messages]
-                    .reverse()
-                    .find((m) => m.direction === "inbound");
-                  const base = lastInbound?.subject ?? detail.subject ?? "";
-                  // Ensure exactly one "Re: " prefix so client-side rules
-                  // and human readers see a clean "Re: ..." line.
+                  const sourceMsg =
+                    composeState.source ??
+                    [...detail.messages]
+                      .reverse()
+                      .find((m) => m.direction === "inbound");
+                  const base = sourceMsg?.subject ?? detail.subject ?? "";
+                  // Normalise to exactly one "Re: " prefix.
                   return /^re:\s/i.test(base) ? base : base ? `Re: ${base}` : "";
                 })()
           }
+          // Subject is locked in reply mode — forwarding still lets the
+          // user edit it (they're starting a new thread with a new
+          // recipient, so subject is intentionally fresh).
+          subjectLocked={composeState.mode === "reply"}
           toEmail={composeState.mode === "forward" ? "" : detail.lead.email ?? ""}
           toName={composeState.mode === "forward" ? null : detail.lead.full_name ?? null}
           draft={composeState.mode === "reply" ? detail.pending_draft : null}

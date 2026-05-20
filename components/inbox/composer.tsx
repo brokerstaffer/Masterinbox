@@ -53,6 +53,7 @@ export function Composer({
   mode = "reply",
   signatureHtml = null,
   sourceProvider = null,
+  subjectLocked = false,
   onClose,
 }: {
   threadId: string;
@@ -67,6 +68,11 @@ export function Composer({
   // does not support sending attachments, so we hide the Attach buttons for
   // Instantly threads. EmailBison keeps them.
   sourceProvider?: "emailbison" | "instantly" | null;
+  // When true, the Subject field is rendered read-only — used on Reply so
+  // the user can't accidentally retype the subject and break recipient-
+  // side threading (Gmail/Outlook use subject + In-Reply-To to thread).
+  // Forward mode leaves this off so the user can fully edit.
+  subjectLocked?: boolean;
   // Pre-fills the body — used by Forward to seed the quoted block before
   // the user adds their own note above it. Takes priority over draft.
   initialBody?: string;
@@ -304,24 +310,32 @@ export function Composer({
           </FieldRow>
         ) : null}
 
-        {/* Subject */}
+        {/* Subject — locked in reply mode (see subjectLocked prop docs). */}
         <FieldRow
           label="Subject"
           right={
-            <button
-              type="button"
-              onClick={() => setComposerSubject("")}
-              className="size-5 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-accent"
-              aria-label="Clear subject"
-            >
-              <X className="size-3.5" />
-            </button>
+            subjectLocked ? null : (
+              <button
+                type="button"
+                onClick={() => setComposerSubject("")}
+                className="size-5 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-accent"
+                aria-label="Clear subject"
+              >
+                <X className="size-3.5" />
+              </button>
+            )
           }
         >
           <Input
             value={composerSubject}
             onChange={(e) => setComposerSubject(e.target.value)}
-            className="flex-1 h-7 border-0 bg-transparent shadow-none px-1 focus-visible:ring-0 text-sm"
+            readOnly={subjectLocked}
+            tabIndex={subjectLocked ? -1 : undefined}
+            title={subjectLocked ? "Subject is locked on replies to preserve email threading" : undefined}
+            className={cn(
+              "flex-1 h-7 border-0 bg-transparent shadow-none px-1 focus-visible:ring-0 text-sm",
+              subjectLocked && "cursor-default text-foreground/80 pointer-events-none",
+            )}
             placeholder="(no subject)"
           />
         </FieldRow>
