@@ -47,21 +47,37 @@ export async function loadThreads(
 ): Promise<ThreadListResult> {
   const supabase = await createServerSupabase();
 
-  // If a list filter is active, resolve the thread ids in that list first.
-  // Returning early when the list is empty avoids an unnecessary query.
+  // If a list filter is active, resolve which mode to use:
+  //   - filter_json set on the list ("live" list, e.g. one per client) →
+  //     fold its rows into the effective FilterState below, skip the
+  //     thread_list_items lookup entirely.
+  //   - filter_json null (legacy manually-curated lists) → restrict by
+  //     thread_list_items membership.
   const pageSize = THREAD_PAGE_SIZE;
   const safePage = Math.max(1, Math.floor(page));
 
+  let listFilterRows: FilterRow[] = [];
   let listThreadIds: string[] | null = null;
   if (listId) {
-    const { data } = await supabase
-      .from("thread_list_items")
-      .select("thread_id")
-      .eq("list_id", listId)
-      .eq("workspace_id", workspaceId);
-    listThreadIds = (data ?? []).map((r) => r.thread_id as string);
-    if (listThreadIds.length === 0) {
-      return { rows: [], total: 0, page: safePage, pageSize };
+    const { data: listRow } = await supabase
+      .from("lists")
+      .select("filter_json")
+      .eq("id", listId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    const fj = (listRow?.filter_json as { rows?: FilterRow[] } | null) ?? null;
+    if (fj?.rows && fj.rows.length > 0) {
+      listFilterRows = fj.rows;
+    } else {
+      const { data } = await supabase
+        .from("thread_list_items")
+        .select("thread_id")
+        .eq("list_id", listId)
+        .eq("workspace_id", workspaceId);
+      listThreadIds = (data ?? []).map((r) => r.thread_id as string);
+      if (listThreadIds.length === 0) {
+        return { rows: [], total: 0, page: safePage, pageSize };
+      }
     }
   }
 
@@ -109,19 +125,25 @@ export async function loadThreads(
         ? { rows: viewRows }
         : { rows: [] };
 
+  // Fold the list's own filter_json rows (live lists, e.g. "client = X")
+  // into the active rows. Listing in a live list = "show me threads
+  // matching this filter, narrowed further by whatever filter rows the
+  // view / URL is applying on top".
+  const activeRows: FilterRow[] = [...state.rows, ...listFilterRows];
+
   // Apply each active filter row to the query. Some filters need post-query
   // work (e.g. domain, message_counts). Build an `extraFilter` callback to run
   // over results after the SQL pass.
   const postFilters: Array<(t: ThreadRow & { _raw: Record<string, unknown> }) => boolean> = [];
 
-  for (const row of state.rows) {
+  for (const row of activeRows) {
     if (!row.enabled) continue;
     query = applyRowToQuery(query as unknown as Q, row, workspaceId, supabase, postFilters) as typeof query;
   }
 
   // Resolve any async label/channel filter expansions first.
   const resolved = await Promise.all(
-    state.rows
+    activeRows
       .filter((r) => r.enabled)
       .map((r) => prepRow(r, workspaceId, supabase)),
   );
@@ -249,8 +271,10 @@ export async function loadThreads(
     };
   });
 
-  // Apply post-SQL filters (domain match, etc.)
-  for (const row of state.rows) {
+  // Apply post-SQL filters (domain match, etc.) — uses the same
+  // activeRows that drove the SQL-level filter chain so live-list
+  // narrowing isn't dropped at the post-filter pass.
+  for (const row of activeRows) {
     if (!row.enabled) continue;
     mapped = mapped.filter(filterPredicateForRow(row));
   }

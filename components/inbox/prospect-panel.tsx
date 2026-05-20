@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { LabelChip } from "@/components/inbox/label-chip";
 import { SubsequencePicker } from "@/components/inbox/subsequence-picker";
+import { FollowupCampaignPicker } from "@/components/inbox/followup-campaign-picker";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { ThreadDetail } from "@/lib/inbox/thread-detail";
@@ -243,12 +244,17 @@ function DetailsTab({
             {clientName ? <FieldPair label="Client" value={clientName} /> : null}
             {campaignName ? <FieldPair label="Campaign" value={campaignName} /> : null}
           </dl>
-          {/* Subsequence picker — only Instantly supports per-campaign
-              subsequences via the public API (verified live; EmailBison's
-              public API has no equivalent endpoint). */}
+          {/* Provider-specific action: Instantly threads get a subsequence
+              picker; EmailBison threads get the equivalent "reply_followup
+              campaign" picker (POST /api/replies/{id}/followup-campaign/push). */}
           {sourceProvider === "instantly" && campaignName ? (
             <div className="mt-3">
               <SubsequencePicker threadId={threadId} />
+            </div>
+          ) : null}
+          {sourceProvider === "emailbison" ? (
+            <div className="mt-3">
+              <FollowupCampaignPicker threadId={threadId} />
             </div>
           ) : null}
         </Section>

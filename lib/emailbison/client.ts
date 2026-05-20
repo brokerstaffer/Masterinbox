@@ -125,11 +125,51 @@ export function createEmailBisonClient(opts: ClientOpts = {}) {
         }>;
       }>("GET", `/sender-emails?page=${page}`),
 
-    // Campaigns
+    // Campaigns — single page. Laravel-style pagination meta is included so
+    // callers can walk pages without a second request to discover totals.
+    // `type` is "outbound" (default) or "reply_followup".
     listCampaigns: (page = 1) =>
-      request<{ data: Array<{ id: number; name: string; status: string }> }>(
-        "GET",
-        `/campaigns?page=${page}`,
+      request<{
+        data: Array<{ id: number; name: string; status: string; type?: string }>;
+        meta?: { current_page?: number; last_page?: number; per_page?: number; total?: number };
+        links?: { next?: string | null };
+      }>("GET", `/campaigns?page=${page}`),
+
+    // Walk every page of /campaigns and concatenate. Safe for any catalog
+    // size — Laravel returns `meta.last_page` so we know when to stop. Caps
+    // at 100 pages (= 1500 campaigns at default per_page=15) as a runaway
+    // guard.
+    listAllCampaigns: async (): Promise<
+      Array<{ id: number; name: string; status: string; type?: string }>
+    > => {
+      const collected: Array<{ id: number; name: string; status: string; type?: string }> = [];
+      for (let page = 1; page <= 100; page++) {
+        const res = await request<{
+          data: Array<{ id: number; name: string; status: string; type?: string }>;
+          meta?: { current_page?: number; last_page?: number };
+          links?: { next?: string | null };
+        }>("GET", `/campaigns?page=${page}`);
+        for (const c of res.data ?? []) collected.push(c);
+        const last = res.meta?.last_page ?? page;
+        const nextUrl = res.links?.next ?? null;
+        if (page >= last || !nextUrl) break;
+      }
+      return collected;
+    },
+
+    // POST /api/replies/{reply_id}/followup-campaign/push — pushes the reply
+    // (and its lead) into a reply_followup campaign so EmailBison resumes
+    // outreach on the same thread using that campaign's sequence. Verified
+    // against docs/emailbison-openapi.json (operationId
+    // pushReplyandLeadToreplyFollowupCampaign).
+    pushReplyToFollowupCampaign: (
+      replyId: number,
+      input: { campaign_id: number; force_add_reply?: boolean },
+    ) =>
+      request<{ data: { success?: boolean; message?: string } }>(
+        "POST",
+        `/replies/${replyId}/followup-campaign/push`,
+        input,
       ),
 
     // Replies
