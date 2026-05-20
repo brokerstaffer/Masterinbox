@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/workspace";
+import { createServerSupabase } from "@/lib/supabase/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import { env } from "@/lib/env";
 
 // GET /api/clients/intro-stats[?label=Introduction]
 //
@@ -28,9 +30,37 @@ interface ClientStat {
 }
 
 export async function GET(request: Request) {
-  const session = await requireSession();
   const url = new URL(request.url);
   const labelName = (url.searchParams.get("label") ?? "Introduction").trim();
+
+  // Auth: normal flow uses the user session (RLS-scoped to their workspace).
+  // For diagnostic / external use we accept ?token=<SUPABASE_SERVICE_ROLE_KEY>
+  // and resolve the workspace from a `?workspace=<uuid>` param (defaults to
+  // the Corofy singleton via COROFY_WORKSPACE_ID).
+  const suppliedToken = url.searchParams.get("token") ?? request.headers.get("x-admin-token");
+  const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
+  let workspaceId: string;
+  if (suppliedToken && serviceKey && suppliedToken === serviceKey) {
+    workspaceId =
+      url.searchParams.get("workspace") ?? env.COROFY_WORKSPACE_ID ?? "";
+    if (!workspaceId) {
+      return NextResponse.json(
+        { error: "workspace param required when using service-role token" },
+        { status: 400 },
+      );
+    }
+  } else {
+    // Probe the session lazily — only if the token bypass didn't match.
+    const userClient = await createServerSupabase();
+    const {
+      data: { user },
+    } = await userClient.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+    const session = await requireSession();
+    workspaceId = session.activeWorkspace.id;
+  }
 
   const admin = createAdminSupabase();
 
@@ -40,7 +70,7 @@ export async function GET(request: Request) {
   const { data: labelRow } = await admin
     .from("labels")
     .select("id")
-    .eq("workspace_id", session.activeWorkspace.id)
+    .eq("workspace_id", workspaceId)
     .ilike("name", labelName)
     .maybeSingle();
   if (!labelRow?.id) {
@@ -64,7 +94,7 @@ export async function GET(request: Request) {
   const { data: assignments } = await admin
     .from("label_assignments")
     .select("assigned_at, threads!inner(client_id, workspace_id)")
-    .eq("workspace_id", session.activeWorkspace.id)
+    .eq("workspace_id", workspaceId)
     .eq("target_type", "thread")
     .eq("label_id", labelRow.id);
 
