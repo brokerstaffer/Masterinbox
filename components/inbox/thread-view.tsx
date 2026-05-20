@@ -198,7 +198,22 @@ export function ThreadView({
           subject={
             composeState.mode === "forward"
               ? `Fwd: ${composeState.source.subject ?? detail.subject ?? ""}`
-              : detail.subject ?? ""
+              : // For replies we want the subject of the MESSAGE we're
+                // replying to, not the thread's first-ever subject — that
+                // way Gmail/clients on the recipient side actually thread
+                // the conversation. A long-running thread where the lead
+                // switched subjects mid-stream (e.g. moved into a
+                // subsequence) would otherwise break threading because we
+                // would force the original subject back onto the reply.
+                ((): string => {
+                  const lastInbound = [...detail.messages]
+                    .reverse()
+                    .find((m) => m.direction === "inbound");
+                  const base = lastInbound?.subject ?? detail.subject ?? "";
+                  // Ensure exactly one "Re: " prefix so client-side rules
+                  // and human readers see a clean "Re: ..." line.
+                  return /^re:\s/i.test(base) ? base : base ? `Re: ${base}` : "";
+                })()
           }
           toEmail={composeState.mode === "forward" ? "" : detail.lead.email ?? ""}
           toName={composeState.mode === "forward" ? null : detail.lead.full_name ?? null}
