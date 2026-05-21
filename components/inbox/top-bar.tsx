@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Search, Loader2, Mail } from "lucide-react";
 
 interface SearchHit {
@@ -16,7 +16,23 @@ interface SearchHit {
 
 export function TopBar() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
+
+  // Clearing the box (the native ✕ on type="search", or deleting the
+  // text) should also drop the ?q= filter from the URL — otherwise the
+  // thread list stays filtered even though the box looks empty.
+  function onQueryChange(value: string) {
+    setQuery(value);
+    setOpen(true);
+    if (value.trim() === "" && searchParams?.get("q")) {
+      const next = new URLSearchParams(searchParams.toString());
+      next.delete("q");
+      const qs = next.toString();
+      router.push(qs ? `${pathname}?${qs}` : pathname);
+    }
+  }
   const [results, setResults] = useState<SearchHit[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
@@ -114,10 +130,7 @@ export function TopBar() {
           ref={inputRef}
           type="search"
           value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setOpen(true);
-          }}
+          onChange={(e) => onQueryChange(e.target.value)}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
           placeholder="Search by name, email, company, or subject (⌘K)"
