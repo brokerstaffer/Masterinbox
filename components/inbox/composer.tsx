@@ -23,7 +23,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
 
 const PER_FILE_MAX = 25 * 1024 * 1024; // 25 MB
 const COMBINED_MAX = 50 * 1024 * 1024; // 50 MB
@@ -60,7 +59,6 @@ export function Composer({
   mode = "reply",
   signatureHtml = null,
   sourceProvider = null,
-  subjectLocked = false,
   ccInitial = "",
   sourceMessageId = null,
   onClose,
@@ -77,11 +75,6 @@ export function Composer({
   // does not support sending attachments, so we hide the Attach buttons for
   // Instantly threads. EmailBison keeps them.
   sourceProvider?: "emailbison" | "instantly" | null;
-  // When true, the Subject field is rendered read-only — used on Reply so
-  // the user can't accidentally retype the subject and break recipient-
-  // side threading (Gmail/Outlook use subject + In-Reply-To to thread).
-  // Forward mode leaves this off so the user can fully edit.
-  subjectLocked?: boolean;
   // Comma-separated CC addresses to pre-fill. Caller (thread-view) builds
   // this from the source message's sender + ccs (Reply) or every thread
   // participant (Reply all). When non-empty, the CC row auto-opens so the
@@ -334,32 +327,26 @@ export function Composer({
           </FieldRow>
         ) : null}
 
-        {/* Subject — locked in reply mode (see subjectLocked prop docs). */}
+        {/* Subject — editable on both reply and forward. Our threading is
+            keyed on the thread UUID, so changing the subject never splits
+            or merges threads on our side. */}
         <FieldRow
           label="Subject"
           right={
-            subjectLocked ? null : (
-              <button
-                type="button"
-                onClick={() => setComposerSubject("")}
-                className="size-5 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-accent"
-                aria-label="Clear subject"
-              >
-                <X className="size-3.5" />
-              </button>
-            )
+            <button
+              type="button"
+              onClick={() => setComposerSubject("")}
+              className="size-5 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-accent"
+              aria-label="Clear subject"
+            >
+              <X className="size-3.5" />
+            </button>
           }
         >
           <Input
             value={composerSubject}
             onChange={(e) => setComposerSubject(e.target.value)}
-            readOnly={subjectLocked}
-            tabIndex={subjectLocked ? -1 : undefined}
-            title={subjectLocked ? "Subject is locked on replies to preserve email threading" : undefined}
-            className={cn(
-              "flex-1 h-7 border-0 bg-transparent shadow-none px-1 focus-visible:ring-0 text-sm",
-              subjectLocked && "cursor-default text-foreground/80 pointer-events-none",
-            )}
+            className="flex-1 h-7 border-0 bg-transparent shadow-none px-1 focus-visible:ring-0 text-sm"
             placeholder="(no subject)"
           />
         </FieldRow>
