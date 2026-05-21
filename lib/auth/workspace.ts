@@ -31,7 +31,6 @@ export interface SessionContext {
   activeWorkspace: WorkspaceSummary;
 }
 
-// Fast path: ONE cookie read (getSession) + ONE joined Supabase query.
 // Wrapped in React.cache so multiple call sites within a single render
 // (page server component, child components, etc.) share the same query.
 // Without cache(), every component calling requireSession() would fire
@@ -42,13 +41,17 @@ export const requireSession = cache(async function requireSession(): Promise<Ses
   }
 
   const supabase = await createServerSupabase();
-  // getSession() reads from the signed Supabase cookie — no network call.
-  // getUser() would phone home to /auth/v1/user to re-verify the JWT,
-  // costing ~280ms per render.
+  // getUser() actually verifies the JWT against Supabase's auth server
+  // — costs one ~280ms round-trip but is the only way to be sure the
+  // cookie wasn't tampered with. getSession() reads cookie content
+  // without verifying and Supabase JS logs a security warning every
+  // time we use its `user` field; using getUser() silences that warning
+  // and matches what the proxy.ts middleware already does. React.cache
+  // around this function ensures we only make one call per page render
+  // regardless of how many components ask.
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const user = session?.user;
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   // Hot path: when COROFY_WORKSPACE_ID is set, skip the workspace lookup

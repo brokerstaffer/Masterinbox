@@ -109,17 +109,21 @@ export async function POST(request: Request) {
 // Reusable: confirms there's a signed-in user. Returns an error
 // response or the user object. Single-tenant: all members can manage
 // clients (no per-role check beyond authenticated).
+//
+// Uses getUser() (not getSession()) so the JWT is actually verified
+// against Supabase's auth server — getSession() reads the cookie
+// without verification and triggers Supabase JS's security warning.
 export async function requireAuthedUser() {
   const supabase = await createServerSupabase();
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.user) {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
     return {
       error: NextResponse.json({ error: "Not authenticated" }, { status: 401 }),
     };
   }
-  return { user: session.user };
+  return { user };
 }
 
 // Walk every thread currently tagged "Unknown" and re-derive against the
