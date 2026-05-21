@@ -1,0 +1,442 @@
+"use client";
+
+import { useEffect, useState, useTransition } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import {
+  Copy,
+  ExternalLink,
+  Pencil,
+  Check,
+  Loader2,
+  Search,
+  Users,
+  Globe,
+  Sparkles,
+} from "lucide-react";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { PortalLogo } from "@/components/portals/portal-logo";
+import type { PortalClientRow } from "@/app/(app)/portals/page";
+
+// Pretty "time ago" — coarse buckets are plenty for a "last intro" column.
+function timeAgo(iso: string | null): string {
+  if (!iso) return "—";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "—";
+  const secs = Math.floor((Date.now() - then) / 1000);
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(days / 365)}y ago`;
+}
+
+function clientInitials(name: string): string {
+  return (
+    name
+      .split(/\s+/)
+      .map((p) => p[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join("")
+      .toUpperCase() || "?"
+  );
+}
+
+export function PortalsAdmin({ rows }: { rows: PortalClientRow[] }) {
+  const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState<PortalClientRow | null>(null);
+  const router = useRouter();
+
+  const filtered =
+    search.trim().length === 0
+      ? rows
+      : rows.filter((r) =>
+          r.name.toLowerCase().includes(search.trim().toLowerCase()),
+        );
+
+  const totalIntros = rows.reduce((n, r) => n + r.intro_count, 0);
+  const livePortals = rows.filter((r) => r.portal_enabled && r.portal_token).length;
+
+  return (
+    // flex-1 + overflow-y-auto: this page lives inside AppShell's <main>,
+    // which is overflow-hidden — so the page must own its own scroll.
+    <div className="flex-1 overflow-y-auto bg-[#f4f7fb]">
+      <div className="max-w-5xl mx-auto px-8 py-9">
+        {/* ---- Header ---- */}
+        <div className="flex items-center gap-3.5">
+          <div className="rounded-xl bg-white border border-[#e3e8ef] p-2 shadow-sm">
+            <PortalLogo className="size-8" />
+          </div>
+          <div>
+            <h1 className="text-[22px] font-semibold tracking-tight text-[#15181e]">
+              Client Portals
+            </h1>
+            <p className="text-sm text-[#5b6370] mt-0.5">
+              Every client gets a private, login-free page of their
+              Introduction leads. Manage the links here.
+            </p>
+          </div>
+        </div>
+
+        {/* ---- Summary ---- */}
+        <div className="grid grid-cols-3 gap-4 my-7">
+          <SummaryCard icon={Users} label="Clients" value={rows.length} />
+          <SummaryCard icon={Globe} label="Live portals" value={livePortals} />
+          <SummaryCard
+            icon={Sparkles}
+            label="Total introductions"
+            value={totalIntros}
+            accent
+          />
+        </div>
+
+        {/* ---- Search ---- */}
+        <div className="relative mb-4 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[#9aa1ac]" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search clients…"
+            className="pl-9 h-10 text-sm bg-white"
+          />
+        </div>
+
+        {/* ---- Client list ---- */}
+        <div className="rounded-2xl bg-white border border-[#e3e8ef] shadow-sm overflow-hidden">
+          <div className="grid grid-cols-[1fr_88px_120px_80px_136px] gap-3 px-5 py-3 border-b border-[#eef0f3] text-[11px] uppercase tracking-wider text-[#9aa1ac] font-semibold">
+            <div>Client</div>
+            <div className="text-center">Intros</div>
+            <div>Last intro</div>
+            <div className="text-center">Portal</div>
+            <div className="text-right">Actions</div>
+          </div>
+
+          {filtered.length === 0 ? (
+            <div className="px-5 py-14 text-center text-sm text-[#9aa1ac]">
+              No clients match “{search}”.
+            </div>
+          ) : (
+            filtered.map((r) => (
+              <PortalRow
+                key={r.id}
+                row={r}
+                onEdit={() => setEditing(r)}
+                onToggle={(enabled) => {
+                  void patchPortal(r.id, { portal_enabled: enabled }).then((ok) => {
+                    if (ok) router.refresh();
+                  });
+                }}
+              />
+            ))
+          )}
+        </div>
+
+        <p className="mt-4 text-xs text-[#9aa1ac]">
+          Anyone with a portal link can open it — there is no password. Keep
+          the random suffix in each URL so links can&apos;t be guessed.
+        </p>
+      </div>
+
+      <EditPortalUrlDialog
+        row={editing}
+        onClose={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null);
+          router.refresh();
+        }}
+      />
+    </div>
+  );
+}
+
+function SummaryCard({
+  icon: Icon,
+  label,
+  value,
+  accent,
+}: {
+  icon: typeof Users;
+  label: string;
+  value: number;
+  accent?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-2xl border p-5 shadow-sm",
+        accent
+          ? "bg-gradient-to-br from-[#1565C0] to-[#1e88e5] border-[#1565C0] text-white"
+          : "bg-white border-[#e3e8ef]",
+      )}
+    >
+      <div
+        className={cn(
+          "inline-flex items-center justify-center size-9 rounded-xl",
+          accent ? "bg-white/15" : "bg-[#E3F0FF]",
+        )}
+      >
+        <Icon className={cn("size-[18px]", accent ? "text-white" : "text-[#1565C0]")} />
+      </div>
+      <div
+        className={cn(
+          "mt-3 text-3xl font-semibold tabular-nums tracking-tight",
+          accent ? "text-white" : "text-[#15181e]",
+        )}
+      >
+        {value}
+      </div>
+      <div className={cn("text-[13px] mt-0.5", accent ? "text-white/80" : "text-[#5b6370]")}>
+        {label}
+      </div>
+    </div>
+  );
+}
+
+function PortalRow({
+  row,
+  onEdit,
+  onToggle,
+}: {
+  row: PortalClientRow;
+  onEdit: () => void;
+  onToggle: (enabled: boolean) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const portalPath = row.portal_token ? `/portal/${row.portal_token}` : null;
+
+  function copyLink() {
+    if (!portalPath) return;
+    const url = `${window.location.origin}${portalPath}`;
+    navigator.clipboard.writeText(url).then(
+      () => {
+        setCopied(true);
+        toast.success("Portal link copied");
+        setTimeout(() => setCopied(false), 1500);
+      },
+      () => toast.error("Couldn't copy"),
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-[1fr_88px_120px_80px_136px] gap-3 px-5 py-3.5 items-center border-b border-[#eef0f3] last:border-0 hover:bg-[#f4f7fb] transition-colors">
+      {/* Client */}
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="size-9 shrink-0 rounded-lg bg-[#E3F0FF] text-[#1565C0] flex items-center justify-center text-xs font-semibold">
+          {clientInitials(row.name)}
+        </div>
+        <div className="min-w-0">
+          <Link
+            href={`/portals/${row.id}`}
+            className="font-medium text-[#15181e] hover:text-[#1565C0] transition-colors block truncate"
+          >
+            {row.name}
+          </Link>
+          {portalPath ? (
+            <div className="text-[11px] text-[#9aa1ac] font-mono truncate">
+              {portalPath}
+            </div>
+          ) : (
+            <div className="text-[11px] text-[#9aa1ac]">No portal URL</div>
+          )}
+        </div>
+      </div>
+
+      {/* Intros */}
+      <div className="flex justify-center">
+        <span
+          className={cn(
+            "inline-flex items-center justify-center min-w-8 h-7 px-2.5 rounded-full text-[13px] font-semibold tabular-nums",
+            row.intro_count > 0
+              ? "bg-[#E3F0FF] text-[#1565C0]"
+              : "bg-[#f0f1f4] text-[#9aa1ac]",
+          )}
+        >
+          {row.intro_count}
+        </span>
+      </div>
+
+      {/* Last intro */}
+      <div className="text-[13px] text-[#5b6370]">{timeAgo(row.last_intro_at)}</div>
+
+      {/* Portal toggle */}
+      <div className="flex justify-center">
+        <Switch
+          checked={row.portal_enabled}
+          onCheckedChange={(v) => onToggle(Boolean(v))}
+          aria-label="Portal enabled"
+        />
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center justify-end gap-0.5">
+        <IconAction
+          icon={copied ? Check : Copy}
+          label="Copy link"
+          onClick={copyLink}
+          disabled={!portalPath}
+        />
+        <IconAction icon={Pencil} label="Edit URL" onClick={onEdit} />
+        {portalPath && row.portal_enabled ? (
+          <a
+            href={portalPath}
+            target="_blank"
+            rel="noopener"
+            className="size-8 rounded-lg inline-flex items-center justify-center text-[#9aa1ac] hover:bg-white hover:text-[#1565C0] hover:shadow-sm transition-all"
+            aria-label="Open live portal"
+            title="Open live portal"
+          >
+            <ExternalLink className="size-4" />
+          </a>
+        ) : (
+          <span className="size-8" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function IconAction({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+}: {
+  icon: typeof Copy;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className="size-8 rounded-lg inline-flex items-center justify-center text-[#9aa1ac] hover:bg-white hover:text-[#15181e] hover:shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:shadow-none"
+    >
+      <Icon className="size-4" />
+    </button>
+  );
+}
+
+// PATCH helper shared by the toggle + the edit dialog.
+async function patchPortal(
+  clientId: string,
+  patch: { portal_token?: string; portal_enabled?: boolean },
+): Promise<boolean> {
+  const res = await fetch(`/api/clients/${clientId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    toast.error(json.error ?? "Update failed");
+    return false;
+  }
+  return true;
+}
+
+function EditPortalUrlDialog({
+  row,
+  onClose,
+  onSaved,
+}: {
+  row: PortalClientRow | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [token, setToken] = useState("");
+  const [pending, startTransition] = useTransition();
+  const open = row !== null;
+
+  useEffect(() => {
+    if (row) setToken(row.portal_token ?? "");
+  }, [row?.id, row?.portal_token, row]);
+
+  function onOpenChange(v: boolean) {
+    if (!v) onClose();
+  }
+
+  async function save() {
+    if (!row) return;
+    const next = token.trim();
+    if (next.length < 8) {
+      toast.error("Portal URL must be at least 8 characters");
+      return;
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(next)) {
+      toast.error("Only letters, numbers, hyphens and underscores");
+      return;
+    }
+    if (next === row.portal_token) {
+      onClose();
+      return;
+    }
+    const ok = await patchPortal(row.id, { portal_token: next });
+    if (ok) {
+      toast.success("Portal URL updated");
+      startTransition(() => onSaved());
+    }
+  }
+
+  if (!row) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Portal URL — {row.name}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2">
+          <label className="text-xs font-medium">Custom URL slug</label>
+          <div className="flex items-center rounded-md border bg-background overflow-hidden">
+            <span className="px-2.5 text-xs text-muted-foreground border-r bg-muted/50 py-2 whitespace-nowrap">
+              /portal/
+            </span>
+            <input
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              className="flex-1 px-2.5 py-2 text-sm bg-transparent focus:outline-none font-mono"
+              placeholder="brooklyn-group-a1b2c3"
+              autoFocus
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            Anyone with this link can view the portal — there is no password.
+            Keep the random suffix so it can&apos;t be guessed. Letters,
+            numbers, hyphens and underscores only; 8 characters minimum.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={save} disabled={pending}>
+            {pending ? <Loader2 className="size-4 animate-spin" /> : "Save URL"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

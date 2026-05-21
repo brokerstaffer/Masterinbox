@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { _invalidateClientCache, deriveClientIdFromCampaign } from "@/lib/clients/derive";
+import { CLIENT_PORTALS_ENABLED } from "@/lib/portals/flag";
 
 // GET  /api/clients          -> list every client (id, name, slug, aliases, thread_count)
 // POST /api/clients          -> create a new client { name, aliases? }
@@ -26,6 +28,11 @@ function toSlug(name: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60) || "client";
+}
+
+// Random lowercase hex string — used to make portal tokens unguessable.
+function randomHex(len: number): string {
+  return randomBytes(Math.ceil(len / 2)).toString("hex").slice(0, len);
 }
 
 export async function GET() {
@@ -78,13 +85,23 @@ export async function POST(request: Request) {
 
   const admin = createAdminSupabase();
   const slug = toSlug(parsed.data.name);
+  // Portal columns are only written/selected when the Client Portals
+  // feature is live — until then migration 0016 may not be applied, so
+  // referencing portal_token would break client creation.
+  const insertRow: Record<string, unknown> = {
+    name: parsed.data.name,
+    slug,
+    aliases: parsed.data.aliases ?? [],
+  };
+  if (CLIENT_PORTALS_ENABLED) {
+    // Auto-generate an unguessable portal token: readable slug prefix +
+    // 10 random hex chars.
+    insertRow.portal_token = `${slug}-${randomHex(10)}`;
+    insertRow.portal_enabled = true;
+  }
   const { data, error } = await admin
     .from("clients")
-    .insert({
-      name: parsed.data.name,
-      slug,
-      aliases: parsed.data.aliases ?? [],
-    })
+    .insert(insertRow)
     .select("id, name, slug, aliases")
     .single();
   if (error) {

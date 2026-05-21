@@ -79,7 +79,12 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const isAuthRoute = pathname.startsWith("/login") || pathname.startsWith("/auth");
-  const isPublicRoute = isAuthRoute || pathname === "/";
+  // Public client portals — /portal/<token> — are reached by external
+  // brokerages with no Corofy login. The token in the path IS the
+  // credential. Note: the admin page lives at /portals (plural) and does
+  // NOT match "/portal/", so it stays auth-gated.
+  const isPortalRoute = pathname === "/portal" || pathname.startsWith("/portal/");
+  const isPublicRoute = isAuthRoute || isPortalRoute || pathname === "/";
 
   if (!user && !isPublicRoute) {
     const url = request.nextUrl.clone();

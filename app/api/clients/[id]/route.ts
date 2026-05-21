@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { _invalidateClientCache } from "@/lib/clients/derive";
+import { CLIENT_PORTALS_ENABLED } from "@/lib/portals/flag";
 import { requireAuthedUser, retagUnknownThreads } from "../route";
 
 // PATCH  /api/clients/[id]   -> rename + edit aliases
@@ -17,6 +18,17 @@ export const dynamic = "force-dynamic";
 const patchSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   aliases: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+  // Client portal access. portal_token is the secret path segment in
+  // /portal/<token> — min 8 chars + URL-safe so it can't be trivially
+  // guessed. portal_enabled toggles the portal without losing the token.
+  portal_token: z
+    .string()
+    .trim()
+    .min(8, "Portal URL must be at least 8 characters")
+    .max(120)
+    .regex(/^[a-zA-Z0-9_-]+$/, "Only letters, numbers, hyphens and underscores")
+    .optional(),
+  portal_enabled: z.boolean().optional(),
 });
 
 function toSlug(name: string): string {
@@ -69,6 +81,22 @@ export async function PATCH(
   if (parsed.data.aliases !== undefined) {
     update.aliases = parsed.data.aliases;
   }
+  // Portal fields are only honoured when the Client Portals feature is
+  // live (migration 0016 may not be applied otherwise).
+  if (CLIENT_PORTALS_ENABLED) {
+    if (parsed.data.portal_token !== undefined) {
+      if (existing.slug === "unknown") {
+        return NextResponse.json(
+          { error: "The 'Unknown' fallback client has no portal." },
+          { status: 400 },
+        );
+      }
+      update.portal_token = parsed.data.portal_token;
+    }
+    if (parsed.data.portal_enabled !== undefined) {
+      update.portal_enabled = parsed.data.portal_enabled;
+    }
+  }
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
@@ -80,8 +108,14 @@ export async function PATCH(
     .select("id, name, slug, aliases")
     .single();
   if (error) {
+    // 23505 = unique violation (duplicate name OR duplicate portal_token).
     return NextResponse.json(
-      { error: error.message },
+      {
+        error:
+          error.code === "23505"
+            ? "That portal URL (or name) is already taken — pick another."
+            : error.message,
+      },
       { status: error.code === "23505" ? 409 : 500 },
     );
   }

@@ -25,6 +25,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
       attribute="class"
       defaultTheme="light"
       enableSystem={false}
+      // The app is light-only — there is no theme toggle anywhere in the
+      // UI. forcedTheme pins it to light and makes next-themes ignore any
+      // stale `theme` value left in a browser's localStorage (which is
+      // what turned the local dev site fully dark).
+      forcedTheme="light"
       disableTransitionOnChange
     >
       <QueryClientProvider client={client}>

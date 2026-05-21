@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Inbox, Settings, type LucideIcon } from "lucide-react";
+import { Inbox, Settings, LayoutDashboard, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -32,6 +32,12 @@ const top: RailItem[] = [
 ];
 
 const bottom: RailItem[] = [
+  {
+    href: "/portals",
+    label: "Client Portals",
+    icon: LayoutDashboard,
+    match: (p) => p.startsWith("/portals"),
+  },
   {
     href: "/settings",
     label: "Settings",

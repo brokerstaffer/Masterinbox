@@ -141,6 +141,11 @@ export function Sidebar({ session, lists }: { session: SessionContext; lists: Li
     e.preventDefault();
   }
 
+  // The inbox sidebar (client lists, folders) is meaningless on the
+  // Client Portals screens — hide it there so the portal admin gets the
+  // full width. Placed after all hooks so hook order stays stable.
+  if (pathname.startsWith("/portals")) return null;
+
   return (
     <aside
       style={{ width: `${width}px` }}

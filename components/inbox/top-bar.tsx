@@ -77,24 +77,23 @@ export function TopBar() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  function openThread(hit: SearchHit) {
-    setOpen(false);
-    setQuery("");
-    router.push(`/inbox/all-email/${hit.id}`);
-  }
-
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (!open) return;
     if (e.key === "ArrowDown") {
+      if (!open) return;
       e.preventDefault();
       setActiveIdx((i) => Math.min(i + 1, results.length - 1));
     } else if (e.key === "ArrowUp") {
+      if (!open) return;
       e.preventDefault();
       setActiveIdx((i) => Math.max(i - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const hit = results[activeIdx];
-      if (hit) openThread(hit);
+      const q = query.trim();
+      if (q.length < 2) return;
+      // Enter = "show me everything that matches" → the full results
+      // page. (Click a dropdown row to jump straight to one thread.)
+      setOpen(false);
+      router.push(`/search?q=${encodeURIComponent(q)}`);
     } else if (e.key === "Escape") {
       setOpen(false);
     }
