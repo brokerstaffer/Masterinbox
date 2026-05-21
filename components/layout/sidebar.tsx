@@ -182,7 +182,17 @@ export function Sidebar({ session, lists }: { session: SessionContext; lists: Li
         <div className="relative">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
           <input
-            type="text"
+            type="search"
+            // Browsers treat an un-named text input near nothing in
+            // particular as a candidate for email autofill — Chrome was
+            // dropping the user's saved address into this box, which then
+            // filtered out every list. A search type + explicit non-emailish
+            // name + autoComplete off + the password-manager ignore hints
+            // keep autofill out.
+            name="sidebar-list-search"
+            autoComplete="off"
+            data-1p-ignore
+            data-lpignore="true"
             value={listSearch}
             onChange={(e) => setListSearch(e.target.value)}
             placeholder="Search lists…"
