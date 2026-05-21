@@ -286,6 +286,12 @@ export function createEmailBisonClient(opts: ClientOpts = {}) {
       return data as { data: { success?: boolean; reply?: { id?: number } } };
     },
 
+    // Blacklist (Do-Not-Contact). POST /api/blacklisted-emails with the
+    // raw email — blocks the address from all current + future campaigns
+    // in the active team.
+    blacklistEmail: (email: string) =>
+      request<{ data?: unknown }>("POST", "/blacklisted-emails", { email }),
+
     // Leads
     getLead: (leadId: number) => request<{ data: unknown }>("GET", `/leads/${leadId}`),
     // EmailBison returns scheduled emails with a NESTED sender_email object

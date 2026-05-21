@@ -98,6 +98,21 @@ export function ThreadList({
   const allSelected = selected.size > 0 && selected.size === threads.length;
   const scrollRef = useScrollMemory(basePath);
 
+  // Carry the active search (?q=) and list (?list=) onto thread links so
+  // opening a thread from search results keeps the side list filtered to
+  // the same matches.
+  const navParams = useSearchParams();
+  const carry = (() => {
+    const p = new URLSearchParams();
+    const q = navParams?.get("q");
+    const list = navParams?.get("list");
+    if (q) p.set("q", q);
+    if (list) p.set("list", list);
+    const s = p.toString();
+    return s ? `?${s}` : "";
+  })();
+  const threadHref = (id: string) => `${basePath}/${id}${carry}`;
+
   if (compact) {
     return (
       <>
@@ -110,7 +125,7 @@ export function ThreadList({
           <ul>
           {threads.map((t) => {
             const active = t.id === activeId;
-            const href = `${basePath}/${t.id}`;
+            const href = threadHref(t.id);
             // Stop click propagation on the checkbox so the row's link
             // doesn't navigate when toggling selection.
             const eatClick = (e: React.MouseEvent) => {
@@ -234,7 +249,7 @@ export function ThreadList({
                 />
               </div>
               <Link
-                href={`${basePath}/${t.id}`}
+                href={threadHref(t.id)}
                 onClick={() => markOpened(t.id)}
                 className="flex items-center gap-3 flex-1 min-w-0"
               >

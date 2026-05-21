@@ -90,10 +90,11 @@ export function TopBar() {
       e.preventDefault();
       const q = query.trim();
       if (q.length < 2) return;
-      // Enter = "show me everything that matches" → the full results
-      // page. (Click a dropdown row to jump straight to one thread.)
+      // Enter = "show every match" — render them in the normal inbox
+      // thread list via ?q=, not a separate results page. (Click a
+      // dropdown row to jump straight to one thread instead.)
       setOpen(false);
-      router.push(`/search?q=${encodeURIComponent(q)}`);
+      router.push(`/inbox/all-email?q=${encodeURIComponent(q)}`);
     } else if (e.key === "Escape") {
       setOpen(false);
     }

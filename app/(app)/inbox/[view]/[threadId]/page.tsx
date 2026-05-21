@@ -23,10 +23,10 @@ export const dynamic = "force-dynamic";
 
 export default async function ThreadDetailPage(props: {
   params: Promise<{ view: string; threadId: string }>;
-  searchParams: Promise<{ f?: string; list?: string; page?: string }>;
+  searchParams: Promise<{ f?: string; list?: string; page?: string; q?: string }>;
 }) {
   const { view, threadId } = await props.params;
-  const { f, list, page } = await props.searchParams;
+  const { f, list, page, q } = await props.searchParams;
 
   // Server-side timing instrumentation — appears in Railway logs as
   // `[thread-detail t=…ms] step` so we can identify which step actually
@@ -40,6 +40,7 @@ export default async function ThreadDetailPage(props: {
   ts("after requireSession");
   const filterFromUrl: FilterState | null = f ? decodeFilter(f) : null;
   const pageNum = Math.max(1, Number(page ?? "1") || 1);
+  const searchQuery = q?.trim() || null;
 
   // Per-loader timing. Wrap each promise so we know wall-clock duration
   // of each parallel branch. Reveals which one is the slowest (bounds
@@ -53,7 +54,7 @@ export default async function ThreadDetailPage(props: {
   };
 
   const [threadPage, detail, views, viewCounts, labels, channels, campaigns, clients, lists, currentView] = await Promise.all([
-    timed("loadThreads", loadThreads(session.activeWorkspace.id, view, filterFromUrl, list ?? null, pageNum)),
+    timed("loadThreads", loadThreads(session.activeWorkspace.id, view, filterFromUrl, list ?? null, pageNum, searchQuery)),
     timed("loadThreadDetail", loadThreadDetail(session.activeWorkspace.id, threadId)),
     timed("loadViews", loadViews(session.activeWorkspace.id)),
     timed("loadViewCounts", loadViewCounts(session.activeWorkspace.id, list ?? null)),

@@ -1,5 +1,6 @@
 import { createServerSupabase } from "@/lib/supabase/server";
 import { loadViewBySlug, type CustomView } from "@/lib/inbox/views";
+import { searchThreads } from "@/lib/inbox/search";
 import type { FilterRow, FilterState } from "@/lib/inbox/filters";
 
 export type SourceProvider = "emailbison" | "instantly";
@@ -44,8 +45,27 @@ export async function loadThreads(
   filterFromUrl: FilterState | null,
   listId: string | null = null,
   page = 1,
+  searchQuery: string | null = null,
 ): Promise<ThreadListResult> {
   const supabase = await createServerSupabase();
+
+  // Top-bar search: when a `?q=` is present we restrict the view to the
+  // threads that match it — the result renders in the normal thread list,
+  // not a separate page. Resolve the matching ids up front; no matches →
+  // empty result.
+  let searchThreadIds: string[] | null = null;
+  if (searchQuery && searchQuery.trim().length >= 2) {
+    const hits = await searchThreads(workspaceId, searchQuery.trim(), 500);
+    searchThreadIds = hits.map((h) => h.id);
+    if (searchThreadIds.length === 0) {
+      return {
+        rows: [],
+        total: 0,
+        page: Math.max(1, Math.floor(page)),
+        pageSize: THREAD_PAGE_SIZE,
+      };
+    }
+  }
 
   // If a list filter is active, resolve which mode to use:
   //   - lists.client_id set ("live" list seeded one-per-client) → narrow
@@ -171,6 +191,9 @@ export async function loadThreads(
   }
   if (listThreadIds !== null) {
     query = query.in("id", listThreadIds);
+  }
+  if (searchThreadIds !== null) {
+    query = query.in("id", searchThreadIds) as typeof query;
   }
 
   // Single round-trip: fetch the page detail rows AND the total count in

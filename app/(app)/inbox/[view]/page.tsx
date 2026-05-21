@@ -18,15 +18,16 @@ export const dynamic = "force-dynamic";
 
 export default async function InboxView(props: {
   params: Promise<{ view: string }>;
-  searchParams: Promise<{ f?: string; list?: string; page?: string }>;
+  searchParams: Promise<{ f?: string; list?: string; page?: string; q?: string }>;
 }) {
   const { view } = await props.params;
-  const { f, list, page } = await props.searchParams;
+  const { f, list, page, q } = await props.searchParams;
   const session = await requireSession();
   const filterFromUrl: FilterState | null = f ? decodeFilter(f) : null;
   const pageNum = Math.max(1, Number(page ?? "1") || 1);
+  const searchQuery = q?.trim() || null;
   const [threadPage, views, viewCounts, labels, channels, campaigns, clients, lists, currentView] = await Promise.all([
-    loadThreads(session.activeWorkspace.id, view, filterFromUrl, list ?? null, pageNum),
+    loadThreads(session.activeWorkspace.id, view, filterFromUrl, list ?? null, pageNum, searchQuery),
     loadViews(session.activeWorkspace.id),
     loadViewCounts(session.activeWorkspace.id, list ?? null),
     loadLabels(session.activeWorkspace.id),

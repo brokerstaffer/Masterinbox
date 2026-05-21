@@ -12,10 +12,17 @@ import {
   Sparkles,
   Mail,
   File as FileIcon,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 const PER_FILE_MAX = 25 * 1024 * 1024; // 25 MB
@@ -495,6 +502,11 @@ export function Composer({
             )}
             {generating ? "Generating…" : "AI reply"}
           </button>
+          <TemplatePicker
+            onInsert={(tplBody) =>
+              setBody((cur) => (cur.trim() ? `${cur}\n\n${tplBody}` : tplBody))
+            }
+          />
         </div>
         <Button onClick={onSend} disabled={sending} className="gap-1.5">
           {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
@@ -587,4 +599,72 @@ function stripHtml(html: string): string {
     .replace(/<[^>]+>/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// Footer "Templates" button — lazy-loads the workspace's reply templates
+// on first open, then inserts the chosen one into the composer body.
+function TemplatePicker({ onInsert }: { onInsert: (body: string) => void }) {
+  const [items, setItems] = useState<
+    Array<{ id: string; name: string; body: string }> | null
+  >(null);
+  const [loading, setLoading] = useState(false);
+
+  async function ensureLoaded() {
+    if (items !== null || loading) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/reply-templates", { cache: "no-store" });
+      const json = (await res.json()) as {
+        templates?: Array<{ id: string; name: string; body: string }>;
+      };
+      setItems(json.templates ?? []);
+    } catch {
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <DropdownMenu onOpenChange={(open) => open && ensureLoaded()}>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            aria-label="Insert template"
+            title="Insert a saved template"
+            className="h-8 px-2 inline-flex items-center gap-1.5 rounded-md border bg-background text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          >
+            <FileText className="size-3.5" />
+            Templates
+          </button>
+        }
+      />
+      <DropdownMenuContent align="start" className="w-72 max-h-72 overflow-y-auto">
+        {loading ? (
+          <div className="px-3 py-3 text-sm text-muted-foreground flex items-center gap-2">
+            <Loader2 className="size-3.5 animate-spin" />
+            Loading…
+          </div>
+        ) : (items ?? []).length === 0 ? (
+          <div className="px-3 py-3 text-xs text-muted-foreground">
+            No templates yet. Create them in Settings → Templates.
+          </div>
+        ) : (
+          (items ?? []).map((t) => (
+            <DropdownMenuItem
+              key={t.id}
+              onClick={() => onInsert(t.body)}
+              className="flex flex-col items-start gap-0.5"
+            >
+              <span className="text-sm font-medium">{t.name}</span>
+              <span className="text-[11px] text-muted-foreground line-clamp-2 whitespace-pre-wrap">
+                {t.body || "(empty)"}
+              </span>
+            </DropdownMenuItem>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }

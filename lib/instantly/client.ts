@@ -164,6 +164,12 @@ export function createInstantlyClient(opts: ClientOpts = {}) {
         subsequence_id: input.subsequence_id,
       }),
 
+    // Block list (Do-Not-Contact). POST /block-lists-entries with
+    // `bl_value` = the email (or domain) — Instantly stops contacting it
+    // across the workspace.
+    blockEmail: (email: string) =>
+      request<{ id?: string }>("POST", "/block-lists-entries", { bl_value: email }),
+
     // Webhooks
     listWebhooks: () => request<ListResponse<InstantlyWebhook>>("GET", "/webhooks"),
     listWebhookEventTypes: () =>

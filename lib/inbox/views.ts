@@ -54,27 +54,27 @@ interface FilterRowLite {
   value?: unknown;
 }
 
-// Computes the "N new" count for each tab in the TabBar. "New" =
-// unseen open threads matching the view's filter — same definition the
-// blue dot on the thread list uses.
+export interface ViewCount {
+  unseen: number; // drives the "N new" pill
+  // Share of all open threads that carry this view's label. null for
+  // views that aren't a single-label filter (e.g. "All Email").
+  pct: number | null;
+}
+
+// Computes, per TabBar view: the "N new" unseen count AND the percentage
+// of all open threads carrying that view's label ("40% Interested" etc.).
 //
-// Strategy:
-//   - One head-only count gives total unseen open (drives the "All" pill).
-//   - One join query gives every (label_id, thread_id) pair where the
-//     thread is open + unseen; we bucket by label_id in JS.
-//   - For each view, pick the label_id out of its filter_json and look up
-//     the count. Views with no filter rows → total. Views with other
-//     filter shapes get 0 for now.
+// One pass over every OPEN thread (id + seen) + its label assignments
+// lets us derive both — total-per-label for the %, unseen-per-label for
+// the pill. `listId` narrows everything to one client when a sidebar
+// list is active.
 export const loadViewCounts = cache(async function loadViewCounts(
   workspaceId: string,
   listId?: string | null,
-): Promise<Record<string, number>> {
+): Promise<Record<string, ViewCount>> {
   const supabase = await createServerSupabase();
   const views = await loadViews(workspaceId);
 
-  // If a client list is active, resolve its client_id so we can narrow
-  // every count to that client. Empty client_id (or no listId) → counts
-  // are workspace-global, same as the "All Email" view.
   let listClientId: string | null = null;
   if (listId) {
     const { data: listRow } = await supabase
@@ -86,69 +86,68 @@ export const loadViewCounts = cache(async function loadViewCounts(
     listClientId = (listRow?.client_id as string | null) ?? null;
   }
 
-  // Two-step query — simpler than embed-with-inner-join which silently
-  // misbehaves when PostgREST gets the filter path wrong on a boolean
-  // column. Step 1: every open + unseen thread id (narrowed by the
-  // active list's client_id when present). Step 2: label assignments
-  // restricted to those ids. Both queries use explicit ranges to defeat
-  // Supabase's default 1000-row implicit limit.
-  let threadIdsReq = supabase
+  // Every OPEN thread with its seen flag (range defeats the implicit
+  // 1000-row cap).
+  let threadReq = supabase
     .from("threads")
-    .select("id", { count: "exact" })
+    .select("id, seen")
     .eq("workspace_id", workspaceId)
-    .eq("status", "open")
-    .eq("seen", false);
-  if (listClientId) {
-    threadIdsReq = threadIdsReq.eq("client_id", listClientId);
-  }
+    .eq("status", "open");
+  if (listClientId) threadReq = threadReq.eq("client_id", listClientId);
+  const threadRes = await threadReq.range(0, 49_999);
+  const threadRows = (threadRes.data ?? []) as Array<{ id: string; seen: boolean }>;
+  const totalOpen = threadRows.length;
+  const ids = threadRows.map((t) => t.id);
+  const unseenSet = new Set(threadRows.filter((t) => !t.seen).map((t) => t.id));
+  const totalUnseen = unseenSet.size;
 
-  const threadIdsRes = await threadIdsReq.range(0, 49_999);
-  const ids = (threadIdsRes.data ?? []).map((t) => t.id as string);
-  const total = threadIdsRes.count ?? ids.length;
-
-  let unseenByLabel = new Map<string, Set<string>>();
-  if (ids.length > 0) {
-    // PostgREST's `in` filter has a URL length cap; chunk to be safe.
-    const CHUNK = 500;
-    for (let i = 0; i < ids.length; i += CHUNK) {
-      const slice = ids.slice(i, i + CHUNK);
-      const { data: assignments } = await supabase
-        .from("label_assignments")
-        .select("label_id, target_id")
-        .eq("workspace_id", workspaceId)
-        .eq("target_type", "thread")
-        .in("target_id", slice)
-        .range(0, 49_999);
-      for (const row of assignments ?? []) {
-        const r = row as { label_id: string; target_id: string };
-        const set = unseenByLabel.get(r.label_id) ?? new Set<string>();
-        set.add(r.target_id);
-        unseenByLabel.set(r.label_id, set);
-      }
+  // label_id → { all threads, unseen threads }
+  const byLabel = new Map<string, { all: Set<string>; unseen: Set<string> }>();
+  const CHUNK = 500;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const slice = ids.slice(i, i + CHUNK);
+    const { data: assignments } = await supabase
+      .from("label_assignments")
+      .select("label_id, target_id")
+      .eq("workspace_id", workspaceId)
+      .eq("target_type", "thread")
+      .in("target_id", slice)
+      .range(0, 49_999);
+    for (const row of assignments ?? []) {
+      const r = row as { label_id: string; target_id: string };
+      const bucket = byLabel.get(r.label_id) ?? { all: new Set(), unseen: new Set() };
+      bucket.all.add(r.target_id);
+      if (unseenSet.has(r.target_id)) bucket.unseen.add(r.target_id);
+      byLabel.set(r.label_id, bucket);
     }
-  } else {
-    unseenByLabel = new Map();
   }
 
-  const counts: Record<string, number> = {};
+  const counts: Record<string, ViewCount> = {};
   for (const v of views) {
     const rows = ((v.filter_json as { rows?: FilterRowLite[] } | null)?.rows) ?? [];
     if (rows.length === 0) {
-      counts[v.id] = total;
+      // "All Email" — show the unseen count, no % (it's the whole 100%).
+      counts[v.id] = { unseen: totalUnseen, pct: null };
       continue;
     }
     const labelsRow = rows.find((r) => r?.field === "labels");
     if (labelsRow && Array.isArray(labelsRow.value)) {
       const labelIds = labelsRow.value as string[];
-      const ids = new Set<string>();
+      const allIds = new Set<string>();
+      const unseenIds = new Set<string>();
       for (const lid of labelIds) {
-        const set = unseenByLabel.get(lid);
-        if (set) for (const id of set) ids.add(id);
+        const bucket = byLabel.get(lid);
+        if (!bucket) continue;
+        for (const id of bucket.all) allIds.add(id);
+        for (const id of bucket.unseen) unseenIds.add(id);
       }
-      counts[v.id] = ids.size;
+      counts[v.id] = {
+        unseen: unseenIds.size,
+        pct: totalOpen > 0 ? Math.round((allIds.size / totalOpen) * 100) : 0,
+      };
       continue;
     }
-    counts[v.id] = 0;
+    counts[v.id] = { unseen: 0, pct: null };
   }
   return counts;
 });

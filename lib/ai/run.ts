@@ -1,6 +1,7 @@
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { loadAiConfigWithKey } from "@/lib/ai/config";
 import { classifyReply, DEFAULT_SYSTEM_PROMPT } from "@/lib/ai/label";
+import { isHostileLabel, markThreadLeadDoNotContact } from "@/lib/inbox/dnc";
 
 interface LabelInboundInput {
   workspaceId: string;
@@ -108,6 +109,12 @@ export async function labelInboundMessage(input: LabelInboundInput): Promise<Lab
     },
     { onConflict: "label_id,target_type,target_id" },
   );
+
+  // Hostile → auto Do-Not-Contact: push the lead onto the source
+  // platform's blocklist so the sequencer stops emailing them.
+  if (isHostileLabel(labelRow.name)) {
+    await markThreadLeadDoNotContact(input.threadId);
+  }
 
   await admin.rpc("ai_labeling_touch_run", { p_workspace: input.workspaceId });
   return { status: "labeled", label: labelRow.name };

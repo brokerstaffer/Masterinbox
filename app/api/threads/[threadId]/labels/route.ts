@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth/workspace";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { isHostileLabel, markThreadLeadDoNotContact } from "@/lib/inbox/dnc";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,18 @@ export async function POST(
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
+
+  // Hostile → auto Do-Not-Contact. Look up the label name; if it's
+  // "Hostile", blacklist the lead on the source platform.
+  const { data: label } = await supabase
+    .from("labels")
+    .select("name")
+    .eq("id", parsed.data.label_id)
+    .maybeSingle();
+  if (isHostileLabel(label?.name as string | null)) {
+    await markThreadLeadDoNotContact(threadId);
+  }
+
   return NextResponse.json({ ok: true });
 }
 

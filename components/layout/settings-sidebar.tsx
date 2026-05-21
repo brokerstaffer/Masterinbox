@@ -16,6 +16,7 @@ import {
   Brain,
   Bot,
   Building2,
+  FileText,
 } from "lucide-react";
 
 const sections: NavSection[] = [
@@ -33,6 +34,7 @@ const sections: NavSection[] = [
       { href: "/settings/labels",       label: "Labels",        icon: <Tag className="size-4" strokeWidth={2} /> },
       { href: "/settings/ai-labeling",  label: "AI Labeling",   icon: <Brain className="size-4" strokeWidth={2} /> },
       { href: "/settings/reply-agents", label: "Reply Agents",  icon: <Bot className="size-4" strokeWidth={2} /> },
+      { href: "/settings/templates",    label: "Templates",     icon: <FileText className="size-4" strokeWidth={2} /> },
     ],
   },
 ];

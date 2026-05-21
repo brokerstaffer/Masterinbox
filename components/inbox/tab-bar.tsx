@@ -33,9 +33,9 @@ export function TabBar({
   views: CustomView[];
   activeSlug: string | null;
   labels?: LabelRow[];
-  // Map of view.id → unseen-thread count. Computed server-side once per
-  // page render; rendered as a "N new" pill next to each tab (cap at "99+").
-  viewCounts?: Record<string, number>;
+  // Map of view.id → { unseen count, % of open threads }. Computed
+  // server-side; rendered as a "N new" pill + a "%" next to each tab.
+  viewCounts?: Record<string, { unseen: number; pct: number | null }>;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -98,7 +98,10 @@ export function TabBar({
                 )}
               >
                 <span>{view.name}</span>
-                <CountPill n={viewCounts[view.id] ?? 0} />
+                <CountPill
+                  n={viewCounts[view.id]?.unseen ?? 0}
+                  pct={viewCounts[view.id]?.pct ?? null}
+                />
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     render={
@@ -179,13 +182,22 @@ export function TabBar({
   );
 }
 
-function CountPill({ n }: { n: number }) {
-  if (!n) return null;
+function CountPill({ n, pct }: { n: number; pct: number | null }) {
+  if (!n && pct === null) return null;
   // Cap visible count at 99+; same UX as the screenshot reference.
   const label = n > 99 ? "99+ new" : `${n} new`;
   return (
-    <span className="ml-0.5 inline-flex items-center px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-semibold leading-none whitespace-nowrap">
-      {label}
+    <span className="ml-0.5 inline-flex items-center gap-1 whitespace-nowrap">
+      {n > 0 ? (
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-semibold leading-none">
+          {label}
+        </span>
+      ) : null}
+      {pct !== null ? (
+        <span className="text-[10px] font-semibold text-muted-foreground tabular-nums">
+          {pct}%
+        </span>
+      ) : null}
     </span>
   );
 }
