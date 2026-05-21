@@ -19,6 +19,7 @@ export async function POST(request: Request) {
   if (expected) {
     const supplied = url.searchParams.get("token") ?? request.headers.get("x-webhook-token");
     if (supplied !== expected) {
+      console.warn("[instantly drop]", JSON.stringify({ reason: "invalid token at edge" }));
       return NextResponse.json({ ok: false, error: "invalid token" }, { status: 401 });
     }
   }
@@ -27,20 +28,28 @@ export async function POST(request: Request) {
   try {
     envelope = (await request.json()) as InstantlyWebhookEnvelope;
   } catch {
+    console.warn("[instantly drop]", JSON.stringify({ reason: "invalid json at edge" }));
     return NextResponse.json({ ok: false, error: "invalid json" }, { status: 400 });
   }
 
-  // Log the full envelope while we settle on the canonical Instantly delivery
-  // shape. The docs show one schema; the live API has shown small differences
-  // before. Remove this log once a few real reply_received events have been
-  // captured and the types in lib/instantly/types.ts are confirmed.
+  // Full envelope dump kept around — lets us reconstruct any drop from log
+  // grep alone without needing to replay the request.
   console.log("[instantly webhook] envelope:", JSON.stringify(envelope));
 
   try {
     const result = await handleInstantlyEvent(envelope);
     return NextResponse.json(result, { status: 200 });
   } catch (err) {
-    console.error("[instantly webhook] handler error", err);
+    console.warn(
+      "[instantly drop]",
+      JSON.stringify({
+        reason: "handler threw",
+        email_id: envelope.email_id ?? null,
+        lead: envelope.lead_email ?? envelope.email ?? null,
+        campaign_id: envelope.campaign_id ?? null,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : "unknown" },
       { status: 200 },

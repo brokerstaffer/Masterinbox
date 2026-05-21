@@ -394,12 +394,51 @@ async function backfillInstantlyConversation(
   }
 }
 
+// All early-return failures in handleInstantlyEvent flow through this
+// helper. They were previously silent — only a console.log of the raw
+// envelope, no labelled drop event — which made it impossible to grep
+// Railway for "what happened to this reply". Now every drop emits a
+// single `[instantly drop]` line tagged with reason + identifiers.
+function dropReply(
+  reason: string,
+  envelope: InstantlyWebhookEnvelope,
+  extra: Record<string, unknown> = {},
+): { ok: false; reason: string } {
+  console.warn(
+    "[instantly drop]",
+    JSON.stringify({
+      reason,
+      email_id: envelope.email_id ?? null,
+      lead: envelope.lead_email ?? envelope.email ?? null,
+      campaign_id: envelope.campaign_id ?? null,
+      campaign_name: envelope.campaign_name ?? null,
+      eaccount: envelope.email_account ?? null,
+      timestamp: envelope.timestamp ?? null,
+      ...extra,
+    }),
+  );
+  return { ok: false, reason };
+}
+
 export async function handleInstantlyEvent(envelope: InstantlyWebhookEnvelope): Promise<{
   ok: boolean;
   reason?: string;
 }> {
+  // Receipt marker — one line per webhook so we can correlate against
+  // Instantly's send log when a reply goes missing.
+  console.log(
+    "[instantly recv]",
+    JSON.stringify({
+      email_id: envelope.email_id ?? null,
+      lead: envelope.lead_email ?? envelope.email ?? null,
+      campaign_id: envelope.campaign_id ?? null,
+      event: envelope.event_type ?? null,
+      timestamp: envelope.timestamp ?? null,
+    }),
+  );
+
   const eventType = envelope.event_type;
-  if (!eventType) return { ok: false, reason: "missing event_type" };
+  if (!eventType) return dropReply("missing event_type", envelope);
   if (eventType !== "reply_received") {
     return { ok: true, reason: `ignored event type: ${eventType}` };
   }
@@ -407,14 +446,14 @@ export async function handleInstantlyEvent(envelope: InstantlyWebhookEnvelope): 
   const emailId = envelope.email_id;
   const leadEmail = envelope.lead_email ?? envelope.email ?? null;
   if (!emailId || !leadEmail) {
-    return { ok: false, reason: "missing email_id or lead_email" };
+    return dropReply("missing email_id or lead_email", envelope);
   }
 
   const ctx = await resolveContext(envelope.email_account ?? null);
-  if (!ctx) return { ok: false, reason: "no workspace mapping" };
+  if (!ctx) return dropReply("no workspace mapping", envelope);
 
   const ourLeadId = await upsertLead(ctx, envelope);
-  if (!ourLeadId) return { ok: false, reason: "lead upsert failed" };
+  if (!ourLeadId) return dropReply("lead upsert failed", envelope);
 
   const externalThreadId = threadExternalId(leadEmail, envelope.campaign_id);
 
@@ -441,7 +480,7 @@ export async function handleInstantlyEvent(envelope: InstantlyWebhookEnvelope): 
     campaign_id: envelope.campaign_id ?? null,
     campaign_name: envelope.campaign_name ?? null,
   });
-  if (!threadId) return { ok: false, reason: "thread upsert failed" };
+  if (!threadId) return dropReply("thread upsert failed", envelope, { lead_id: ourLeadId });
 
   await upsertMessage({ ctx, threadId, emailId, envelope, bodyText });
 
