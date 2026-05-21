@@ -226,6 +226,10 @@ export function ThreadView({
                   return /^re:\s/i.test(base) ? base : base ? `Re: ${base}` : "";
                 })()
           }
+          // Subject is locked in reply mode — forwarding still lets the
+          // user edit it (they're starting a new thread with a new
+          // recipient, so subject is intentionally fresh).
+          subjectLocked={composeState.mode === "reply"}
           toEmail={composeState.mode === "forward" ? "" : detail.lead.email ?? ""}
           toName={composeState.mode === "forward" ? null : detail.lead.full_name ?? null}
           ccInitial={
