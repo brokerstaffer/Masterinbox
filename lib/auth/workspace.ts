@@ -62,7 +62,7 @@ export const requireSession = cache(async function requireSession(): Promise<Ses
   if (env.COROFY_WORKSPACE_ID) {
     const summary: WorkspaceSummary = {
       id: env.COROFY_WORKSPACE_ID,
-      name: "Broker Staffer",
+      name: "BrokerStaffer",
       slug: "corofy",
       role: "owner",
     };
