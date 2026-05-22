@@ -1,6 +1,7 @@
 import { createServerSupabase } from "@/lib/supabase/server";
 import { loadViewBySlug, type CustomView } from "@/lib/inbox/views";
 import { searchThreads } from "@/lib/inbox/search";
+import { OPEN_RESPONSES_PRESET, openResponsesThreadIds } from "@/lib/inbox/open-responses";
 import type { FilterRow, FilterState } from "@/lib/inbox/filters";
 
 export type SourceProvider = "emailbison" | "instantly";
@@ -143,6 +144,18 @@ export async function loadThreads(
     query = applyViewPreset(query as unknown as Q, cv) as typeof query;
   }
 
+  // "Open Responses" — an OR-of-two-conditions view the FilterBuilder
+  // can't express. Resolve the matching thread ids up front and restrict
+  // the query to them (same pattern as the top-bar search path).
+  let openResponseIds: string[] | null = null;
+  if ((cv?.filter_json as { preset?: string } | undefined)?.preset === OPEN_RESPONSES_PRESET) {
+    const set = await openResponsesThreadIds(supabase, workspaceId);
+    if (set.size === 0) {
+      return { rows: [], total: 0, page: safePage, pageSize };
+    }
+    openResponseIds = Array.from(set);
+  }
+
   // Effective FilterState: URL > view.filter_json.rows
   const viewRows = (cv?.filter_json as { rows?: FilterRow[] } | undefined)?.rows;
   const state: FilterState =
@@ -194,6 +207,9 @@ export async function loadThreads(
   }
   if (searchThreadIds !== null) {
     query = query.in("id", searchThreadIds) as typeof query;
+  }
+  if (openResponseIds !== null) {
+    query = query.in("id", openResponseIds) as typeof query;
   }
 
   // Single round-trip: fetch the page detail rows AND the total count in
@@ -328,6 +344,9 @@ function applyViewPreset(query: Q, view: CustomView | null): Q {
       return query.eq("status", "open").eq("needs_reply", true) as Q;
     case "all_email":
     case "custom_filter":
+    case OPEN_RESPONSES_PRESET:
+      // open_responses: base filter is status=open; the OR membership is
+      // applied as an id restriction back in loadThreads.
       return query.eq("status", "open") as Q;
     case "engaged":
       return query.eq("status", "open").gte("message_count", 3) as Q;

@@ -1,5 +1,10 @@
 import { cache } from "react";
 import { createServerSupabase } from "@/lib/supabase/server";
+import {
+  OPEN_RESPONSES_PRESET,
+  isOpenResponse,
+  resolveOpenResponseLabelIds,
+} from "@/lib/inbox/open-responses";
 
 export type { CustomView } from "./views-shared";
 export { slugifyView } from "./views-shared";
@@ -122,8 +127,43 @@ export const loadViewCounts = cache(async function loadViewCounts(
     }
   }
 
+  // For the "Open Responses" view: which threads carry ANY label (so we
+  // can spot the untagged ones), plus the Interested / Meetings Booked
+  // label ids. Resolved once, reused in the loop.
+  const labeledThreadIds = new Set<string>();
+  for (const bucket of byLabel.values()) {
+    for (const id of bucket.all) labeledThreadIds.add(id);
+  }
+  const { interested: interestedId, meetingsBooked: bookedId } =
+    await resolveOpenResponseLabelIds(supabase, workspaceId);
+  const interestedAll = (interestedId && byLabel.get(interestedId)?.all) || new Set<string>();
+  const bookedAll = (bookedId && byLabel.get(bookedId)?.all) || new Set<string>();
+
   const counts: Record<string, ViewCount> = {};
   for (const v of views) {
+    const preset = (v.filter_json as { preset?: string } | null)?.preset;
+    if (preset === OPEN_RESPONSES_PRESET) {
+      const all = new Set<string>();
+      const unseen = new Set<string>();
+      for (const t of threadRows) {
+        if (
+          !isOpenResponse({
+            hasAnyLabel: labeledThreadIds.has(t.id),
+            hasInterested: interestedAll.has(t.id),
+            hasMeetingsBooked: bookedAll.has(t.id),
+          })
+        ) {
+          continue;
+        }
+        all.add(t.id);
+        if (unseenSet.has(t.id)) unseen.add(t.id);
+      }
+      counts[v.id] = {
+        unseen: unseen.size,
+        pct: totalOpen > 0 ? Math.round((all.size / totalOpen) * 100) : 0,
+      };
+      continue;
+    }
     const rows = ((v.filter_json as { rows?: FilterRowLite[] } | null)?.rows) ?? [];
     if (rows.length === 0) {
       // "All Email" — show the unseen count, no % (it's the whole 100%).
