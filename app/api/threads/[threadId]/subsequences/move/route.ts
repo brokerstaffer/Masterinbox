@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { createInstantlyClient, InstantlyError } from "@/lib/instantly/client";
+import { syncThreadSubsequence } from "@/lib/inbox/subsequence-sync";
 
 // POST /api/threads/[threadId]/subsequences/move
 // Body: { subsequence_id: string }
@@ -146,6 +147,10 @@ export async function POST(
       { status: 502 },
     );
   }
+
+  // Refresh the thread's cached subsequence state so the panel's
+  // indicator reflects the move. Background — don't hold up the response.
+  void syncThreadSubsequence(threadId).catch(() => {});
 
   return NextResponse.json({ ok: true, instantly_lead_id: instantlyLeadId });
 }

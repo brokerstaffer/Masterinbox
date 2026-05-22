@@ -1,16 +1,19 @@
 import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
-import { createInstantlyClient, InstantlyError } from "@/lib/instantly/client";
+import { syncThreadSubsequence } from "@/lib/inbox/subsequence-sync";
 
 // GET /api/threads/[threadId]/subsequence-status
 //
-// Reports whether this thread's lead is CURRENTLY sitting in an Instantly
-// subsequence — so the ProspectPanel can show it and the user doesn't
-// re-add a lead that's already in one. Instantly-only; other providers
-// just return inSubsequence:false.
+// Reports whether this thread's lead is currently in an Instantly
+// subsequence. Reads the cached columns on the thread (migration 0021)
+// so the panel is instant; refreshes from Instantly in the background
+// when the cache is stale. Falls back to a live sync when never synced.
 
 export const dynamic = "force-dynamic";
+
+// How long a cached value is trusted before a background refresh.
+const STALE_MS = 2 * 60 * 60 * 1000;
 
 export async function GET(
   _request: Request,
@@ -35,64 +38,46 @@ export async function GET(
   }
 
   const admin = createAdminSupabase();
+  // select("*") so this still works before migration 0021 lands.
   const { data: thread } = await admin
     .from("threads")
-    .select("id, source_provider, campaign_id, lead_id")
+    .select("*")
     .eq("id", threadId)
     .maybeSingle();
   if (!thread) {
     return NextResponse.json({ error: "Thread not found" }, { status: 404 });
   }
-  if (thread.source_provider !== "instantly" || !thread.lead_id) {
+  if (thread.source_provider !== "instantly") {
     return NextResponse.json({ ok: true, inSubsequence: false });
   }
 
-  const { data: lead } = await admin
-    .from("leads")
-    .select("email")
-    .eq("id", thread.lead_id)
-    .maybeSingle();
-  const email = (lead?.email as string | null)?.trim();
-  if (!email) {
-    return NextResponse.json({ ok: true, inSubsequence: false });
-  }
+  const syncedAt = thread.subsequence_synced_at as string | null | undefined;
 
-  try {
-    const client = createInstantlyClient();
-    const res = await client.findLeadByEmail(email);
-    const instLead =
-      (res.items ?? []).find(
-        (l) => (l.email ?? "").toLowerCase() === email.toLowerCase(),
-      ) ?? res.items?.[0];
-
-    const subId = instLead?.subsequence_id ?? null;
-    if (!subId) {
-      return NextResponse.json({ ok: true, inSubsequence: false });
+  // Cached → return immediately; kick a background refresh if stale.
+  if (syncedAt) {
+    if (Date.now() - new Date(syncedAt).getTime() > STALE_MS) {
+      void syncThreadSubsequence(threadId).catch(() => {});
     }
-
-    // Resolve the subsequence name from the campaign's subsequence list.
-    // Best-effort — the indicator still shows without a name.
-    let name: string | null = null;
-    if (thread.campaign_id) {
-      try {
-        const subs = await client.listSubsequences(thread.campaign_id);
-        name = (subs.items ?? []).find((s) => s.id === subId)?.name ?? null;
-      } catch {
-        // name is optional
-      }
-    }
-
     return NextResponse.json({
       ok: true,
-      inSubsequence: true,
-      subsequenceId: subId,
-      name,
-      addedAt: instLead?.timestamp_added_subsequence ?? null,
+      inSubsequence: Boolean(thread.subsequence_id),
+      subsequenceId: (thread.subsequence_id as string | null) ?? null,
+      name: (thread.subsequence_name as string | null) ?? null,
+      addedAt: (thread.subsequence_added_at as string | null) ?? null,
+    });
+  }
+
+  // Never synced (or pre-migration) → do it live this once.
+  try {
+    const state = await syncThreadSubsequence(threadId);
+    return NextResponse.json({
+      ok: true,
+      inSubsequence: state.inSubsequence,
+      subsequenceId: state.subsequenceId,
+      name: state.name,
+      addedAt: state.addedAt,
     });
   } catch (err) {
-    if (err instanceof InstantlyError) {
-      return NextResponse.json({ ok: false, error: err.message }, { status: 502 });
-    }
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : "lookup failed" },
       { status: 502 },
