@@ -27,6 +27,12 @@ export interface CumulativePoint {
   total: number; // running total of all intros through this week
 }
 
+export interface MonthSlice {
+  key: string; // "2026-05"
+  label: string; // "May"
+  count: number;
+}
+
 export interface PortalMetrics {
   total: number;
   thisWeek: number;
@@ -41,6 +47,7 @@ export interface PortalMetrics {
   lastIntroAt: string | null;
   firstIntroAt: string | null;
   weekly: TrendBucket[];
+  monthly: MonthSlice[]; // trailing 6 months, oldest → newest
   cumulative: CumulativePoint[];
   bySource: SourceSlice[];
   topCampaigns: CampaignSlice[];
@@ -71,6 +78,21 @@ export function computePortalMetrics(leads: IntroLead[], weeks = 12): PortalMetr
   const sourceCounts = new Map<string, number>();
   const campaignCounts = new Map<string, number>();
 
+  // Trailing 6-month buckets (oldest → newest), pre-seeded to zero so the
+  // chart shape is stable even when a month had no intros.
+  const monthly: MonthSlice[] = [];
+  const monthIndex = new Map<string, number>();
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    const key = monthKey(d);
+    monthIndex.set(key, monthly.length);
+    monthly.push({
+      key,
+      label: d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" }),
+      count: 0,
+    });
+  }
+
   for (const lead of leads) {
     const d = new Date(lead.assigned_at);
     if (Number.isNaN(d.getTime())) continue;
@@ -78,6 +100,8 @@ export function computePortalMetrics(leads: IntroLead[], weeks = 12): PortalMetr
     const mk = monthKey(d);
     if (mk === thisMonthKey) thisMonth += 1;
     else if (mk === lastMonthKey) lastMonth += 1;
+    const mi = monthIndex.get(mk);
+    if (mi !== undefined) monthly[mi].count += 1;
 
     // getUTCDay: 0 Sun … 6 Sat → remap to Mon-first index
     const wd = (d.getUTCDay() + 6) % 7;
@@ -152,6 +176,7 @@ export function computePortalMetrics(leads: IntroLead[], weeks = 12): PortalMetr
     lastIntroAt,
     firstIntroAt,
     weekly,
+    monthly,
     cumulative,
     bySource,
     topCampaigns,

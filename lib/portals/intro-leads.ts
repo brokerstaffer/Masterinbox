@@ -1,5 +1,7 @@
+import { cache } from "react";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { env } from "@/lib/env";
+import { loadExternalIntrosByClient } from "@/lib/portals/external-intros";
 
 // Shared "Introduction"-label data layer for the client portals.
 //
@@ -71,143 +73,184 @@ async function loadAllIntroAssignments(
   return (data ?? []) as Array<{ target_id: string; assigned_at: string }>;
 }
 
-// Per-client roll-up for the admin grid: count of Introduction leads and
-// the most recent one, keyed by client_id.
-export async function loadIntroSummaryByClient(): Promise<Map<string, IntroSummary>> {
-  const admin = createAdminSupabase();
-  const assignments = await loadAllIntroAssignments(admin);
-  if (assignments.length === 0) return new Map();
+// Our Supabase Introduction leads for EVERY client in one pass, grouped
+// by client_id (each list newest-first). This is the single shared scan
+// behind the per-client loader and the admin roll-up — wrapped in
+// cache() so one render runs it once no matter how many callers ask.
+export const loadOurIntroLeadsByClient = cache(
+  async function loadOurIntroLeadsByClient(): Promise<Map<string, IntroLead[]>> {
+    const admin = createAdminSupabase();
+    const assignments = await loadAllIntroAssignments(admin);
+    if (assignments.length === 0) return new Map();
 
-  // thread_id → client_id
-  const threadIds = Array.from(new Set(assignments.map((a) => a.target_id)));
-  const threadClient = new Map<string, string | null>();
-  for (let i = 0; i < threadIds.length; i += CHUNK) {
-    const slice = threadIds.slice(i, i + CHUNK);
-    const { data } = await admin
-      .from("threads")
-      .select("id, client_id")
-      .in("id", slice);
-    for (const t of (data ?? []) as Array<{ id: string; client_id: string | null }>) {
-      threadClient.set(t.id, t.client_id);
+    // thread_id → meta
+    const threadIds = Array.from(new Set(assignments.map((a) => a.target_id)));
+    const threadMeta = new Map<
+      string,
+      {
+        client_id: string | null;
+        lead_id: string | null;
+        campaign_name: string | null;
+        source_provider: string | null;
+        subject: string | null;
+      }
+    >();
+    for (let i = 0; i < threadIds.length; i += CHUNK) {
+      const slice = threadIds.slice(i, i + CHUNK);
+      const { data } = await admin
+        .from("threads")
+        .select("id, client_id, lead_id, campaign_name, source_provider, subject")
+        .in("id", slice);
+      for (const t of (data ?? []) as Array<{
+        id: string;
+        client_id: string | null;
+        lead_id: string | null;
+        campaign_name: string | null;
+        source_provider: string | null;
+        subject: string | null;
+      }>) {
+        threadMeta.set(t.id, {
+          client_id: t.client_id,
+          lead_id: t.lead_id,
+          campaign_name: t.campaign_name,
+          source_provider: t.source_provider,
+          subject: t.subject,
+        });
+      }
     }
-  }
 
-  const byClient = new Map<string, IntroSummary>();
-  for (const a of assignments) {
-    const clientId = threadClient.get(a.target_id);
-    if (!clientId) continue;
-    const prev = byClient.get(clientId) ?? { count: 0, lastAt: null };
-    prev.count += 1;
-    if (!prev.lastAt || a.assigned_at > prev.lastAt) prev.lastAt = a.assigned_at;
-    byClient.set(clientId, prev);
-  }
-  return byClient;
+    // lead_id → lead details
+    const leadIds = new Set<string>();
+    for (const a of assignments) {
+      const lid = threadMeta.get(a.target_id)?.lead_id;
+      if (lid) leadIds.add(lid);
+    }
+    const leadById = new Map<
+      string,
+      {
+        full_name: string | null;
+        email: string | null;
+        company: string | null;
+        title: string | null;
+        custom_fields: Record<string, unknown>;
+      }
+    >();
+    const leadIdList = Array.from(leadIds);
+    for (let i = 0; i < leadIdList.length; i += CHUNK) {
+      const slice = leadIdList.slice(i, i + CHUNK);
+      const { data } = await admin
+        .from("leads")
+        .select("id, full_name, email, company, title, custom_fields")
+        .in("id", slice);
+      for (const l of (data ?? []) as Array<{
+        id: string;
+        full_name: string | null;
+        email: string | null;
+        company: string | null;
+        title: string | null;
+        custom_fields: Record<string, unknown> | null;
+      }>) {
+        leadById.set(l.id, {
+          full_name: l.full_name,
+          email: l.email,
+          company: l.company,
+          title: l.title,
+          custom_fields: l.custom_fields ?? {},
+        });
+      }
+    }
+
+    // assignments came back newest-first → each per-client list inherits
+    // that order.
+    const byClient = new Map<string, IntroLead[]>();
+    for (const a of assignments) {
+      const meta = threadMeta.get(a.target_id);
+      if (!meta || !meta.client_id) continue;
+      const lead = meta.lead_id ? leadById.get(meta.lead_id) : null;
+      const intro: IntroLead = {
+        thread_id: a.target_id,
+        assigned_at: a.assigned_at,
+        lead_name: lead?.full_name ?? null,
+        lead_email: lead?.email ?? null,
+        company: lead?.company ?? null,
+        title: lead?.title ?? null,
+        campaign_name: meta.campaign_name,
+        source_provider: meta.source_provider,
+        subject: meta.subject,
+        custom_fields: lead?.custom_fields ?? {},
+      };
+      const arr = byClient.get(meta.client_id) ?? [];
+      arr.push(intro);
+      byClient.set(meta.client_id, arr);
+    }
+    return byClient;
+  },
+);
+
+// Every Introduction lead for ONE client (our Supabase data only),
+// newest-first. The clientId argument is the hard per-client boundary.
+export async function loadClientIntroLeads(clientId: string): Promise<IntroLead[]> {
+  return (await loadOurIntroLeadsByClient()).get(clientId) ?? [];
 }
 
-// Every Introduction lead for ONE client, newest first. This is the
-// payload behind both the admin drill-down and the public portal — the
-// clientId argument is the hard per-client boundary.
-export async function loadClientIntroLeads(clientId: string): Promise<IntroLead[]> {
-  const admin = createAdminSupabase();
-  const assignments = await loadAllIntroAssignments(admin);
-  if (assignments.length === 0) return [];
+// Dedup key — the same person introduced in the same campaign is ONE
+// introduction, regardless of which MasterInbox reported it.
+function introKey(l: IntroLead): string {
+  return `${(l.lead_email ?? "").toLowerCase().trim()}|${(l.campaign_name ?? "")
+    .toLowerCase()
+    .trim()}`;
+}
 
-  // Resolve threads → keep only the ones belonging to this client.
-  const threadIds = Array.from(new Set(assignments.map((a) => a.target_id)));
-  const threadMeta = new Map<
-    string,
-    {
-      client_id: string | null;
-      lead_id: string | null;
-      campaign_name: string | null;
-      source_provider: string | null;
-      subject: string | null;
+// Merge our Supabase intros with the legacy feed for one client. Ours
+// win on a collision (they carry richer fields — company, title, custom
+// variables). Result is deduped and newest-first.
+function mergeIntros(ours: IntroLead[], external: IntroLead[]): IntroLead[] {
+  const seen = new Set<string>();
+  const merged: IntroLead[] = [];
+  for (const l of [...ours, ...external]) {
+    const k = introKey(l);
+    if (k === "|") {
+      // No email AND no campaign — can't dedup it; keep as-is.
+      merged.push(l);
+      continue;
     }
-  >();
-  for (let i = 0; i < threadIds.length; i += CHUNK) {
-    const slice = threadIds.slice(i, i + CHUNK);
-    const { data } = await admin
-      .from("threads")
-      .select("id, client_id, lead_id, campaign_name, source_provider, subject")
-      .in("id", slice);
-    for (const t of (data ?? []) as Array<{
-      id: string;
-      client_id: string | null;
-      lead_id: string | null;
-      campaign_name: string | null;
-      source_provider: string | null;
-      subject: string | null;
-    }>) {
-      threadMeta.set(t.id, {
-        client_id: t.client_id,
-        lead_id: t.lead_id,
-        campaign_name: t.campaign_name,
-        source_provider: t.source_provider,
-        subject: t.subject,
-      });
-    }
+    if (seen.has(k)) continue;
+    seen.add(k);
+    merged.push(l);
   }
+  merged.sort((a, b) => (b.assigned_at ?? "").localeCompare(a.assigned_at ?? ""));
+  return merged;
+}
 
-  // Lead ids only for this client's threads.
-  const leadIds = new Set<string>();
-  for (const a of assignments) {
-    const meta = threadMeta.get(a.target_id);
-    if (meta?.client_id === clientId && meta.lead_id) leadIds.add(meta.lead_id);
-  }
-  const leadById = new Map<
-    string,
-    {
-      full_name: string | null;
-      email: string | null;
-      company: string | null;
-      title: string | null;
-      custom_fields: Record<string, unknown>;
-    }
-  >();
-  const leadIdList = Array.from(leadIds);
-  for (let i = 0; i < leadIdList.length; i += CHUNK) {
-    const slice = leadIdList.slice(i, i + CHUNK);
-    const { data } = await admin
-      .from("leads")
-      .select("id, full_name, email, company, title, custom_fields")
-      .in("id", slice);
-    for (const l of (data ?? []) as Array<{
-      id: string;
-      full_name: string | null;
-      email: string | null;
-      company: string | null;
-      title: string | null;
-      custom_fields: Record<string, unknown> | null;
-    }>) {
-      leadById.set(l.id, {
-        full_name: l.full_name,
-        email: l.email,
-        company: l.company,
-        title: l.title,
-        custom_fields: l.custom_fields ?? {},
-      });
-    }
-  }
+// THE portal payload: our Supabase Introduction leads + the legacy
+// MasterInbox feed, deduped, newest-first. "Total of everything" for one
+// client. Used by both the public portal and the admin drill-down.
+export async function loadCombinedClientIntroLeads(clientId: string): Promise<IntroLead[]> {
+  const [ourByClient, externalByClient] = await Promise.all([
+    loadOurIntroLeadsByClient(),
+    loadExternalIntrosByClient(),
+  ]);
+  return mergeIntros(ourByClient.get(clientId) ?? [], externalByClient.get(clientId) ?? []);
+}
 
-  const out: IntroLead[] = [];
-  for (const a of assignments) {
-    const meta = threadMeta.get(a.target_id);
-    if (!meta || meta.client_id !== clientId) continue; // per-client boundary
-    const lead = meta.lead_id ? leadById.get(meta.lead_id) : null;
-    out.push({
-      thread_id: a.target_id,
-      assigned_at: a.assigned_at,
-      lead_name: lead?.full_name ?? null,
-      lead_email: lead?.email ?? null,
-      company: lead?.company ?? null,
-      title: lead?.title ?? null,
-      campaign_name: meta.campaign_name,
-      source_provider: meta.source_provider,
-      subject: meta.subject,
-      custom_fields: lead?.custom_fields ?? {},
-    });
+// Combined per-client roll-up for the admin grid — count + most recent,
+// computed from the SAME merged data the portal renders so the admin
+// number always matches the portal total.
+export async function loadCombinedIntroSummaryByClient(): Promise<Map<string, IntroSummary>> {
+  const [ourByClient, externalByClient] = await Promise.all([
+    loadOurIntroLeadsByClient(),
+    loadExternalIntrosByClient(),
+  ]);
+  const out = new Map<string, IntroSummary>();
+  const clientIds = new Set([...ourByClient.keys(), ...externalByClient.keys()]);
+  for (const id of clientIds) {
+    const merged = mergeIntros(ourByClient.get(id) ?? [], externalByClient.get(id) ?? []);
+    let lastAt: string | null = null;
+    for (const l of merged) {
+      if (!lastAt || l.assigned_at > lastAt) lastAt = l.assigned_at;
+    }
+    out.set(id, { count: merged.length, lastAt });
   }
-  // assignments already came back newest-first; preserve that order.
   return out;
 }
 

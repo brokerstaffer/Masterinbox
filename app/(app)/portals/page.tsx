@@ -1,6 +1,6 @@
 import { requireSession } from "@/lib/auth/workspace";
 import { createAdminSupabase } from "@/lib/supabase/admin";
-import { loadIntroSummaryByClient } from "@/lib/portals/intro-leads";
+import { loadCombinedIntroSummaryByClient } from "@/lib/portals/intro-leads";
 import { PortalsAdmin } from "@/components/portals/portals-admin";
 import { CLIENT_PORTALS_ENABLED } from "@/lib/portals/flag";
 import { PortalsComingSoon } from "@/components/portals/portals-coming-soon";
@@ -34,7 +34,7 @@ export default async function PortalsPage() {
       .select("id, name, slug, portal_token, portal_enabled")
       .neq("slug", "unknown")
       .order("name", { ascending: true }),
-    loadIntroSummaryByClient(),
+    loadCombinedIntroSummaryByClient(),
   ]);
 
   const rows: PortalClientRow[] = (clients ?? []).map((c) => {

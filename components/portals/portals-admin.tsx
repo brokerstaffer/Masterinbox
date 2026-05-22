@@ -13,11 +13,11 @@ import {
   Users,
   Globe,
   Sparkles,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
@@ -31,7 +31,7 @@ import type { PortalClientRow } from "@/app/(app)/portals/page";
 
 // Pretty "time ago" — coarse buckets are plenty for a "last intro" column.
 function timeAgo(iso: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "No intros yet";
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "—";
   const secs = Math.floor((Date.now() - then) / 1000);
@@ -69,69 +69,78 @@ export function PortalsAdmin({ rows }: { rows: PortalClientRow[] }) {
   const filtered =
     search.trim().length === 0
       ? rows
-      : rows.filter((r) =>
-          r.name.toLowerCase().includes(search.trim().toLowerCase()),
-        );
+      : rows.filter((r) => r.name.toLowerCase().includes(search.trim().toLowerCase()));
 
   const totalIntros = rows.reduce((n, r) => n + r.intro_count, 0);
   const livePortals = rows.filter((r) => r.portal_enabled && r.portal_token).length;
+  const withIntros = rows.filter((r) => r.intro_count > 0).length;
 
   return (
     // flex-1 + overflow-y-auto: this page lives inside AppShell's <main>,
     // which is overflow-hidden — so the page must own its own scroll.
-    <div className="flex-1 overflow-y-auto bg-[#f4f7fb]">
-      <div className="max-w-5xl mx-auto px-8 py-9">
+    <div className="flex-1 overflow-y-auto bg-[#f6f7f9] text-[#0f1320] antialiased">
+      <div className="mx-auto max-w-5xl px-8 py-10">
         {/* ---- Header ---- */}
-        <div className="flex items-center gap-3.5">
-          <div className="rounded-xl bg-white border border-[#e3e8ef] p-2 shadow-sm">
+        <div className="flex items-start gap-3.5">
+          <div className="rounded-xl border border-[#ebecf0] bg-white p-2 shadow-sm">
             <PortalLogo className="size-8" />
           </div>
           <div>
-            <h1 className="text-[22px] font-semibold tracking-tight text-[#15181e]">
-              Client Portals
-            </h1>
-            <p className="text-sm text-[#5b6370] mt-0.5">
-              Every client gets a private, login-free page of their
-              Introduction leads. Manage the links here.
+            <h1 className="text-[22px] font-semibold tracking-tight">Client Portals</h1>
+            <p className="mt-0.5 max-w-lg text-sm leading-relaxed text-[#5b6472]">
+              Every client gets a private, login-free page of their Introduction
+              leads. Manage and share the links here.
             </p>
           </div>
         </div>
 
         {/* ---- Summary ---- */}
-        <div className="grid grid-cols-3 gap-4 my-7">
-          <SummaryCard icon={Users} label="Clients" value={rows.length} />
-          <SummaryCard icon={Globe} label="Live portals" value={livePortals} />
+        <div className="my-7 grid grid-cols-3 gap-4">
+          <SummaryCard
+            icon={Users}
+            label="Clients"
+            value={rows.length}
+            hint={`${withIntros} with introductions`}
+          />
+          <SummaryCard
+            icon={Globe}
+            label="Live portals"
+            value={livePortals}
+            hint={`of ${rows.length} clients`}
+          />
           <SummaryCard
             icon={Sparkles}
             label="Total introductions"
             value={totalIntros}
+            hint="across all clients"
             accent
           />
         </div>
 
         {/* ---- Search ---- */}
         <div className="relative mb-4 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[#9aa1ac]" />
-          <Input
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#9aa0ab]" />
+          <input
+            type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search clients…"
-            className="pl-9 h-10 text-sm bg-white"
+            className="h-10 w-full rounded-xl border border-[#ebecf0] bg-white pl-9 pr-3 text-sm placeholder:text-[#9aa0ab] focus:border-[#bcd5f1] focus:outline-none focus:ring-2 focus:ring-[#eaf2fd]"
           />
         </div>
 
         {/* ---- Client list ---- */}
-        <div className="rounded-2xl bg-white border border-[#e3e8ef] shadow-sm overflow-hidden">
-          <div className="grid grid-cols-[1fr_88px_120px_80px_136px] gap-3 px-5 py-3 border-b border-[#eef0f3] text-[11px] uppercase tracking-wider text-[#9aa1ac] font-semibold">
+        <div className="overflow-hidden rounded-2xl border border-[#ebecf0] bg-white shadow-sm">
+          <div className="grid grid-cols-[1fr_84px_128px_72px_128px] gap-3 border-b border-[#f0f1f4] bg-[#fafbfc] px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-[#9aa0ab]">
             <div>Client</div>
             <div className="text-center">Intros</div>
             <div>Last intro</div>
-            <div className="text-center">Portal</div>
+            <div className="text-center">Live</div>
             <div className="text-right">Actions</div>
           </div>
 
           {filtered.length === 0 ? (
-            <div className="px-5 py-14 text-center text-sm text-[#9aa1ac]">
+            <div className="px-5 py-16 text-center text-sm text-[#9aa0ab]">
               No clients match “{search}”.
             </div>
           ) : (
@@ -142,7 +151,10 @@ export function PortalsAdmin({ rows }: { rows: PortalClientRow[] }) {
                 onEdit={() => setEditing(r)}
                 onToggle={(enabled) => {
                   void patchPortal(r.id, { portal_enabled: enabled }).then((ok) => {
-                    if (ok) router.refresh();
+                    if (ok) {
+                      toast.success(enabled ? "Portal enabled" : "Portal disabled");
+                      router.refresh();
+                    }
                   });
                 }}
               />
@@ -150,9 +162,9 @@ export function PortalsAdmin({ rows }: { rows: PortalClientRow[] }) {
           )}
         </div>
 
-        <p className="mt-4 text-xs text-[#9aa1ac]">
-          Anyone with a portal link can open it — there is no password. Keep
-          the random suffix in each URL so links can&apos;t be guessed.
+        <p className="mt-4 text-xs leading-relaxed text-[#9aa0ab]">
+          Anyone with a portal link can open it — there is no password. Keep the
+          random suffix in each URL so links can&apos;t be guessed.
         </p>
       </div>
 
@@ -172,40 +184,58 @@ function SummaryCard({
   icon: Icon,
   label,
   value,
+  hint,
   accent,
 }: {
   icon: typeof Users;
   label: string;
   value: number;
+  hint: string;
   accent?: boolean;
 }) {
   return (
     <div
       className={cn(
-        "rounded-2xl border p-5 shadow-sm",
+        "relative overflow-hidden rounded-2xl border p-5 shadow-sm",
         accent
-          ? "bg-gradient-to-br from-[#1565C0] to-[#1e88e5] border-[#1565C0] text-white"
-          : "bg-white border-[#e3e8ef]",
+          ? "border-transparent bg-gradient-to-br from-[#1565C0] to-[#2f7fe0] text-white"
+          : "border-[#ebecf0] bg-white",
       )}
     >
-      <div
-        className={cn(
-          "inline-flex items-center justify-center size-9 rounded-xl",
-          accent ? "bg-white/15" : "bg-[#E3F0FF]",
-        )}
-      >
-        <Icon className={cn("size-[18px]", accent ? "text-white" : "text-[#1565C0]")} />
-      </div>
-      <div
-        className={cn(
-          "mt-3 text-3xl font-semibold tabular-nums tracking-tight",
-          accent ? "text-white" : "text-[#15181e]",
-        )}
-      >
-        {value}
-      </div>
-      <div className={cn("text-[13px] mt-0.5", accent ? "text-white/80" : "text-[#5b6370]")}>
-        {label}
+      {accent ? (
+        <div
+          className="pointer-events-none absolute -right-8 -top-10 size-36 rounded-full opacity-40 blur-2xl"
+          style={{ background: "radial-gradient(circle, #ffffff 0%, transparent 70%)" }}
+        />
+      ) : null}
+      <div className="relative">
+        <div
+          className={cn(
+            "inline-flex size-9 items-center justify-center rounded-xl",
+            accent ? "bg-white/15" : "bg-[#eaf2fd]",
+          )}
+        >
+          <Icon className={cn("size-[18px]", accent ? "text-white" : "text-[#1565C0]")} />
+        </div>
+        <div
+          className={cn(
+            "mt-3 text-[34px] font-semibold leading-none tracking-tight tabular-nums",
+            accent ? "text-white" : "text-[#0f1320]",
+          )}
+        >
+          {value}
+        </div>
+        <div
+          className={cn(
+            "mt-1.5 text-[13px] font-medium",
+            accent ? "text-white" : "text-[#0f1320]",
+          )}
+        >
+          {label}
+        </div>
+        <div className={cn("text-[11.5px]", accent ? "text-white/70" : "text-[#9aa0ab]")}>
+          {hint}
+        </div>
       </div>
     </div>
   );
@@ -222,6 +252,7 @@ function PortalRow({
 }) {
   const [copied, setCopied] = useState(false);
   const portalPath = row.portal_token ? `/portal/${row.portal_token}` : null;
+  const isLive = Boolean(row.portal_enabled && portalPath);
 
   function copyLink() {
     if (!portalPath) return;
@@ -237,25 +268,24 @@ function PortalRow({
   }
 
   return (
-    <div className="grid grid-cols-[1fr_88px_120px_80px_136px] gap-3 px-5 py-3.5 items-center border-b border-[#eef0f3] last:border-0 hover:bg-[#f4f7fb] transition-colors">
+    <div className="grid grid-cols-[1fr_84px_128px_72px_128px] items-center gap-3 border-b border-[#f0f1f4] px-5 py-3.5 transition-colors last:border-0 hover:bg-[#fafbfc]">
       {/* Client */}
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="size-9 shrink-0 rounded-lg bg-[#E3F0FF] text-[#1565C0] flex items-center justify-center text-xs font-semibold">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#eaf2fd] text-xs font-semibold text-[#1565C0]">
           {clientInitials(row.name)}
         </div>
         <div className="min-w-0">
           <Link
             href={`/portals/${row.id}`}
-            className="font-medium text-[#15181e] hover:text-[#1565C0] transition-colors block truncate"
+            className="group block truncate text-[14px] font-medium transition-colors hover:text-[#1565C0]"
           >
             {row.name}
+            <ChevronRight className="ml-0.5 inline size-3.5 -translate-y-px text-[#c2c7d0] transition-transform group-hover:translate-x-0.5 group-hover:text-[#1565C0]" />
           </Link>
           {portalPath ? (
-            <div className="text-[11px] text-[#9aa1ac] font-mono truncate">
-              {portalPath}
-            </div>
+            <div className="truncate font-mono text-[11px] text-[#9aa0ab]">{portalPath}</div>
           ) : (
-            <div className="text-[11px] text-[#9aa1ac]">No portal URL</div>
+            <div className="text-[11px] text-[#c23934]">No portal URL set</div>
           )}
         </div>
       </div>
@@ -264,10 +294,10 @@ function PortalRow({
       <div className="flex justify-center">
         <span
           className={cn(
-            "inline-flex items-center justify-center min-w-8 h-7 px-2.5 rounded-full text-[13px] font-semibold tabular-nums",
+            "inline-flex h-7 min-w-9 items-center justify-center rounded-full px-2.5 text-[13px] font-semibold tabular-nums",
             row.intro_count > 0
-              ? "bg-[#E3F0FF] text-[#1565C0]"
-              : "bg-[#f0f1f4] text-[#9aa1ac]",
+              ? "bg-[#eaf2fd] text-[#1565C0]"
+              : "bg-[#f0f1f4] text-[#9aa0ab]",
           )}
         >
           {row.intro_count}
@@ -275,7 +305,7 @@ function PortalRow({
       </div>
 
       {/* Last intro */}
-      <div className="text-[13px] text-[#5b6370]">{timeAgo(row.last_intro_at)}</div>
+      <div className="text-[13px] text-[#5b6472]">{timeAgo(row.last_intro_at)}</div>
 
       {/* Portal toggle */}
       <div className="flex justify-center">
@@ -295,12 +325,12 @@ function PortalRow({
           disabled={!portalPath}
         />
         <IconAction icon={Pencil} label="Edit URL" onClick={onEdit} />
-        {portalPath && row.portal_enabled ? (
+        {isLive && portalPath ? (
           <a
             href={portalPath}
             target="_blank"
             rel="noopener"
-            className="size-8 rounded-lg inline-flex items-center justify-center text-[#9aa1ac] hover:bg-white hover:text-[#1565C0] hover:shadow-sm transition-all"
+            className="inline-flex size-8 items-center justify-center rounded-lg text-[#9aa0ab] transition-all hover:bg-[#eaf2fd] hover:text-[#1565C0]"
             aria-label="Open live portal"
             title="Open live portal"
           >
@@ -332,7 +362,7 @@ function IconAction({
       disabled={disabled}
       aria-label={label}
       title={label}
-      className="size-8 rounded-lg inline-flex items-center justify-center text-[#9aa1ac] hover:bg-white hover:text-[#15181e] hover:shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:shadow-none"
+      className="inline-flex size-8 items-center justify-center rounded-lg text-[#9aa0ab] transition-all hover:bg-[#f0f2f5] hover:text-[#0f1320] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
     >
       <Icon className="size-4" />
     </button>
@@ -409,23 +439,23 @@ function EditPortalUrlDialog({
           <DialogTitle>Portal URL — {row.name}</DialogTitle>
         </DialogHeader>
         <div className="space-y-2">
-          <label className="text-xs font-medium">Custom URL slug</label>
-          <div className="flex items-center rounded-md border bg-background overflow-hidden">
-            <span className="px-2.5 text-xs text-muted-foreground border-r bg-muted/50 py-2 whitespace-nowrap">
+          <label className="text-xs font-medium text-[#5b6472]">Custom URL slug</label>
+          <div className="flex items-center overflow-hidden rounded-lg border border-[#ebecf0] bg-white focus-within:border-[#bcd5f1] focus-within:ring-2 focus-within:ring-[#eaf2fd]">
+            <span className="whitespace-nowrap border-r border-[#ebecf0] bg-[#fafbfc] px-2.5 py-2 font-mono text-xs text-[#9aa0ab]">
               /portal/
             </span>
             <input
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              className="flex-1 px-2.5 py-2 text-sm bg-transparent focus:outline-none font-mono"
+              className="flex-1 bg-transparent px-2.5 py-2 font-mono text-sm focus:outline-none"
               placeholder="brooklyn-group-a1b2c3"
               autoFocus
             />
           </div>
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            Anyone with this link can view the portal — there is no password.
-            Keep the random suffix so it can&apos;t be guessed. Letters,
-            numbers, hyphens and underscores only; 8 characters minimum.
+          <p className="text-[11px] leading-relaxed text-[#9aa0ab]">
+            Anyone with this link can view the portal — there is no password. Keep
+            the random suffix so it can&apos;t be guessed. Letters, numbers,
+            hyphens and underscores only; 8 characters minimum.
           </p>
         </div>
         <DialogFooter>

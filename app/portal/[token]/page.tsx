@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { createAdminSupabase } from "@/lib/supabase/admin";
-import { loadClientIntroLeads } from "@/lib/portals/intro-leads";
+import { loadCombinedClientIntroLeads } from "@/lib/portals/intro-leads";
 import { computePortalMetrics } from "@/lib/portals/metrics";
 import { ClientPortalView } from "@/components/portals/client-portal";
 import { PortalLogo } from "@/components/portals/portal-logo";
@@ -46,7 +46,7 @@ export default async function PortalPage(props: {
 
   if (!client) return <PortalNotFound />;
 
-  const leads = await loadClientIntroLeads(client.id);
+  const leads = await loadCombinedClientIntroLeads(client.id);
   const metrics = computePortalMetrics(leads, 12);
 
   return <ClientPortalView clientName={client.name} leads={leads} metrics={metrics} />;

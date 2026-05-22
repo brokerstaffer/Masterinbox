@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ChevronLeft, ExternalLink } from "lucide-react";
 import { requireSession } from "@/lib/auth/workspace";
 import { createAdminSupabase } from "@/lib/supabase/admin";
-import { loadClientIntroLeads } from "@/lib/portals/intro-leads";
+import { loadCombinedClientIntroLeads } from "@/lib/portals/intro-leads";
 import { computePortalMetrics } from "@/lib/portals/metrics";
 import { ClientPortalView } from "@/components/portals/client-portal";
 import { CLIENT_PORTALS_ENABLED } from "@/lib/portals/flag";
@@ -29,7 +29,7 @@ export default async function PortalDrilldownPage(props: {
     .maybeSingle();
   if (!client || client.slug === "unknown") notFound();
 
-  const leads = await loadClientIntroLeads(client.id as string);
+  const leads = await loadCombinedClientIntroLeads(client.id as string);
   const metrics = computePortalMetrics(leads, 12);
   const portalPath = client.portal_token ? `/portal/${client.portal_token}` : null;
 
