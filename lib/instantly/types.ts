@@ -93,6 +93,9 @@ export interface InstantlyLeadSummary {
   website?: string | null;
   // Every campaign custom variable Instantly holds for the lead.
   payload?: Record<string, unknown> | null;
+  // Set when the lead currently sits in a subsequence.
+  subsequence_id?: string | null;
+  timestamp_added_subsequence?: string | null;
 }
 
 // Live-verified shape. Quirk: the POST endpoint requires `target_hook_url`
