@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
 const patchSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   body: z.string().max(8000).optional(),
+  category: z.string().trim().max(60).nullable().optional(),
   sort_order: z.number().int().optional(),
 });
 

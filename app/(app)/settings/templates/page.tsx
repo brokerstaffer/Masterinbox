@@ -10,7 +10,7 @@ export default async function TemplatesSettingsPage() {
   const supabase = await createServerSupabase();
   const { data } = await supabase
     .from("reply_templates")
-    .select("id, name, body, sort_order")
+    .select("id, name, body, category, sort_order")
     .eq("workspace_id", session.activeWorkspace.id)
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
@@ -19,6 +19,7 @@ export default async function TemplatesSettingsPage() {
     id: t.id as string,
     name: t.name as string,
     body: t.body as string,
+    category: (t.category as string | null) ?? null,
   }));
 
   return (

@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
 const createSchema = z.object({
   name: z.string().trim().min(1).max(80),
   body: z.string().max(8000).default(""),
+  category: z.string().trim().max(60).nullable().optional(),
 });
 
 export async function GET() {
@@ -18,7 +19,7 @@ export async function GET() {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
     .from("reply_templates")
-    .select("id, name, body, sort_order")
+    .select("id, name, body, category, sort_order")
     .eq("workspace_id", session.activeWorkspace.id)
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
@@ -53,9 +54,10 @@ export async function POST(request: Request) {
       workspace_id: session.activeWorkspace.id,
       name: parsed.data.name,
       body: parsed.data.body,
+      category: parsed.data.category || null,
       sort_order: nextOrder,
     })
-    .select("id, name, body, sort_order")
+    .select("id, name, body, category, sort_order")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json({ template: data });

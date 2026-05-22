@@ -601,12 +601,19 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+interface PickerTemplate {
+  id: string;
+  name: string;
+  body: string;
+  category: string | null;
+}
+
+const UNCATEGORISED_LABEL = "Uncategorised";
+
 // Footer "Templates" button — lazy-loads the workspace's reply templates
-// on first open, then inserts the chosen one into the composer body.
+// on first open, grouped by category, then inserts the chosen one.
 function TemplatePicker({ onInsert }: { onInsert: (body: string) => void }) {
-  const [items, setItems] = useState<
-    Array<{ id: string; name: string; body: string }> | null
-  >(null);
+  const [items, setItems] = useState<PickerTemplate[] | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function ensureLoaded() {
@@ -614,15 +621,34 @@ function TemplatePicker({ onInsert }: { onInsert: (body: string) => void }) {
     setLoading(true);
     try {
       const res = await fetch("/api/reply-templates", { cache: "no-store" });
-      const json = (await res.json()) as {
-        templates?: Array<{ id: string; name: string; body: string }>;
-      };
+      const json = (await res.json()) as { templates?: PickerTemplate[] };
       setItems(json.templates ?? []);
     } catch {
       setItems([]);
     } finally {
       setLoading(false);
     }
+  }
+
+  // Group by category — named categories alphabetically, uncategorised last.
+  const groups: Array<{ category: string; templates: PickerTemplate[] }> = [];
+  if (items) {
+    const map = new Map<string, PickerTemplate[]>();
+    for (const t of items) {
+      const cat = (t.category ?? "").trim() || UNCATEGORISED_LABEL;
+      const list = map.get(cat) ?? [];
+      list.push(t);
+      map.set(cat, list);
+    }
+    groups.push(
+      ...[...map.entries()]
+        .map(([category, templates]) => ({ category, templates }))
+        .sort((a, b) => {
+          if (a.category === UNCATEGORISED_LABEL) return 1;
+          if (b.category === UNCATEGORISED_LABEL) return -1;
+          return a.category.localeCompare(b.category);
+        }),
+    );
   }
 
   return (
@@ -640,7 +666,7 @@ function TemplatePicker({ onInsert }: { onInsert: (body: string) => void }) {
           </button>
         }
       />
-      <DropdownMenuContent align="start" className="w-72 max-h-72 overflow-y-auto">
+      <DropdownMenuContent align="start" className="w-72 max-h-80 overflow-y-auto">
         {loading ? (
           <div className="px-3 py-3 text-sm text-muted-foreground flex items-center gap-2">
             <Loader2 className="size-3.5 animate-spin" />
@@ -651,17 +677,24 @@ function TemplatePicker({ onInsert }: { onInsert: (body: string) => void }) {
             No templates yet. Create them in Settings → Templates.
           </div>
         ) : (
-          (items ?? []).map((t) => (
-            <DropdownMenuItem
-              key={t.id}
-              onClick={() => onInsert(t.body)}
-              className="flex flex-col items-start gap-0.5"
-            >
-              <span className="text-sm font-medium">{t.name}</span>
-              <span className="text-[11px] text-muted-foreground line-clamp-2 whitespace-pre-wrap">
-                {t.body || "(empty)"}
-              </span>
-            </DropdownMenuItem>
+          groups.map((g) => (
+            <div key={g.category}>
+              <div className="px-2.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {g.category}
+              </div>
+              {g.templates.map((t) => (
+                <DropdownMenuItem
+                  key={t.id}
+                  onClick={() => onInsert(t.body)}
+                  className="flex flex-col items-start gap-0.5"
+                >
+                  <span className="text-sm font-medium">{t.name}</span>
+                  <span className="text-[11px] text-muted-foreground line-clamp-2 whitespace-pre-wrap">
+                    {t.body || "(empty)"}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </div>
           ))
         )}
       </DropdownMenuContent>
