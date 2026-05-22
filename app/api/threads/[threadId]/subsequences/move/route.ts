@@ -57,7 +57,7 @@ export async function POST(
   const admin = createAdminSupabase();
   const { data: thread } = await admin
     .from("threads")
-    .select("id, source_provider, lead_id")
+    .select("id, source_provider, lead_id, subsequence_id")
     .eq("id", threadId)
     .maybeSingle();
   if (!thread) {
@@ -73,6 +73,14 @@ export async function POST(
     return NextResponse.json(
       { error: "Thread has no lead." },
       { status: 400 },
+    );
+  }
+  // A lead can only be in one subsequence at a time — block re-adding.
+  // The UI disables the button too; this guards a stale client.
+  if (thread.subsequence_id) {
+    return NextResponse.json(
+      { error: "This lead is already in a subsequence." },
+      { status: 409 },
     );
   }
 

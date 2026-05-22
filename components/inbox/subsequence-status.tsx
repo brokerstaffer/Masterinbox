@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ListChecks } from "lucide-react";
+import { ListChecks, ListPlus } from "lucide-react";
+import { SubsequencePicker } from "@/components/inbox/subsequence-picker";
 
 interface Status {
   loading: boolean;
@@ -10,11 +11,13 @@ interface Status {
   addedAt: string | null;
 }
 
-// Shows — when true — that the thread's lead is already sitting in an
-// Instantly subsequence, so the user doesn't move them into one twice.
-// Loads lazily on mount; renders nothing until/unless a subsequence is
-// confirmed (no noise on the common "not in one" case).
-export function SubsequenceStatus({ threadId }: { threadId: string }) {
+// Subsequence area of the prospect panel. Loads the lead's current
+// subsequence status, then either:
+//   - shows the "Add to subsequence" picker (lead not in one), or
+//   - shows an "Already in a subsequence" notice + a DISABLED button —
+//     a lead can only be in one subsequence at a time, so re-adding is
+//     blocked until they're removed in Instantly.
+export function SubsequenceSection({ threadId }: { threadId: string }) {
   const [status, setStatus] = useState<Status>({
     loading: true,
     inSubsequence: false,
@@ -44,25 +47,50 @@ export function SubsequenceStatus({ threadId }: { threadId: string }) {
     };
   }, [threadId]);
 
-  if (status.loading || !status.inSubsequence) return null;
+  // While the status loads, keep the button disabled so a lead can't be
+  // added before we know whether they're already in a subsequence.
+  if (status.loading) {
+    return <DisabledAddButton label="Add to subsequence" />;
+  }
 
-  return (
-    <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-amber-900">
-      <ListChecks className="mt-0.5 size-3.5 shrink-0" />
-      <div className="min-w-0">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
-          Already in a subsequence
-        </div>
-        <div className="text-[13px] font-medium break-words">
-          {status.name ?? "Active subsequence"}
-        </div>
-        {status.addedAt ? (
-          <div className="text-[11px] text-amber-700/80">
-            Added {fmtAdded(status.addedAt)}
+  if (status.inSubsequence) {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-amber-900">
+          <ListChecks className="mt-0.5 size-3.5 shrink-0" />
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+              Already in a subsequence
+            </div>
+            <div className="text-[13px] font-medium break-words">
+              {status.name ?? "Active subsequence"}
+            </div>
+            {status.addedAt ? (
+              <div className="text-[11px] text-amber-700/80">
+                Added {fmtAdded(status.addedAt)}
+              </div>
+            ) : null}
           </div>
-        ) : null}
+        </div>
+        <DisabledAddButton label="Already in a subsequence" />
       </div>
-    </div>
+    );
+  }
+
+  return <SubsequencePicker threadId={threadId} />;
+}
+
+function DisabledAddButton({ label }: { label: string }) {
+  return (
+    <button
+      type="button"
+      disabled
+      title="This lead is already in a subsequence — remove them in Instantly before adding to another."
+      className="w-full inline-flex items-center justify-center gap-2 h-9 px-3 rounded-md border bg-muted/40 text-sm font-medium text-muted-foreground cursor-not-allowed"
+    >
+      <ListPlus className="size-3.5" />
+      {label}
+    </button>
   );
 }
 

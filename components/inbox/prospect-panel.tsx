@@ -15,8 +15,7 @@ import {
   Inbox,
 } from "lucide-react";
 import { LabelChip } from "@/components/inbox/label-chip";
-import { SubsequencePicker } from "@/components/inbox/subsequence-picker";
-import { SubsequenceStatus } from "@/components/inbox/subsequence-status";
+import { SubsequenceSection } from "@/components/inbox/subsequence-status";
 import { FollowupCampaignPicker } from "@/components/inbox/followup-campaign-picker";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -287,9 +286,8 @@ function DetailsTab({
 
         {/* Provider-specific sequencing action. */}
         {detail.source_provider === "instantly" && detail.campaign_name ? (
-          <div className="mt-3 space-y-2">
-            <SubsequenceStatus threadId={detail.id} />
-            <SubsequencePicker threadId={detail.id} />
+          <div className="mt-3">
+            <SubsequenceSection threadId={detail.id} />
           </div>
         ) : null}
         {detail.source_provider === "emailbison" ? (
