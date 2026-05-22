@@ -10,10 +10,22 @@ import { createInstantlyClient } from "@/lib/instantly/client";
 // EmailBison  → POST /api/blacklisted-emails  { email }
 // Instantly   → POST /block-lists-entries     { bl_value: email }
 //
-// Errors are swallowed and logged — a blocklist hiccup must never break
-// labeling or a webhook ack.
+// Returns a DncResult so callers (and the bulk backfill script) can
+// report exactly what happened per lead. Errors are caught — a blocklist
+// hiccup must never break labeling or a webhook ack.
 
-export async function markThreadLeadDoNotContact(threadId: string): Promise<void> {
+export interface DncResult {
+  ok: boolean;
+  email: string | null;
+  platform: "emailbison" | "instantly" | null;
+  // blocked → pushed to the blocklist; the rest are why it didn't happen.
+  status: "blocked" | "no_lead" | "no_email" | "unsupported_provider" | "error";
+  error?: string;
+}
+
+export async function markThreadLeadDoNotContact(threadId: string): Promise<DncResult> {
+  let email: string | null = null;
+  let platform: "emailbison" | "instantly" | null = null;
   try {
     const admin = createAdminSupabase();
     const { data: thread } = await admin
@@ -21,17 +33,23 @@ export async function markThreadLeadDoNotContact(threadId: string): Promise<void
       .select("id, source_provider, lead_id, channel_id")
       .eq("id", threadId)
       .maybeSingle();
-    if (!thread?.lead_id) return;
+    if (!thread?.lead_id) {
+      return { ok: false, email: null, platform: null, status: "no_lead" };
+    }
 
     const { data: lead } = await admin
       .from("leads")
       .select("email")
       .eq("id", thread.lead_id)
       .maybeSingle();
-    const email = (lead?.email as string | null)?.trim();
-    if (!email) return;
+    email = (lead?.email as string | null)?.trim() ?? null;
+    if (!email) {
+      return { ok: false, email: null, platform: null, status: "no_email" };
+    }
 
-    if (thread.source_provider === "emailbison") {
+    platform = (thread.source_provider as "emailbison" | "instantly" | null) ?? null;
+
+    if (platform === "emailbison") {
       const eb = createEmailBisonClient();
       // The blacklist is team-scoped — switch into the thread's team
       // first so the address is blocked in the right place.
@@ -46,13 +64,26 @@ export async function markThreadLeadDoNotContact(threadId: string): Promise<void
       }
       await eb.blacklistEmail(email);
       console.log(`[dnc] blacklisted ${email} on EmailBison`);
-    } else if (thread.source_provider === "instantly") {
+      return { ok: true, email, platform, status: "blocked" };
+    }
+
+    if (platform === "instantly") {
       const inst = createInstantlyClient();
       await inst.blockEmail(email);
       console.log(`[dnc] blocked ${email} on Instantly`);
+      return { ok: true, email, platform, status: "blocked" };
     }
+
+    return { ok: false, email, platform, status: "unsupported_provider" };
   } catch (err) {
     console.error("[dnc] markThreadLeadDoNotContact failed", err);
+    return {
+      ok: false,
+      email,
+      platform,
+      status: "error",
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 

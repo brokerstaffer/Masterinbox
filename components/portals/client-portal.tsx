@@ -32,11 +32,6 @@ interface Props {
 }
 
 const ACCENT = "#1565C0";
-const SOURCE_COLORS: Record<string, string> = {
-  instantly: "#1565C0",
-  emailbison: "#7c5cff",
-  other: "#94a3b8",
-};
 
 export function ClientPortalView({ clientName, leads, metrics, adminPreview }: Props) {
   return (
@@ -130,23 +125,25 @@ export function ClientPortalView({ clientName, leads, metrics, adminPreview }: P
           <GrowthChart points={metrics.cumulative} />
         </Panel>
 
-        {/* Weekly volume + Source */}
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[1.6fr_1fr]">
-          <Panel title="Weekly volume" subtitle={`Last ${metrics.weekly.length} weeks`}>
-            <WeeklyBars weekly={metrics.weekly} />
-          </Panel>
-          <Panel title="By source" subtitle="Where introductions originate">
-            <SourceDonut metrics={metrics} />
-          </Panel>
-        </div>
+        {/* Weekly volume — full width for the 12-bar series */}
+        <Panel
+          className="mt-4"
+          title="Weekly volume"
+          subtitle={`Introductions over the last ${metrics.weekly.length} weeks`}
+        >
+          <BarChart data={metrics.weekly.map((w) => ({ label: w.label, value: w.count }))} />
+        </Panel>
 
         {/* Monthly + Weekday */}
         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Panel title="Monthly performance" subtitle="Trailing 6 months">
-            <MonthlyBars monthly={metrics.monthly} />
+            <BarChart
+              data={metrics.monthly.map((m) => ({ label: m.label, value: m.count }))}
+              highlightLast
+            />
           </Panel>
           <Panel title="Day of week" subtitle="When introductions land">
-            <WeekdayBars metrics={metrics} />
+            <BarChart data={metrics.byWeekday.map((d) => ({ label: d.day, value: d.count }))} />
           </Panel>
         </div>
 
@@ -287,58 +284,145 @@ function Panel({
 
 /* ============================ charts ============================ */
 
+// Tiny hook — flips true on the first frame after mount so charts can
+// animate in (bars grow, the line draws). One pass, no loop.
+function useMounted(): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setOn(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  return on;
+}
+
+// Catmull-Rom → cubic Bézier, so the cumulative line is a smooth curve
+// rather than jagged segments.
+function smoothLine(pts: { x: number; y: number }[]): string {
+  if (pts.length === 0) return "";
+  if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y}`;
+  const t = 0.16; // smoothing tension
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const c1x = p1.x + (p2.x - p0.x) * t;
+    const c1y = p1.y + (p2.y - p0.y) * t;
+    const c2x = p2.x - (p3.x - p1.x) * t;
+    const c2y = p2.y - (p3.y - p1.y) * t;
+    d += ` C ${c1x.toFixed(2)} ${c1y.toFixed(2)}, ${c2x.toFixed(2)} ${c2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+  }
+  return d;
+}
+
+// Cumulative growth — smooth gradient area + glowing line that draws in
+// on mount. Fixed-aspect viewBox so the endpoint node stays a true
+// circle (the old preserveAspectRatio="none" stretched it into a blob).
 function GrowthChart({ points }: { points: { label: string; total: number }[] }) {
+  const mounted = useMounted();
   if (points.length === 0) return <ChartEmpty />;
-  const W = 100;
-  const H = 46;
-  const PAD_T = 5;
-  const PAD_B = 6;
+
+  const W = 600;
+  const H = 200;
+  const padT = 22;
+  const padB = 24;
+  const padL = 8;
+  const padR = 12;
   const max = Math.max(1, ...points.map((p) => p.total));
   const n = points.length;
-  const x = (i: number) => (n === 1 ? W / 2 : (i / (n - 1)) * W);
-  const y = (v: number) => H - PAD_B - (v / max) * (H - PAD_T - PAD_B);
-
-  const line = points.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(p.total)}`).join(" ");
-  const area = `${line} L ${x(n - 1)} ${H} L ${x(0)} ${H} Z`;
+  const x = (i: number) =>
+    padL + (n === 1 ? (W - padL - padR) / 2 : (i / (n - 1)) * (W - padL - padR));
+  const y = (v: number) => H - padB - (v / max) * (H - padT - padB);
+  const coords = points.map((p, i) => ({ x: x(i), y: y(p.total) }));
+  const line = smoothLine(coords);
+  const area = `${line} L ${coords[n - 1].x} ${H - padB} L ${coords[0].x} ${H - padB} Z`;
   const last = points[n - 1];
+  const lp = coords[n - 1];
 
   return (
-    <div className="mt-4">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-40 w-full">
-        <defs>
-          <linearGradient id="growthFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={ACCENT} stopOpacity="0.18" />
-            <stop offset="100%" stopColor={ACCENT} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {/* gridlines */}
-        {[0.25, 0.5, 0.75, 1].map((g) => (
-          <line
-            key={g}
-            x1="0"
-            x2={W}
-            y1={y(max * g)}
-            y2={y(max * g)}
-            stroke="#eef0f3"
-            strokeWidth="0.4"
-            vectorEffect="non-scaling-stroke"
+    <div className="mt-5">
+      <div className="aspect-[3/1] w-full">
+        <svg viewBox={`0 0 ${W} ${H}`} className="h-full w-full overflow-visible">
+          <defs>
+            <linearGradient id="growthArea" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={ACCENT} stopOpacity="0.22" />
+              <stop offset="55%" stopColor={ACCENT} stopOpacity="0.06" />
+              <stop offset="100%" stopColor={ACCENT} stopOpacity="0" />
+            </linearGradient>
+            <linearGradient id="growthLine" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#5fa0ee" />
+              <stop offset="100%" stopColor="#1257b0" />
+            </linearGradient>
+            <filter id="growthGlow" x="-20%" y="-60%" width="140%" height="220%">
+              <feGaussianBlur stdDeviation="5" />
+            </filter>
+          </defs>
+
+          {/* gridlines */}
+          {[0, 0.25, 0.5, 0.75, 1].map((g) => (
+            <line
+              key={g}
+              x1={padL}
+              x2={W - padR}
+              y1={y(max * g)}
+              y2={y(max * g)}
+              stroke="#eef0f3"
+              strokeWidth="1"
+            />
+          ))}
+
+          {/* area */}
+          <path
+            d={area}
+            fill="url(#growthArea)"
+            style={{ opacity: mounted ? 1 : 0, transition: "opacity 0.9s ease-out" }}
           />
-        ))}
-        <path d={area} fill="url(#growthFill)" />
-        <path
-          d={line}
-          fill="none"
-          stroke={ACCENT}
-          strokeWidth="1.8"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-          vectorEffect="non-scaling-stroke"
-        />
-        <circle cx={x(n - 1)} cy={y(last.total)} r="4.5" fill={ACCENT} opacity="0.16" />
-        <circle cx={x(n - 1)} cy={y(last.total)} r="2.2" fill={ACCENT} />
-      </svg>
-      <div className="mt-2 flex justify-between text-[10px] text-[#9aa0ab]">
-        <span>{points[0].label}</span>
+
+          {/* glow + line, drawn in via dashoffset (pathLength normalises to 1) */}
+          <path
+            d={line}
+            fill="none"
+            stroke={ACCENT}
+            strokeWidth="6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            opacity="0.16"
+            filter="url(#growthGlow)"
+            pathLength={1}
+            strokeDasharray={1}
+            strokeDashoffset={mounted ? 0 : 1}
+            style={{ transition: "stroke-dashoffset 1.1s ease-out" }}
+          />
+          <path
+            d={line}
+            fill="none"
+            stroke="url(#growthLine)"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            pathLength={1}
+            strokeDasharray={1}
+            strokeDashoffset={mounted ? 0 : 1}
+            style={{ transition: "stroke-dashoffset 1.1s ease-out" }}
+          />
+
+          {/* endpoint node */}
+          <g
+            style={{
+              opacity: mounted ? 1 : 0,
+              transition: "opacity 0.4s ease-out 0.9s",
+            }}
+          >
+            <circle cx={lp.x} cy={lp.y} r="13" fill={ACCENT} opacity="0.1" />
+            <circle cx={lp.x} cy={lp.y} r="6.5" fill={ACCENT} opacity="0.22" />
+            <circle cx={lp.x} cy={lp.y} r="4.5" fill={ACCENT} />
+            <circle cx={lp.x} cy={lp.y} r="1.8" fill="#fff" />
+          </g>
+        </svg>
+      </div>
+      <div className="mt-2 flex justify-between text-[11px]">
+        <span className="text-[#9aa0ab]">{points[0].label}</span>
         <span className="font-semibold text-[#1565C0]">
           {last.total.toLocaleString()} total · week of {last.label}
         </span>
@@ -347,63 +431,60 @@ function GrowthChart({ points }: { points: { label: string; total: number }[] })
   );
 }
 
-function WeeklyBars({
-  weekly,
+// One bar chart for weekly / monthly / weekday. Every bar sits in a faint
+// full-height track so the chart reads as a deliberate grid even when the
+// data is sparse — the old version just showed empty space. Bars grow in
+// on mount; the peak bar is emphasised.
+function BarChart({
+  data,
+  highlightLast,
 }: {
-  weekly: { weekStart: string; label: string; count: number }[];
+  data: { label: string; value: number }[];
+  // monthly → emphasise the current (last) month rather than the max bar.
+  highlightLast?: boolean;
 }) {
-  const max = Math.max(1, ...weekly.map((b) => b.count));
+  const mounted = useMounted();
+  const max = Math.max(1, ...data.map((d) => d.value));
+  const hasData = data.some((d) => d.value > 0);
+  if (!hasData) return <ChartEmpty />;
+
   return (
-    <div className="mt-5 flex h-32 items-end gap-1.5">
-      {weekly.map((b) => {
-        const pct = (b.count / max) * 100;
+    <div className="mt-5 flex items-end gap-1.5 sm:gap-2">
+      {data.map((d, i) => {
+        const pct = (d.value / max) * 100;
+        const isPeak = highlightLast
+          ? i === data.length - 1
+          : d.value === max && d.value > 0;
         return (
-          <div key={b.weekStart} className="group flex flex-1 flex-col items-center gap-1.5">
-            <div className="relative flex w-full flex-1 items-end">
-              <div
-                className="w-full rounded-md bg-gradient-to-t from-[#1565C0] to-[#4a93e8] transition-all duration-200 group-hover:from-[#1e88e5] group-hover:to-[#6aa9ef]"
-                style={{ height: `${Math.max(pct, b.count > 0 ? 6 : 2)}%` }}
-              />
-              {b.count > 0 ? (
-                <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[11px] font-semibold tabular-nums text-[#1565C0] opacity-0 transition-opacity group-hover:opacity-100">
-                  {b.count}
-                </span>
+          <div key={`${d.label}-${i}`} className="group flex flex-1 flex-col items-center">
+            {/* track */}
+            <div className="relative flex h-32 w-full items-end overflow-hidden rounded-full bg-[#f1f3f6]">
+              {d.value > 0 ? (
+                <div
+                  className={cn(
+                    "w-full rounded-full transition-[height] duration-700 ease-out",
+                    isPeak
+                      ? "bg-gradient-to-t from-[#0d4f9e] to-[#3b8ae5] shadow-[0_2px_12px_rgba(21,101,192,0.4)]"
+                      : "bg-gradient-to-t from-[#6ba6e6] to-[#a8caf2] group-hover:from-[#1565C0] group-hover:to-[#5fa0ee]",
+                  )}
+                  style={{ height: mounted ? `${Math.max(pct, 14)}%` : "0%" }}
+                />
               ) : null}
             </div>
-            <span className="whitespace-nowrap text-[9px] text-[#9aa0ab]">{b.label}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function MonthlyBars({ monthly }: { monthly: { key: string; label: string; count: number }[] }) {
-  const max = Math.max(1, ...monthly.map((m) => m.count));
-  const total = monthly.reduce((s, m) => s + m.count, 0);
-  if (total === 0) return <ChartEmpty />;
-  return (
-    <div className="mt-5 flex h-32 items-end gap-3">
-      {monthly.map((m, i) => {
-        const pct = (m.count / max) * 100;
-        const isLast = i === monthly.length - 1;
-        return (
-          <div key={m.key} className="flex flex-1 flex-col items-center gap-1.5">
-            <div className="relative flex w-full flex-1 items-end">
-              {m.count > 0 ? (
-                <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[11px] font-semibold tabular-nums text-[#0f1320]">
-                  {m.count}
-                </span>
-              ) : null}
-              <div
+            {/* value + label */}
+            <div className="mt-2 flex flex-col items-center leading-tight">
+              <span
                 className={cn(
-                  "w-full rounded-md transition-all",
-                  isLast ? "bg-gradient-to-t from-[#1565C0] to-[#4a93e8]" : "bg-[#cdddf2]",
+                  "text-[12px] font-semibold tabular-nums",
+                  d.value > 0 ? "text-[#0f1320]" : "text-[#cfd3da]",
                 )}
-                style={{ height: `${Math.max(pct, m.count > 0 ? 7 : 3)}%` }}
-              />
+              >
+                {d.value}
+              </span>
+              <span className="mt-0.5 whitespace-nowrap text-[10px] text-[#9aa0ab]">
+                {d.label}
+              </span>
             </div>
-            <span className="text-[10px] text-[#9aa0ab]">{m.label}</span>
           </div>
         );
       })}
@@ -411,80 +492,26 @@ function MonthlyBars({ monthly }: { monthly: { key: string; label: string; count
   );
 }
 
-function SourceDonut({ metrics }: { metrics: PortalMetrics }) {
-  const slices = metrics.bySource;
-  const total = slices.reduce((s, x) => s + x.count, 0);
-  if (total === 0) return <ChartEmpty />;
-
-  const C = 2 * Math.PI * 15.5;
-  let offset = 0;
-
-  return (
-    <div className="mt-4 flex items-center gap-5">
-      <div className="relative shrink-0">
-        <svg viewBox="0 0 40 40" className="size-[112px] -rotate-90">
-          <circle cx="20" cy="20" r="15.5" fill="none" stroke="#f0f1f4" strokeWidth="5" />
-          {slices.map((s) => {
-            const len = (s.count / total) * C;
-            const seg = (
-              <circle
-                key={s.key}
-                cx="20"
-                cy="20"
-                r="15.5"
-                fill="none"
-                stroke={SOURCE_COLORS[s.key] ?? SOURCE_COLORS.other}
-                strokeWidth="5"
-                strokeDasharray={`${len} ${C - len}`}
-                strokeDashoffset={-offset}
-                strokeLinecap="butt"
-              />
-            );
-            offset += len;
-            return seg;
-          })}
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-xl font-semibold leading-none tabular-nums">{total}</span>
-          <span className="text-[9px] uppercase tracking-wide text-[#9aa0ab]">total</span>
-        </div>
-      </div>
-      <div className="min-w-0 flex-1 space-y-2">
-        {slices.map((s) => (
-          <div key={s.key} className="flex items-center gap-2 text-[13px]">
-            <span
-              className="size-2.5 shrink-0 rounded-sm"
-              style={{ background: SOURCE_COLORS[s.key] ?? SOURCE_COLORS.other }}
-            />
-            <span className="truncate font-medium">{s.label}</span>
-            <span className="ml-auto shrink-0 tabular-nums text-[#9aa0ab]">
-              {s.count} · {Math.round((s.count / total) * 100)}%
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
+// Top campaigns — horizontal bars in faint tracks, widths grow in.
 function CampaignBars({ metrics }: { metrics: PortalMetrics }) {
+  const mounted = useMounted();
   const rows = metrics.topCampaigns;
   if (rows.length === 0) return <ChartEmpty />;
   const max = Math.max(1, ...rows.map((r) => r.count));
   return (
-    <div className="mt-4 space-y-3">
+    <div className="mt-4 space-y-3.5">
       {rows.map((r) => (
         <div key={r.name}>
-          <div className="mb-1 flex items-baseline justify-between gap-3">
-            <span className="truncate text-[12.5px] text-[#0f1320]">{r.name}</span>
+          <div className="mb-1.5 flex items-baseline justify-between gap-3">
+            <span className="truncate text-[13px] font-medium text-[#0f1320]">{r.name}</span>
             <span className="shrink-0 text-[12px] font-semibold tabular-nums text-[#1565C0]">
               {r.count}
             </span>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-[#f0f2f5]">
+          <div className="h-2.5 overflow-hidden rounded-full bg-[#f1f3f6]">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-[#1565C0] to-[#4a93e8]"
-              style={{ width: `${(r.count / max) * 100}%` }}
+              className="h-full rounded-full bg-gradient-to-r from-[#0d4f9e] to-[#5fa0ee] transition-[width] duration-700 ease-out"
+              style={{ width: mounted ? `${Math.max((r.count / max) * 100, 4)}%` : "0%" }}
             />
           </div>
         </div>
@@ -493,38 +520,9 @@ function CampaignBars({ metrics }: { metrics: PortalMetrics }) {
   );
 }
 
-function WeekdayBars({ metrics }: { metrics: PortalMetrics }) {
-  const days = metrics.byWeekday;
-  const max = Math.max(1, ...days.map((d) => d.count));
-  const totalAll = days.reduce((s, d) => s + d.count, 0);
-  if (totalAll === 0) return <ChartEmpty />;
-  return (
-    <div className="mt-5 flex h-28 items-end gap-2">
-      {days.map((d) => {
-        const pct = (d.count / max) * 100;
-        const peak = d.count === max && max > 0;
-        return (
-          <div key={d.day} className="flex flex-1 flex-col items-center gap-1.5">
-            <div className="relative flex w-full flex-1 items-end">
-              <div
-                className={cn(
-                  "w-full rounded-md transition-all",
-                  peak ? "bg-gradient-to-t from-[#1565C0] to-[#4a93e8]" : "bg-[#cdddf2]",
-                )}
-                style={{ height: `${Math.max(pct, d.count > 0 ? 8 : 3)}%` }}
-              />
-            </div>
-            <span className="text-[10px] text-[#9aa0ab]">{d.day}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function ChartEmpty() {
   return (
-    <div className="mt-4 flex h-28 items-center justify-center rounded-xl border border-dashed border-[#e4e6ea] text-xs text-[#9aa0ab]">
+    <div className="mt-4 flex h-32 items-center justify-center rounded-xl border border-dashed border-[#e4e6ea] text-xs text-[#9aa0ab]">
       Not enough data yet
     </div>
   );
@@ -639,11 +637,6 @@ function LeadCard({ lead }: { lead: IntroLead }) {
           <div className="text-xs text-[#5b6472]">
             <RelAgo iso={lead.assigned_at} />
           </div>
-          {lead.source_provider ? (
-            <div className="mt-0.5 text-[10px] uppercase tracking-wide text-[#9aa0ab]">
-              {lead.source_provider === "instantly" ? "Instantly" : "EmailBison"}
-            </div>
-          ) : null}
         </div>
         <ChevronDown
           className={cn(
@@ -673,7 +666,9 @@ function LeadCard({ lead }: { lead: IntroLead }) {
                 {customEntries.map(([k, v]) => (
                   <div key={k} className="flex gap-2">
                     <dt className="shrink-0 text-[#9aa0ab]">{prettifyKey(k)}</dt>
-                    <dd className="min-w-0 break-words text-[#0f1320]">{String(v)}</dd>
+                    <dd className="min-w-0 break-words text-[#0f1320]">
+                      <LinkedValue value={String(v)} />
+                    </dd>
                   </div>
                 ))}
               </dl>
@@ -702,10 +697,31 @@ function DetailRow({
         <div className="text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
           {label}
         </div>
-        <div className="break-words text-[13px] text-[#0f1320]">{value}</div>
+        <div className="break-words text-[13px] text-[#0f1320]">
+          <LinkedValue value={value} />
+        </div>
       </div>
     </div>
   );
+}
+
+// Renders a field value — as a clickable link when it's a URL (lead
+// detail carries long profile / website URLs), plain text otherwise.
+function LinkedValue({ value }: { value: string }) {
+  const v = value.trim();
+  if (/^https?:\/\/\S+$/i.test(v)) {
+    return (
+      <a
+        href={v}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="break-all font-medium text-[#1565C0] hover:underline"
+      >
+        {v}
+      </a>
+    );
+  }
+  return <>{value}</>;
 }
 
 /* ============================ helpers ============================ */

@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import { createInstantlyClient } from "@/lib/instantly/client";
 import { deriveClientIdFromCampaign } from "@/lib/clients/derive";
 import type { IntroLead } from "@/lib/portals/intro-leads";
 
@@ -9,17 +10,32 @@ import type { IntroLead } from "@/lib/portals/intro-leads";
 // the URL below — but it takes ~30s to respond, far too slow to call on
 // a portal render. So we mirror it into the `external_intros` table:
 //
-//   syncExternalIntros()        — the slow fetch + upsert. Runs off the
-//                                 request path, driven by the cron at
-//                                 POST /api/cron/sync-external-intros.
-//   loadExternalIntrosByClient()— the fast read the portal uses. Hits
-//                                 only our own Supabase table.
+//   syncExternalIntros()         — the slow fetch + upsert, then enrich a
+//                                  batch of rows. Driven by the cron at
+//                                  POST /api/cron/sync-external-intros.
+//   enrichExternalIntros()       — fills lead_detail from the Instantly
+//                                  API (company, title, custom variables).
+//   loadExternalIntrosByClient() — the fast read the portal uses.
 //
 // The portal then folds this together with our own Introduction data —
 // see loadCombinedClientIntroLeads in intro-leads.ts.
 
 const EXTERNAL_INTROS_URL =
   "https://web-production-d18b09.up.railway.app/api/masterinbox/intros";
+
+// Payload keys already shown on their own row of the lead card — kept out
+// of the custom-variable dump so they don't appear twice.
+const REDUNDANT_PAYLOAD_KEYS = new Set([
+  "firstName",
+  "lastName",
+  "first_name",
+  "last_name",
+  "companyName",
+  "company_name",
+  "jobTitle",
+  "job_title",
+  "email",
+]);
 
 interface ExternalIntro {
   email?: string;
@@ -36,15 +52,17 @@ export interface SyncResult {
   upserted: number; // rows written to external_intros
   skipped: number; // rows dropped (missing email/campaign_id, or feed dupes)
   clientsMatched: number; // distinct clients the rows resolved to
+  enriched: number; // rows given full lead detail this run
 }
 
-// Pull the legacy feed and upsert it into external_intros. Slow (~30s
-// upstream) — only ever called by the cron route, never on a render.
-// Upsert is keyed on (email, campaign_id) so re-runs never duplicate.
-export async function syncExternalIntros(): Promise<SyncResult> {
+// Pull the legacy feed, upsert it, then enrich a batch of rows with full
+// lead detail. Slow (~30s upstream + ~1.5s per enriched lead) — only ever
+// called by the cron route, never on a render. Upsert is keyed on
+// (email, campaign_id) so re-runs never duplicate.
+export async function syncExternalIntros(opts?: {
+  enrichLimit?: number;
+}): Promise<SyncResult> {
   const res = await fetch(EXTERNAL_INTROS_URL, {
-    // Generous timeout — the upstream is genuinely ~30s. This runs in the
-    // cron, off the request path, so the wait is fine.
     signal: AbortSignal.timeout(90_000),
     cache: "no-store",
   });
@@ -97,6 +115,9 @@ export async function syncExternalIntros(): Promise<SyncResult> {
   const CHUNK = 500;
   for (let i = 0; i < rows.length; i += CHUNK) {
     const slice = rows.slice(i, i + CHUNK);
+    // The upsert payload has no lead_detail / enriched_at keys, so the
+    // ON CONFLICT update only touches the feed columns — a re-sync never
+    // wipes the enrichment already on an existing row.
     const { error } = await admin
       .from("external_intros")
       .upsert(slice, { onConflict: "email,campaign_id" });
@@ -107,49 +128,121 @@ export async function syncExternalIntros(): Promise<SyncResult> {
   const clientsMatched = new Set(
     rows.map((r) => r.client_id).filter((c): c is string => Boolean(c)),
   ).size;
-  return { fetched: intros.length, upserted, skipped, clientsMatched };
+
+  const enrichLimit = opts?.enrichLimit ?? 20;
+  const { enriched } =
+    enrichLimit > 0
+      ? await enrichExternalIntros(enrichLimit)
+      : { enriched: 0 };
+
+  return { fetched: intros.length, upserted, skipped, clientsMatched, enriched };
+}
+
+// Fill lead_detail for up to `limit` not-yet-enriched rows, from the
+// Instantly API (POST /leads/list resolves the full lead by email).
+// Throttled ~1.5s/call to respect Instantly's rate limit. A row whose
+// lookup throws keeps enriched_at NULL → retried next run; a genuine
+// "not found" still sets enriched_at so it isn't retried forever.
+export async function enrichExternalIntros(
+  limit: number,
+): Promise<{ enriched: number; attempted: number }> {
+  const admin = createAdminSupabase();
+  const { data, error } = await admin
+    .from("external_intros")
+    .select("id, email")
+    .is("enriched_at", null)
+    .limit(limit);
+  // Table not migrated yet (no enriched_at column) → nothing to do.
+  if (error || !data || data.length === 0) return { enriched: 0, attempted: 0 };
+
+  const rows = data as Array<{ id: string; email: string }>;
+  const instantly = createInstantlyClient();
+  let enriched = 0;
+
+  for (const row of rows) {
+    try {
+      const res = await instantly.findLeadByEmail(row.email);
+      const items = res.items ?? [];
+      const lead =
+        items.find((l) => (l.email ?? "").toLowerCase() === row.email.toLowerCase()) ??
+        items[0];
+
+      let leadDetail: Record<string, unknown> = {};
+      if (lead) {
+        const payload =
+          lead.payload && typeof lead.payload === "object"
+            ? (lead.payload as Record<string, unknown>)
+            : {};
+        const customFields: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(payload)) {
+          if (REDUNDANT_PAYLOAD_KEYS.has(k)) continue;
+          if (v === null || v === undefined || String(v).trim() === "") continue;
+          customFields[k] = v;
+        }
+        leadDetail = {
+          company: lead.company_name ?? null,
+          title: lead.job_title ?? null,
+          custom_fields: customFields,
+        };
+        enriched += 1;
+      }
+      await admin
+        .from("external_intros")
+        .update({ lead_detail: leadDetail, enriched_at: new Date().toISOString() })
+        .eq("id", row.id);
+    } catch (err) {
+      // Transient (rate limit / network) — leave enriched_at NULL so this
+      // row is retried on the next sync. Back off a little before moving on.
+      console.error(`[external-intros] enrich failed for ${row.email}`, err);
+      await new Promise((r) => setTimeout(r, 4000));
+      continue;
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return { enriched, attempted: rows.length };
 }
 
 // Every mirrored external intro grouped by client_id, shaped as IntroLead
-// so it merges cleanly with our own data. Reads only the local table —
-// fast. Wrapped in cache() so one render resolves it once. If the table
-// doesn't exist yet (migration 0019 not run) this quietly returns empty
-// and the portal just shows our own data.
+// (with enriched company / title / custom variables when available) so it
+// merges cleanly with our own data. Reads only the local table — fast.
+// Wrapped in cache() so one render resolves it once. If the table doesn't
+// exist yet this quietly returns empty and the portal shows our own data.
 export const loadExternalIntrosByClient = cache(
   async function loadExternalIntrosByClient(): Promise<Map<string, IntroLead[]>> {
     const admin = createAdminSupabase();
+    // select("*") so this keeps working before migration 0020 adds
+    // lead_detail — the column is simply absent until then.
     const { data, error } = await admin
       .from("external_intros")
-      .select("email, name, campaign_id, campaign_name, client_id, intro_at")
+      .select("*")
       .not("client_id", "is", null)
       .order("intro_at", { ascending: false })
       .range(0, 49_999);
     if (error || !data) return new Map();
 
     const byClient = new Map<string, IntroLead[]>();
-    for (const r of data as Array<{
-      email: string;
-      name: string | null;
-      campaign_id: string;
-      campaign_name: string | null;
-      client_id: string;
-      intro_at: string | null;
-    }>) {
+    for (const raw of data as Array<Record<string, unknown>>) {
+      const clientId = raw.client_id as string;
+      const detail = (raw.lead_detail ?? {}) as {
+        company?: string | null;
+        title?: string | null;
+        custom_fields?: Record<string, unknown>;
+      };
       const lead: IntroLead = {
-        thread_id: `ext:${r.email}:${r.campaign_id}`,
-        assigned_at: r.intro_at ?? new Date().toISOString(),
-        lead_name: r.name,
-        lead_email: r.email,
-        company: null,
-        title: null,
-        campaign_name: r.campaign_name,
+        thread_id: `ext:${raw.email}:${raw.campaign_id}`,
+        assigned_at: (raw.intro_at as string) ?? new Date().toISOString(),
+        lead_name: (raw.name as string | null) ?? null,
+        lead_email: (raw.email as string | null) ?? null,
+        company: detail.company ?? null,
+        title: detail.title ?? null,
+        campaign_name: (raw.campaign_name as string | null) ?? null,
         source_provider: null,
         subject: null,
-        custom_fields: {},
+        custom_fields: detail.custom_fields ?? {},
       };
-      const arr = byClient.get(r.client_id) ?? [];
+      const arr = byClient.get(clientId) ?? [];
       arr.push(lead);
-      byClient.set(r.client_id, arr);
+      byClient.set(clientId, arr);
     }
     return byClient;
   },

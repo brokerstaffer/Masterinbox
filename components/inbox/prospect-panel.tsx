@@ -1,12 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ChevronUp,
   ChevronDown,
   Copy,
   Mail as MailIcon,
-  Link2,
+  Phone,
+  MapPin,
+  Building2,
+  Globe,
+  Megaphone,
+  Users,
+  Inbox,
 } from "lucide-react";
 import { LabelChip } from "@/components/inbox/label-chip";
 import { SubsequencePicker } from "@/components/inbox/subsequence-picker";
@@ -17,35 +23,78 @@ import type { ThreadDetail } from "@/lib/inbox/thread-detail";
 
 type TabId = "details" | "attachments" | "notes";
 
-// Map common social-link keys (case-insensitive) in lead.custom_fields to icons.
-const SOCIAL_KEYS: Array<{ match: RegExp; label: string }> = [
-  { match: /linkedin/i, label: "LinkedIn" },
-  { match: /twitter|x[\W_]*url|x[\W_]*handle/i, label: "Twitter / X" },
-  { match: /facebook|fb[\W_]*url/i, label: "Facebook" },
-  { match: /instagram/i, label: "Instagram" },
-  { match: /(website|home[\W_]*page|company[\W_]*site|url)/i, label: "Website" },
-];
+// The panel is user-resizable; the width is persisted so it survives
+// reloads and thread switches.
+const WIDTH_KEY = "inbox-prospect-panel-width";
+const DEFAULT_WIDTH = 360;
+const MIN_WIDTH = 300;
+const MAX_WIDTH = 580;
 
-// Keys we surface in the About section before falling through to Custom.
-const ABOUT_KEY_MAP: Record<string, string> = {
-  title: "Title",
-  job_title: "Title",
-  role: "Title",
-  position: "Title",
-  company: "Company",
-  company_name: "Company",
-  organization: "Company",
-  industry: "Industry",
-  location: "Location",
-  city: "Location",
-  country: "Country",
-  phone: "Phone",
-  phone_number: "Phone",
-};
+// normalise a custom-field key for case/punctuation-insensitive matching.
+const nkey = (k: string) => k.toLowerCase().replace(/[^a-z0-9]+/g, "");
 
 export function ProspectPanel({ detail }: { detail: ThreadDetail }) {
   const { lead, labels } = detail;
   const [tab, setTab] = useState<TabId>("details");
+
+  // ---- resize ----
+  const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
+  const [resizing, setResizing] = useState(false);
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const widthRef = useRef(width);
+  widthRef.current = width;
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(WIDTH_KEY);
+      if (!saved) return;
+      const n = Number(saved);
+      if (Number.isFinite(n) && n >= MIN_WIDTH && n <= MAX_WIDTH) setWidth(n);
+    } catch {
+      // private-mode Safari can throw — ignore.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!resizing) return;
+    function onMove(e: PointerEvent) {
+      const d = dragRef.current;
+      if (!d) return;
+      // Handle is on the LEFT edge — dragging left widens the panel.
+      const next = Math.min(
+        MAX_WIDTH,
+        Math.max(MIN_WIDTH, d.startWidth - (e.clientX - d.startX)),
+      );
+      setWidth(next);
+    }
+    function onUp() {
+      setResizing(false);
+      dragRef.current = null;
+      try {
+        window.localStorage.setItem(WIDTH_KEY, String(widthRef.current));
+      } catch {
+        // ignore
+      }
+    }
+    const prevCursor = document.body.style.cursor;
+    const prevSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevSelect;
+    };
+  }, [resizing]);
+
+  function onHandlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    dragRef.current = { startX: e.clientX, startWidth: width };
+    setResizing(true);
+    e.preventDefault();
+  }
 
   const initials = (lead.full_name || lead.email || "?")
     .split(/\s+/)
@@ -54,11 +103,6 @@ export function ProspectPanel({ detail }: { detail: ThreadDetail }) {
     .slice(0, 2)
     .join("")
     .toUpperCase();
-
-  const emailDomain = lead.email?.split("@")[1] ?? null;
-
-  // Split custom_fields into three buckets: socials, about-promotions, custom.
-  const { socials, aboutExtras, customExtras } = partitionCustomFields(lead.custom_fields);
 
   async function copy(value: string) {
     try {
@@ -70,7 +114,23 @@ export function ProspectPanel({ detail }: { detail: ThreadDetail }) {
   }
 
   return (
-    <aside className="w-[320px] shrink-0 border-l bg-background overflow-y-auto">
+    <aside
+      style={{ width: `${width}px` }}
+      className="relative shrink-0 border-l bg-background overflow-y-auto"
+    >
+      {/* Resize handle — left edge. */}
+      <div
+        onPointerDown={onHandlePointerDown}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize panel"
+        className={cn(
+          "absolute top-0 left-0 z-10 h-full w-1.5 -ml-px cursor-col-resize select-none",
+          "transition-colors hover:bg-accent/60",
+          resizing && "bg-accent",
+        )}
+      />
+
       <div className="h-10 border-b flex items-center px-4">
         <span className="text-sm font-medium">Prospect details</span>
       </div>
@@ -83,16 +143,6 @@ export function ProspectPanel({ detail }: { detail: ThreadDetail }) {
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold truncate flex items-center gap-1.5">
               {lead.full_name ?? lead.email ?? "Unknown"}
-              {lead.email ? (
-                <button
-                  type="button"
-                  onClick={() => copy(lead.email!)}
-                  className="text-muted-foreground hover:text-foreground"
-                  aria-label="Copy name"
-                >
-                  <Copy className="size-3" />
-                </button>
-              ) : null}
             </div>
             {lead.email ? (
               <div className="text-xs text-muted-foreground truncate flex items-center gap-1.5">
@@ -100,7 +150,7 @@ export function ProspectPanel({ detail }: { detail: ThreadDetail }) {
                 <button
                   type="button"
                   onClick={() => copy(lead.email!)}
-                  className="hover:text-foreground"
+                  className="hover:text-foreground shrink-0"
                   aria-label="Copy email"
                 >
                   <Copy className="size-3" />
@@ -136,19 +186,7 @@ export function ProspectPanel({ detail }: { detail: ThreadDetail }) {
           ))}
         </div>
 
-        {tab === "details" ? (
-          <DetailsTab
-            threadId={detail.id}
-            lead={lead}
-            emailDomain={emailDomain}
-            socials={socials}
-            aboutExtras={aboutExtras}
-            customExtras={customExtras}
-            sourceProvider={detail.source_provider}
-            campaignName={detail.campaign_name}
-            clientName={detail.client_name}
-          />
-        ) : null}
+        {tab === "details" ? <DetailsTab detail={detail} onCopy={copy} /> : null}
         {tab === "attachments" ? (
           <div className="text-sm text-muted-foreground py-2">No attachments yet.</div>
         ) : null}
@@ -160,199 +198,198 @@ export function ProspectPanel({ detail }: { detail: ThreadDetail }) {
   );
 }
 
-interface SocialEntry {
-  label: string;
-  url: string;
-}
-
-interface AboutExtra {
-  label: string;
-  value: string;
-}
-
-function partitionCustomFields(cf: Record<string, unknown>): {
-  socials: SocialEntry[];
-  aboutExtras: AboutExtra[];
-  customExtras: AboutExtra[];
-} {
-  const socials: SocialEntry[] = [];
-  const aboutExtras: AboutExtra[] = [];
-  const customExtras: AboutExtra[] = [];
-
-  for (const [rawKey, rawValue] of Object.entries(cf ?? {})) {
-    if (rawValue == null || rawValue === "") continue;
-    const value = String(rawValue);
-    const normalized = rawKey.toLowerCase().replace(/[\s\-]+/g, "_");
-
-    const social = SOCIAL_KEYS.find((s) => s.match.test(rawKey));
-    if (social && /^https?:\/\//i.test(value)) {
-      socials.push({ label: social.label, url: value });
-      continue;
-    }
-
-    if (ABOUT_KEY_MAP[normalized]) {
-      aboutExtras.push({ label: ABOUT_KEY_MAP[normalized], value });
-      continue;
-    }
-
-    customExtras.push({ label: prettifyKey(rawKey), value });
-  }
-
-  return { socials, aboutExtras, customExtras };
-}
-
-function prettifyKey(key: string): string {
-  return key
-    .replace(/[_\-]+/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-    .trim();
-}
+/* ------------------------------ details ------------------------------ */
 
 function DetailsTab({
-  threadId,
-  lead,
-  emailDomain,
-  socials,
-  aboutExtras,
-  customExtras,
-  sourceProvider,
-  campaignName,
-  clientName,
+  detail,
+  onCopy,
 }: {
-  threadId: string;
-  lead: ThreadDetail["lead"];
-  emailDomain: string | null;
-  socials: SocialEntry[];
-  aboutExtras: AboutExtra[];
-  customExtras: AboutExtra[];
-  sourceProvider: ThreadDetail["source_provider"];
-  campaignName: string | null;
-  clientName: string | null;
+  detail: ThreadDetail;
+  onCopy: (v: string) => void;
 }) {
+  const { lead } = detail;
+
+  // Index custom_fields once, normalised, dropping empties.
+  const entries = Object.entries(lead.custom_fields ?? {})
+    .filter(([, v]) => v != null && String(v).trim() !== "")
+    .map(([k, v]) => ({ key: k, nk: nkey(k), value: String(v).trim() }));
+
+  const consumed = new Set<string>();
+  const find = (...cands: string[]): string | null => {
+    for (const c of cands) {
+      const e = entries.find((x) => x.nk === c);
+      if (e) {
+        consumed.add(e.nk);
+        return e.value;
+      }
+    }
+    return null;
+  };
+
+  // ---- Card 1: general agent info ----
+  const phone = find("phone", "phonenumber", "mobile", "cell", "mobilephone", "cellphone");
+  const website = find(
+    "website",
+    "websiteurl",
+    "homepage",
+    "companysite",
+    "companywebsite",
+    "url",
+    "companyurl",
+  );
+  let location = find("location", "city");
+  const state = find("state", "region");
+  if (location && state && !location.toLowerCase().includes(state.toLowerCase())) {
+    location = `${location}, ${state}`;
+  } else if (!location && state) {
+    location = state;
+  }
+  const company = lead.company ?? find("company", "companyname", "organization");
+  const title = lead.title ?? find("title", "jobtitle", "role", "position");
+
+  // Mark identity keys consumed so they don't repeat in Card 2.
+  for (const c of ["firstname", "lastname", "name", "fullname", "email", "companyname", "jobtitle"]) {
+    if (entries.some((e) => e.nk === c)) consumed.add(c);
+  }
+
+  // ---- Card 2: everything else Instantly holds ----
+  const card2: Array<{ label: string; value: string }> = [];
+  if (title) card2.push({ label: "Title", value: title });
+  if (lead.linkedin_url) card2.push({ label: "LinkedIn", value: lead.linkedin_url });
+  for (const e of entries) {
+    if (consumed.has(e.nk)) continue;
+    card2.push({ label: prettifyKey(e.key), value: e.value });
+  }
+
+  const sourceLabel =
+    detail.source_provider === "instantly"
+      ? "Instantly"
+      : detail.source_provider === "emailbison"
+        ? "EmailBison"
+        : null;
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
+      {/* ---------------- Card 1 — Agent ---------------- */}
+      <Card title="Agent" defaultOpen>
+        <div className="space-y-px">
+          <Field icon={Users} label="Name" value={lead.full_name} onCopy={onCopy} />
+          <Field icon={MailIcon} label="Email" value={lead.email} onCopy={onCopy} />
+          <Field icon={Phone} label="Phone" value={phone} onCopy={onCopy} />
+          <Field icon={Building2} label="Company" value={company} />
+          <Field icon={MapPin} label="Location" value={location} />
+          <Field icon={Globe} label="Website" value={website} />
+          <Field icon={Megaphone} label="Campaign" value={detail.campaign_name} />
+          <Field icon={Users} label="Client" value={detail.client_name} />
+          <Field icon={Inbox} label="Source" value={sourceLabel} />
+        </div>
 
-      {(sourceProvider || campaignName || clientName) ? (
-        <Section title="Campaign" defaultOpen>
-          <dl className="grid grid-cols-[80px_1fr] gap-x-3 gap-y-1.5 text-sm">
-            {sourceProvider ? (
-              <FieldPair
-                label="Source"
-                value={sourceProvider === "instantly" ? "Instantly" : "EmailBison"}
-              />
-            ) : null}
-            {clientName ? <FieldPair label="Client" value={clientName} /> : null}
-            {campaignName ? <FieldPair label="Campaign" value={campaignName} /> : null}
+        {/* Provider-specific sequencing action. */}
+        {detail.source_provider === "instantly" && detail.campaign_name ? (
+          <div className="mt-3">
+            <SubsequencePicker threadId={detail.id} />
+          </div>
+        ) : null}
+        {detail.source_provider === "emailbison" ? (
+          <div className="mt-3">
+            <FollowupCampaignPicker threadId={detail.id} />
+          </div>
+        ) : null}
+      </Card>
+
+      {/* ---------------- Card 2 — Lead details ---------------- */}
+      {card2.length > 0 ? (
+        <Card title="Lead details" defaultOpen>
+          <dl className="grid grid-cols-[minmax(96px,auto)_1fr] gap-x-3 gap-y-2 text-sm">
+            {card2.map((row) => (
+              <FieldPair key={`${row.label}-${row.value}`} label={row.label} value={row.value} />
+            ))}
           </dl>
-          {/* Provider-specific action: Instantly threads get a subsequence
-              picker; EmailBison threads get the equivalent "reply_followup
-              campaign" picker (POST /api/replies/{id}/followup-campaign/push). */}
-          {sourceProvider === "instantly" && campaignName ? (
-            <div className="mt-3">
-              <SubsequencePicker threadId={threadId} />
-            </div>
-          ) : null}
-          {sourceProvider === "emailbison" ? (
-            <div className="mt-3">
-              <FollowupCampaignPicker threadId={threadId} />
-            </div>
-          ) : null}
-        </Section>
+        </Card>
       ) : null}
-
-      <Section title="About" defaultOpen>
-        <dl className="grid grid-cols-[80px_1fr] gap-x-3 gap-y-1.5 text-sm">
-          {lead.email ? (
-            <>
-              <dt className="text-xs text-muted-foreground inline-flex items-center gap-1.5 pt-0.5">
-                <MailIcon className="size-3.5" />
-              </dt>
-              <dd className="truncate">{lead.email}</dd>
-            </>
-          ) : null}
-          {emailDomain ? (
-            <>
-              <dt className="text-xs text-muted-foreground inline-flex items-center gap-1.5 pt-0.5">
-                <Link2 className="size-3.5" />
-              </dt>
-              <dd className="truncate">{emailDomain}</dd>
-            </>
-          ) : null}
-          {lead.title ? (
-            <>
-              <dt className="text-xs text-muted-foreground">Title</dt>
-              <dd className="truncate">{lead.title}</dd>
-            </>
-          ) : null}
-          {lead.company ? (
-            <>
-              <dt className="text-xs text-muted-foreground">Company</dt>
-              <dd className="truncate">{lead.company}</dd>
-            </>
-          ) : null}
-          {aboutExtras.map((e) => (
-            <FieldPair key={`${e.label}-${e.value}`} label={e.label} value={e.value} />
-          ))}
-        </dl>
-      </Section>
-
-      {(lead.linkedin_url || socials.length > 0) && (
-        <Section title="Socials" defaultOpen>
-          <dl className="grid grid-cols-[80px_1fr] gap-x-3 gap-y-1.5 text-sm">
-            {lead.linkedin_url ? (
-              <FieldPair label="LinkedIn" value={lead.linkedin_url} link />
-            ) : null}
-            {socials.map((s) => (
-              <FieldPair key={s.url} label={s.label} value={s.url} link />
-            ))}
-          </dl>
-        </Section>
-      )}
-
-      {customExtras.length > 0 && (
-        <Section title="Custom" defaultOpen>
-          <dl className="grid grid-cols-[80px_1fr] gap-x-3 gap-y-1.5 text-sm">
-            {customExtras.map((e) => (
-              <FieldPair key={`${e.label}-${e.value}`} label={e.label} value={e.value} />
-            ))}
-          </dl>
-        </Section>
-      )}
     </div>
   );
 }
 
-function FieldPair({
+// One labelled row in Card 1 — icon, label, value. Value wraps (never
+// truncated) so long campaign names stay fully readable; URLs linkify.
+function Field({
+  icon: Icon,
   label,
   value,
-  link,
+  onCopy,
 }: {
+  icon: typeof MailIcon;
   label: string;
-  value: string;
-  link?: boolean;
+  value: string | null | undefined;
+  onCopy?: (v: string) => void;
 }) {
+  if (!value) return null;
+  return (
+    <div className="group flex items-start gap-2.5 py-1.5">
+      <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
+        </div>
+        <div className="text-sm break-words leading-snug">
+          <LinkValue value={value} />
+        </div>
+      </div>
+      {onCopy ? (
+        <button
+          type="button"
+          onClick={() => onCopy(value)}
+          className="mt-0.5 shrink-0 text-muted-foreground/0 transition-colors group-hover:text-muted-foreground hover:!text-foreground"
+          aria-label={`Copy ${label}`}
+        >
+          <Copy className="size-3" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+// Compact key/value row for Card 2.
+function FieldPair({ label, value }: { label: string; value: string }) {
   return (
     <>
-      <dt className="text-xs text-muted-foreground truncate">{label}</dt>
-      <dd className="truncate">
-        {link ? (
-          <a
-            href={value}
-            target="_blank"
-            rel="noopener"
-            className="text-blue-600 hover:underline"
-          >
-            {value}
-          </a>
-        ) : (
-          value
-        )}
+      <dt className="text-xs text-muted-foreground break-words pt-0.5">{label}</dt>
+      <dd className="break-words leading-snug">
+        <LinkValue value={value} />
       </dd>
     </>
   );
 }
 
-function Section({
+// Renders a URL value as a link, anything else as plain wrapped text.
+function LinkValue({ value }: { value: string }) {
+  const v = value.trim();
+  if (/^https?:\/\/\S+$/i.test(v)) {
+    return (
+      <a
+        href={v}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-blue-600 hover:underline break-all"
+      >
+        {v}
+      </a>
+    );
+  }
+  return <>{value}</>;
+}
+
+function prettifyKey(key: string): string {
+  return key
+    .replace(/[_\-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+}
+
+// Collapsible titled card.
+function Card({
   title,
   children,
   defaultOpen = true,
@@ -363,16 +400,20 @@ function Section({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div>
+    <div className="rounded-lg border bg-card">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full text-sm font-medium flex items-center gap-1.5 hover:text-foreground/80 mb-2"
+        className="w-full flex items-center justify-between px-3 py-2.5 text-sm font-semibold hover:bg-accent/40 transition-colors"
       >
         {title}
-        {open ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+        {open ? (
+          <ChevronUp className="size-3.5 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="size-3.5 text-muted-foreground" />
+        )}
       </button>
-      {open ? <div>{children}</div> : null}
+      {open ? <div className="px-3 pb-3 pt-0.5">{children}</div> : null}
     </div>
   );
 }

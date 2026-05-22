@@ -32,8 +32,16 @@ async function run(request: Request) {
   if (!(await authorized(request))) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
+  // ?enrich=N overrides how many rows get lead-detail enrichment this run.
+  // Default (the scheduled cron) is a small batch; a one-off backfill can
+  // pass a large N. ?enrich=0 skips enrichment entirely.
+  const enrichParam = new URL(request.url).searchParams.get("enrich");
+  const enrichLimit =
+    enrichParam !== null ? Math.max(0, Number.parseInt(enrichParam, 10) || 0) : undefined;
   try {
-    const result = await syncExternalIntros();
+    const result = await syncExternalIntros(
+      enrichLimit !== undefined ? { enrichLimit } : undefined,
+    );
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     console.error("[cron] sync-external-intros failed", err);

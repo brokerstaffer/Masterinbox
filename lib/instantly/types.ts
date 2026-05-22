@@ -74,8 +74,9 @@ export interface InstantlySubsequence {
   workspace?: string;
 }
 
-// Slim shape from POST /leads/list. Used only to resolve lead UUID from
-// an email address (the webhook payload doesn't carry the UUID).
+// Shape from POST /leads/list. Originally used only to resolve a lead's
+// UUID from an email — but the endpoint actually returns the FULL lead,
+// so the portal's external-intro enrichment reads the detail fields too.
 export interface InstantlyLeadSummary {
   id: string;
   email: string;
@@ -85,6 +86,13 @@ export interface InstantlyLeadSummary {
   organization?: string;
   status?: number;
   timestamp_created?: string;
+  // Full-detail fields (verified live against POST /leads/list).
+  company_name?: string | null;
+  job_title?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  // Every campaign custom variable Instantly holds for the lead.
+  payload?: Record<string, unknown> | null;
 }
 
 // Live-verified shape. Quirk: the POST endpoint requires `target_hook_url`

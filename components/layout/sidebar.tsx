@@ -56,7 +56,16 @@ const folderLinks: Array<{ href: string; label: string; icon: LucideIcon }> = [
   { href: "/inbox/trash", label: "Trash", icon: Trash2 },
 ];
 
-export function Sidebar({ session, lists }: { session: SessionContext; lists: ListRow[] }) {
+export function Sidebar({
+  session,
+  lists,
+  listCounts = {},
+}: {
+  session: SessionContext;
+  lists: ListRow[];
+  // list id → count of unseen open threads, drives the "N new" pill.
+  listCounts?: Record<string, number>;
+}) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const activeListId = searchParams.get("list");
@@ -218,6 +227,7 @@ export function Sidebar({ session, lists }: { session: SessionContext; lists: Li
                 key={list.id}
                 list={list}
                 active={active}
+                unseen={listCounts[list.id] ?? 0}
                 onEdit={() => setEditingList(list)}
                 onDelete={() => setDeletingList(list)}
               />
@@ -313,11 +323,13 @@ function WorkspaceBadge({ session }: { session: SessionContext }) {
 function ListRow({
   list,
   active,
+  unseen,
   onEdit,
   onDelete,
 }: {
   list: ListRow;
   active: boolean;
+  unseen: number;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -337,6 +349,11 @@ function ListRow({
       >
         <span className="text-base leading-none shrink-0">{list.icon ?? "📁"}</span>
         <span className="truncate">{list.name}</span>
+        {unseen > 0 ? (
+          <span className="ml-auto shrink-0 inline-flex items-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white tabular-nums">
+            {unseen > 99 ? "99+" : unseen} new
+          </span>
+        ) : null}
       </Link>
       <DropdownMenu>
         <DropdownMenuTrigger
