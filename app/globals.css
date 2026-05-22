@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -126,5 +125,12 @@
   }
   html {
     @apply font-sans;
+  }
+  /* Links inherit colour + decoration — explicit so they can never fall
+     back to the browser's blue-underline default if Preflight is slow to
+     apply (a Turbopack CSS-HMR quirk seen during heavy editing). */
+  a {
+    color: inherit;
+    text-decoration: inherit;
   }
 }

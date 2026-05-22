@@ -172,8 +172,16 @@ export async function backfillLabelsForWorkspace(workspaceId: string): Promise<B
     sample_errors: [],
   };
 
-  for (const t of threads ?? []) {
-    result.scanned++;
+  // Per-thread classification. Returns either "no_inbound" or the
+  // LabelResult so the caller can tally it.
+  type ThreadOutcome =
+    | { kind: "no_inbound" }
+    | { kind: "result"; threadId: string; result: LabelResult };
+
+  async function classifyThread(t: {
+    id: string;
+    subject: string | null;
+  }): Promise<ThreadOutcome> {
     const { data: msg } = await admin
       .from("messages")
       .select("id, subject, body_text, body_html")
@@ -182,22 +190,34 @@ export async function backfillLabelsForWorkspace(workspaceId: string): Promise<B
       .order("sent_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (!msg) {
-      result.no_inbound++;
-      continue;
-    }
-
-    const r = await labelInboundMessage({
+    if (!msg) return { kind: "no_inbound" };
+    const result = await labelInboundMessage({
       workspaceId,
       threadId: t.id,
-      messageId: msg.id,
-      subject: msg.subject ?? t.subject,
-      bodyText: msg.body_text,
-      bodyHtml: msg.body_html,
+      messageId: msg.id as string,
+      subject: (msg.subject as string | null) ?? t.subject,
+      bodyText: msg.body_text as string | null,
+      bodyHtml: msg.body_html as string | null,
       force: true,
     });
+    return { kind: "result", threadId: t.id, result };
+  }
 
-    switch (r.status) {
+  // Run in bounded-concurrency batches — sequential was minutes-long and
+  // timed the request out on a few hundred threads.
+  const list = (threads ?? []) as Array<{ id: string; subject: string | null }>;
+  const CONCURRENCY = 5;
+  for (let i = 0; i < list.length; i += CONCURRENCY) {
+    const batch = await Promise.all(list.slice(i, i + CONCURRENCY).map(classifyThread));
+    for (const outcome of batch) {
+      result.scanned++;
+      if (outcome.kind === "no_inbound") {
+        result.no_inbound++;
+        continue;
+      }
+      const r = outcome.result;
+      const t = { id: outcome.threadId };
+      switch (r.status) {
       case "labeled":
         result.labeled++;
         if (result.sample_labels.length < 10) {
@@ -231,12 +251,13 @@ export async function backfillLabelsForWorkspace(workspaceId: string): Promise<B
           });
         }
         break;
-      case "errored":
-        result.errors++;
-        if (result.sample_errors.length < 10) {
-          result.sample_errors.push({ thread_id: t.id, error: r.error });
-        }
-        break;
+        case "errored":
+          result.errors++;
+          if (result.sample_errors.length < 10) {
+            result.sample_errors.push({ thread_id: t.id, error: r.error });
+          }
+          break;
+      }
     }
   }
 
