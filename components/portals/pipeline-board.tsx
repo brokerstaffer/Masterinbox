@@ -38,7 +38,7 @@ import {
   Avatar,
   useMounted,
 } from "@/components/portals/portal-ui";
-import { PipelineDetailSheet } from "@/components/portals/pipeline-detail-sheet";
+import { PipelineDetailInline } from "@/components/portals/pipeline-detail-inline";
 
 // Stage → coloured chip. Tone matches the Google Sheets pipeline board:
 // saturated fill, white text — readable at a glance across a long table.
@@ -70,7 +70,7 @@ export function PipelineBoard({
   const [stageFilter, setStageFilter] = useState<Set<PipelineStage>>(new Set());
   const [replaceOnly, setReplaceOnly] = useState(false);
   const [editingNotes, setEditingNotes] = useState<PipelineEntry | null>(null);
-  const [detailEntry, setDetailEntry] = useState<PipelineEntry | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -243,16 +243,28 @@ export function PipelineBoard({
               </div>
             ) : (
               <div className="divide-y divide-[#f0f1f4]">
-                {filtered.map((e) => (
-                  <PipelineRow
-                    key={e.id}
-                    entry={e}
-                    onStage={(s) => changeStage(e.id, s)}
-                    onReplaceToggle={(v) => toggleReplace(e.id, v)}
-                    onOpenNotes={() => setEditingNotes(e)}
-                    onOpenDetail={() => setDetailEntry(e)}
-                  />
-                ))}
+                {filtered.map((e) => {
+                  const expanded = expandedId === e.id;
+                  return (
+                    <div key={e.id}>
+                      <PipelineRow
+                        entry={e}
+                        expanded={expanded}
+                        onStage={(s) => changeStage(e.id, s)}
+                        onReplaceToggle={(v) => toggleReplace(e.id, v)}
+                        onOpenNotes={() => setEditingNotes(e)}
+                        onToggleExpand={() =>
+                          setExpandedId((cur) => (cur === e.id ? null : e.id))
+                        }
+                      />
+                      {expanded ? (
+                        <div className="border-t border-[#ebecf0] bg-[#fafbfc]">
+                          <PipelineDetailInline entry={e} />
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -269,42 +281,56 @@ export function PipelineBoard({
           }}
         />
       ) : null}
-
-      <PipelineDetailSheet
-        entry={detailEntry}
-        onOpenChange={(open) => {
-          if (!open) setDetailEntry(null);
-        }}
-      />
     </div>
   );
 }
 
 function PipelineRow({
   entry,
+  expanded,
   onStage,
   onReplaceToggle,
   onOpenNotes,
-  onOpenDetail,
+  onToggleExpand,
 }: {
   entry: PipelineEntry;
+  expanded: boolean;
   onStage: (s: PipelineStage) => void;
   onReplaceToggle: (v: boolean) => void;
   onOpenNotes: () => void;
-  onOpenDetail: () => void;
+  onToggleExpand: () => void;
 }) {
   return (
-    <div className="grid grid-cols-[1.6fr_1.2fr_120px_140px_180px_72px_80px] items-start gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]">
+    <div
+      className={cn(
+        "grid grid-cols-[1.6fr_1.2fr_120px_140px_180px_72px_80px] items-start gap-3 px-4 py-3 transition-colors",
+        expanded ? "bg-[#fafbfc]" : "hover:bg-[#fafbfc]",
+      )}
+    >
       <button
         type="button"
-        onClick={onOpenDetail}
+        onClick={onToggleExpand}
         className="flex min-w-0 items-start gap-3 text-left"
-        title="View full lead details"
+        title={expanded ? "Hide lead details" : "Show lead details"}
+        aria-expanded={expanded}
       >
         <Avatar name={entry.lead_name ?? entry.lead_email ?? "?"} />
         <div className="min-w-0">
-          <div className="truncate text-[13.5px] font-medium hover:text-[#1565C0]">
-            {entry.lead_name || entry.lead_email || "Unknown"}
+          <div className="flex items-center gap-1.5">
+            <span
+              className={cn(
+                "truncate text-[13.5px] font-medium",
+                expanded ? "text-[#1565C0]" : "hover:text-[#1565C0]",
+              )}
+            >
+              {entry.lead_name || entry.lead_email || "Unknown"}
+            </span>
+            <ChevronDown
+              className={cn(
+                "size-3 shrink-0 text-[#9aa0ab] transition-transform",
+                expanded ? "rotate-180 text-[#1565C0]" : "",
+              )}
+            />
           </div>
           {entry.lead_email ? (
             <div className="truncate text-[11.5px] text-[#9aa0ab]">{entry.lead_email}</div>
