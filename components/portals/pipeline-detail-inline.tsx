@@ -3,126 +3,64 @@
 import type { PipelineEntry } from "@/lib/portals/portal-data";
 
 // Inline expandable detail block for a Recruiting Pipeline row.
-// Stacked label-above-value layout — same pattern Linear, Notion and
-// Stripe use for property panels: small muted-uppercase labels, regular
-// values, generous vertical rhythm. All data comes from
-// external_intros.lead_detail joined onto the pipeline row.
+// Renders EVERY field Instantly captured for the lead — no hardcoded
+// categories. The lead's snapshot fields (email / phone / company /
+// title) come first as universally useful contact info, then the full
+// lead_detail.custom_fields payload follows in its natural order.
+// Pipeline metadata (introduced date / campaign) and the brokerage's
+// own notes sit beneath dividers.
 
-const PERFORMANCE_KEYS = new Set([
-  "Closed Transactions",
-  "Closed transactions",
-  "Sales volume",
-  "Avg. sales price",
-  "Approx. GCI",
-  "List-side ($)",
-  "Buy-side ($)",
-  "Total sales",
-  "Sales last 12 months",
-  "Last12Mos_ListSoldNum_Closed",
-  "Last12Mos_ListSoldDollars_Closed",
-  "Closed rentals",
-  "Most transacted city",
-]);
+type LeadDetail = {
+  company?: string | null;
+  title?: string | null;
+  custom_fields?: Record<string, unknown>;
+};
 
-const TENURE_KEYS = ["Years in Industry", "Industry Tenure", "Est. time in industry"];
-const LICENSE_KEYS = ["LicenseNumber", "License Number", "License number"];
-
-const SURFACED_KEYS = new Set<string>([
-  "phone",
-  "website",
-  "location",
-  "linkedIn",
-  "State",
-  "County",
-  "City",
-  "AgencyZip",
-  "Office Zip",
-  "Office zip code",
-  "Brand",
-  "Agent Profile",
-  ...PERFORMANCE_KEYS,
-  ...TENURE_KEYS,
-  ...LICENSE_KEYS,
-]);
+interface DetailField {
+  label: string;
+  value: string;
+}
 
 export function PipelineDetailInline({ entry }: { entry: PipelineEntry }) {
-  const detail = (entry.lead_detail ?? {}) as {
-    company?: string | null;
-    title?: string | null;
-    custom_fields?: Record<string, string | null | undefined>;
+  const detail = (entry.lead_detail ?? {}) as LeadDetail;
+  const cf = (detail.custom_fields ?? {}) as Record<string, unknown>;
+
+  const fields: DetailField[] = [];
+  // Track raw lower-cased keys already surfaced, to avoid showing the
+  // same value twice when custom_fields and snapshot fields overlap.
+  const shown = new Set<string>();
+
+  const tryPush = (label: string, value: unknown, dedupKey?: string) => {
+    if (!hasValue(value)) return;
+    fields.push({ label, value: String(value).trim() });
+    if (dedupKey) shown.add(dedupKey.toLowerCase());
   };
-  const cf = detail.custom_fields ?? {};
 
-  const phone = cf.phone || entry.lead_phone || null;
-  const website = cf.website || entry.agent_profile_url || null;
-  const linkedIn = cf.linkedIn || null;
-  const location = cf.location || null;
-  const state = cf.State || null;
-  const county = cf.County || null;
-  const city = cf.City || null;
-  const agencyZip = cf.AgencyZip || cf["Office Zip"] || cf["Office zip code"] || null;
-  const brand = cf.Brand || null;
-  const agentProfile = cf["Agent Profile"] || null;
-  const license = pickFirst(cf, LICENSE_KEYS);
-  const tenure = pickFirst(cf, TENURE_KEYS);
+  // Universally useful contact + identity fields first.
+  tryPush("Email", entry.lead_email, "email");
 
-  const performance: Array<[string, string]> = Object.entries(cf)
-    .filter(([k, v]) => PERFORMANCE_KEYS.has(k) && hasValue(v))
-    .map(([k, v]) => [prettyKey(k), String(v)]);
+  const phone = cf.phone ?? entry.lead_phone;
+  tryPush("Phone", phone, "phone");
 
-  const other: Array<[string, string]> = Object.entries(cf)
-    .filter(([k, v]) => !SURFACED_KEYS.has(k) && hasValue(v))
-    .map(([k, v]) => [prettyKey(k), String(v)]);
+  const company = detail.company ?? entry.current_brokerage;
+  tryPush("Company", company, "company");
 
-  const contactFields: Array<FieldData> = [
-    entry.lead_email && {
-      label: "Email",
-      value: entry.lead_email,
-      href: `mailto:${entry.lead_email}`,
-    },
-    phone && {
-      label: "Phone",
-      value: phone,
-      href: `tel:${phone.replace(/[^+\d]/g, "")}`,
-    },
-    website && {
-      label: "Website",
-      value: trimUrl(website),
-      href: website,
-      external: true,
-    },
-    linkedIn && {
-      label: "LinkedIn",
-      value: trimUrl(linkedIn),
-      href: linkedIn,
-      external: true,
-    },
-    agentProfile && {
-      label: "Profile",
-      value: trimUrl(agentProfile),
-      href: agentProfile,
-      external: true,
-    },
-  ].filter(Boolean) as FieldData[];
+  tryPush("Title", detail.title, "title");
 
-  const companyFields: Array<FieldData> = [
-    entry.current_brokerage && {
-      label: "Company",
-      value: entry.current_brokerage,
-    },
-    detail.title && { label: "Title", value: String(detail.title) },
-    brand && { label: "Brand", value: brand },
-    license && { label: "License #", value: license },
-    tenure && { label: "Tenure", value: tenure },
-  ].filter(Boolean) as FieldData[];
+  // Everything else from custom_fields, in the order Instantly returned
+  // it. This is the "any new field automatically shows up" part —
+  // nothing is filtered out except keys we already surfaced above.
+  for (const [k, v] of Object.entries(cf)) {
+    if (shown.has(k.toLowerCase())) continue;
+    if (!hasValue(v)) continue;
+    fields.push({ label: prettyKey(k), value: String(v).trim() });
+  }
 
-  const locationFields: Array<FieldData> = [
-    location && { label: "Market", value: location },
-    city && city !== location && { label: "City", value: city },
-    state && { label: "State", value: state },
-    county && { label: "County", value: county },
-    agencyZip && { label: "Office ZIP", value: agencyZip },
-  ].filter(Boolean) as FieldData[];
+  // Fallback: legacy pipeline rows without an external_intros backfill
+  // still expose phone / agent profile via snapshot columns.
+  if (fields.length === 0 && entry.agent_profile_url) {
+    fields.push({ label: "Profile", value: entry.agent_profile_url });
+  }
 
   const introducedDate = entry.introduced_at
     ? new Date(entry.introduced_at).toLocaleDateString("en-US", {
@@ -135,40 +73,26 @@ export function PipelineDetailInline({ entry }: { entry: PipelineEntry }) {
 
   return (
     <div className="px-12 py-6">
-      {/* Top row — three stacked-field columns */}
-      <div className="grid grid-cols-1 gap-x-12 gap-y-7 md:grid-cols-3">
-        <FieldColumn fields={contactFields} />
-        <FieldColumn fields={companyFields} />
-        <FieldColumn fields={locationFields} />
-      </div>
-
-      {/* Pipeline / Campaign — separator above, two columns */}
-      {(introducedDate || entry.campaign_name) ? (
-        <div className="mt-7 grid grid-cols-1 gap-x-12 gap-y-3 border-t border-[#ebecf0] pt-6 md:grid-cols-[200px_1fr]">
-          {introducedDate ? (
-            <FieldStack label="Introduced" value={introducedDate} />
-          ) : null}
-          {entry.campaign_name ? (
-            <FieldStack label="Campaign" value={entry.campaign_name} />
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* Performance — full-width compact grid */}
-      {performance.length > 0 ? (
-        <div className="mt-7 grid grid-cols-2 gap-x-8 gap-y-3 border-t border-[#ebecf0] pt-6 md:grid-cols-4">
-          {performance.map(([k, v]) => (
-            <FieldStack key={k} label={k} value={v} />
+      {fields.length > 0 ? (
+        <div className="grid grid-cols-1 gap-x-10 gap-y-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+          {fields.map((f) => (
+            <FieldStack key={f.label} label={f.label} value={f.value} />
           ))}
         </div>
-      ) : null}
+      ) : (
+        <div className="rounded-md border border-dashed border-[#ebecf0] bg-white px-4 py-3 text-[12px] text-[#9aa0ab]">
+          No Instantly enrichment captured for this lead yet.
+        </div>
+      )}
 
-      {/* Catch-all */}
-      {other.length > 0 ? (
-        <div className="mt-7 grid grid-cols-2 gap-x-8 gap-y-3 border-t border-[#ebecf0] pt-6 md:grid-cols-4">
-          {other.map(([k, v]) => (
-            <FieldStack key={k} label={k} value={v} />
-          ))}
+      {introducedDate || entry.campaign_name ? (
+        <div
+          className={
+            "mt-7 grid grid-cols-1 gap-x-12 gap-y-3 border-t border-[#ebecf0] pt-6 md:grid-cols-[220px_1fr]"
+          }
+        >
+          {introducedDate ? <FieldStack label="Introduced" value={introducedDate} /> : null}
+          {entry.campaign_name ? <FieldStack label="Campaign" value={entry.campaign_name} /> : null}
         </div>
       ) : null}
 
@@ -182,61 +106,31 @@ export function PipelineDetailInline({ entry }: { entry: PipelineEntry }) {
           </p>
         </div>
       ) : null}
-
-      {!entry.lead_detail && contactFields.length === 0 && companyFields.length === 0 && locationFields.length === 0 ? (
-        <div className="rounded-md border border-dashed border-[#ebecf0] bg-white px-4 py-3 text-[12px] text-[#9aa0ab]">
-          No Instantly enrichment captured for this lead yet.
-        </div>
-      ) : null}
     </div>
   );
 }
 
-interface FieldData {
-  label: string;
-  value: string;
-  href?: string;
-  external?: boolean;
-}
-
-function FieldColumn({ fields }: { title?: string; fields: FieldData[] }) {
-  if (fields.length === 0) {
-    return <div className="text-[12.5px] text-[#aab0ba]">—</div>;
-  }
-  return (
-    <div className="space-y-3">
-      {fields.map((f) => (
-        <FieldStack key={f.label} {...f} />
-      ))}
-    </div>
-  );
-}
-
-function FieldStack({
-  label,
-  value,
-  href,
-  external,
-}: FieldData) {
+function FieldStack({ label, value }: DetailField) {
+  const link = autoLink(label, value);
   return (
     <div className="min-w-0">
       <div className="text-[10.5px] font-medium uppercase tracking-wide text-[#aab0ba]">
         {label}
       </div>
-      <div className="mt-0.5 text-[13px] leading-snug text-[#0f1320]">
-        {href ? (
+      <div className="mt-0.5 text-[13px] leading-snug">
+        {link.href ? (
           <a
-            href={href}
-            target={external ? "_blank" : undefined}
-            rel={external ? "noopener noreferrer" : undefined}
+            href={link.href}
+            target={link.external ? "_blank" : undefined}
+            rel={link.external ? "noopener noreferrer" : undefined}
             className="block truncate text-[#1565C0] hover:underline"
             title={value}
           >
-            {value}
+            {link.display}
           </a>
         ) : (
-          <span className="block break-words" title={value}>
-            {value}
+          <span className="block break-words text-[#0f1320]" title={value}>
+            {link.display}
           </span>
         )}
       </div>
@@ -244,23 +138,15 @@ function FieldStack({
   );
 }
 
-function pickFirst(
-  obj: Record<string, string | null | undefined>,
-  keys: string[],
-): string | null {
-  for (const k of keys) {
-    const v = obj[k];
-    if (hasValue(v)) return String(v);
-  }
-  return null;
-}
-
-function hasValue(v: unknown): v is string {
+function hasValue(v: unknown): boolean {
   if (v === null || v === undefined) return false;
-  if (typeof v === "string" && v.trim().length === 0) return false;
+  const s = String(v).trim();
+  if (s === "" || s === "null" || s === "undefined" || s === "—") return false;
   return true;
 }
 
+// "Last12Mos_ListSoldDollars_Closed" → "Last 12 mos list sold dollars closed"
+// "License Number" stays "License Number" (already pretty)
 function prettyKey(k: string): string {
   return k
     .replace(/_/g, " ")
@@ -270,11 +156,56 @@ function prettyKey(k: string): string {
     .trim();
 }
 
-// Strip the protocol + trailing slash so links read as cleaner labels:
-// "https://www.homes.com/real-estate-agents/foo/" → "homes.com/real-estate-agents/foo"
+// Auto-detect URLs from the value (unambiguous: must start with
+// http://); auto-detect emails + phones based on the field LABEL so
+// that strings like a license number "(123) 456-789" don't get treated
+// as a phone link.
+function autoLink(
+  label: string,
+  value: string,
+): { href?: string; external?: boolean; display: string } {
+  if (/^https?:\/\//i.test(value)) {
+    return { href: value, external: true, display: trimUrl(value) };
+  }
+  const l = label.toLowerCase();
+  if (l === "email" || l.includes("email")) {
+    if (/^[\w.+-]+@[\w.-]+\.\w+$/.test(value)) {
+      return { href: `mailto:${value}`, display: value };
+    }
+  }
+  if (
+    l === "phone" ||
+    l === "mobile" ||
+    l === "cell" ||
+    l.includes("phone")
+  ) {
+    const digits = value.replace(/\D/g, "");
+    if (digits.length >= 7 && digits.length <= 15) {
+      return {
+        href: `tel:${value.replace(/[^+\d]/g, "")}`,
+        display: value,
+      };
+    }
+  }
+  if (
+    l === "website" ||
+    l === "linkedin" ||
+    l === "profile" ||
+    l.includes("url")
+  ) {
+    // Bare-domain fallback ("homes.com/...") still gets linkified.
+    const hasDot = /\.[a-z]{2,}/i.test(value);
+    if (hasDot && !value.includes(" ")) {
+      const href = `https://${value.replace(/^\/+/, "")}`;
+      return { href, external: true, display: trimUrl(value) };
+    }
+  }
+  return { display: value };
+}
+
 function trimUrl(url: string): string {
   return url
-    .replace(/^https?:\/\//, "")
-    .replace(/^www\./, "")
+    .replace(/^https?:\/\//i, "")
+    .replace(/^www\./i, "")
     .replace(/\/$/, "");
 }
