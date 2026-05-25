@@ -10,7 +10,6 @@ export const dynamic = "force-dynamic";
 const patchSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   title: z.string().trim().max(120).nullable().optional(),
-  receives: z.enum(["intro", "digest", "admin"]).optional(),
   active: z.boolean().optional(),
 });
 

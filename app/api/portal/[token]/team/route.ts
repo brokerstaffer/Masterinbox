@@ -15,7 +15,6 @@ const schema = z.object({
   name: z.string().trim().min(1).max(120),
   email: z.string().trim().email().max(160),
   title: z.string().trim().max(120).nullable().optional(),
-  receives: z.enum(["intro", "digest", "admin"]).default("intro"),
 });
 
 export async function POST(
@@ -35,11 +34,14 @@ export async function POST(
       { status: 400 },
     );
   }
-  const { name, email, title, receives } = parsed.data;
+  const { name, email, title } = parsed.data;
 
   const push = await enforceBlocklist(email);
 
   const admin = createAdminSupabase();
+  // `receives` is no longer collected from the UI (notification
+  // delivery isn't wired up); the DB column keeps its default value
+  // until/unless that feature returns.
   const { data, error } = await admin
     .from("client_team_members")
     .insert({
@@ -47,7 +49,6 @@ export async function POST(
       name,
       email,
       title: title ?? null,
-      receives,
       active: true,
       pushed_to_instantly: push.pushedInstantly,
       pushed_to_emailbison: push.pushedEmailBison,
