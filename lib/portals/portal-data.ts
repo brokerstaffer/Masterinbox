@@ -62,6 +62,9 @@ export interface TeamMember {
   title: string | null;
   receives: "intro" | "digest" | "admin";
   active: boolean;
+  pushed_to_instantly: boolean;
+  pushed_to_emailbison: boolean;
+  push_error: string | null;
   created_at: string;
 }
 
@@ -122,7 +125,9 @@ export const loadTeamMembers = cache(
     const admin = createAdminSupabase();
     const { data, error } = await admin
       .from("client_team_members")
-      .select("id, name, email, title, receives, active, created_at")
+      .select(
+        "id, name, email, title, receives, active, pushed_to_instantly, pushed_to_emailbison, push_error, created_at",
+      )
       .eq("client_id", clientId)
       .order("created_at", { ascending: true })
       .range(0, 999);

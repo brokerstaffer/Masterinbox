@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
+import { enforceBlocklist } from "@/lib/portals/enforce-blocklist";
 
 // POST /api/portal/[token]/team — add a team member to the
-// notification roster. (No transactional email is sent yet — see the
-// follow-up note in the plan.)
+// notification roster. Their email is also pushed to the Instantly +
+// EmailBison blocklists, mirroring the Your Agents flow — anyone on
+// the brokerage's own team should never receive cold outreach.
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +37,8 @@ export async function POST(
   }
   const { name, email, title, receives } = parsed.data;
 
+  const push = await enforceBlocklist(email);
+
   const admin = createAdminSupabase();
   const { data, error } = await admin
     .from("client_team_members")
@@ -45,11 +49,13 @@ export async function POST(
       title: title ?? null,
       receives,
       active: true,
+      pushed_to_instantly: push.pushedInstantly,
+      pushed_to_emailbison: push.pushedEmailBison,
+      push_error: push.error,
     })
     .select("id")
     .single();
   if (error) {
-    // Friendlier message for the unique (client_id, email) violation.
     if (error.code === "23505") {
       return NextResponse.json(
         { error: "Someone with that email is already on the team." },
@@ -58,5 +64,10 @@ export async function POST(
     }
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
-  return NextResponse.json({ ok: true, id: data.id });
+  return NextResponse.json({
+    ok: true,
+    id: data.id,
+    pushedInstantly: push.pushedInstantly,
+    pushedEmailBison: push.pushedEmailBison,
+  });
 }

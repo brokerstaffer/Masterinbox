@@ -34,6 +34,7 @@ import type { TeamMember } from "@/lib/portals/portal-data";
 import {
   PortalPageHeader,
   PortalEmpty,
+  Pill,
   Avatar,
   useMounted,
 } from "@/components/portals/portal-ui";
@@ -66,6 +67,15 @@ const RECEIVES_META: Record<
     text: "text-[#0c8a4e]",
   },
 };
+
+function TeamStatusPill({ member }: { member: TeamMember }) {
+  if (!member.email) return <Pill tone="neutral">No email</Pill>;
+  if (member.push_error) return <Pill tone="warning">Push failed</Pill>;
+  if (member.pushed_to_instantly || member.pushed_to_emailbison) {
+    return <Pill tone="success">Protected</Pill>;
+  }
+  return <Pill tone="neutral">Pending</Pill>;
+}
 
 export function TeamList({
   token,
@@ -129,22 +139,22 @@ export function TeamList({
         }
       />
 
-      <div className="mb-6 rounded-2xl border border-[#fde8c4] bg-[#fef7e6]/70 p-4">
+      <div className="mb-6 rounded-2xl border border-[#d4e4f8] bg-[#eaf2fd]/60 p-4">
         <div className="flex gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#a06200] text-white">
-            <Clock className="size-4" />
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#1565C0] text-white">
+            <Shield className="size-4" />
           </div>
           <div>
             <div className="text-[13px] font-semibold text-[#0f1320]">
-              Email notifications are coming soon
+              Team emails are auto-protected from outreach
             </div>
             <p className="mt-1 max-w-2xl text-[12.5px] leading-relaxed text-[#5b6472]">
-              For now the team roster is saved here so it&apos;s ready when
-              delivery goes live. Pick the cadence each member should get —{" "}
-              <strong>Every intro</strong> for an email per warm intro,{" "}
-              <strong>Weekly digest</strong> for a Monday summary, or{" "}
-              <strong>Admin</strong> for the future portal-wide login. Until
-              then introductions arrive only in this portal.
+              When you add a team member their email is immediately pushed to
+              the Instantly and EmailBison blocklists — the same protection
+              Your Agents gets. The roster also stores each member&apos;s
+              notification preference (<strong>Every intro</strong> /{" "}
+              <strong>Weekly digest</strong> / <strong>Admin</strong>) so
+              they&apos;re ready when transactional email delivery goes live.
             </p>
           </div>
         </div>
@@ -168,10 +178,11 @@ export function TeamList({
             mounted ? "opacity-100" : "opacity-0",
           )}
         >
-          <div className="grid grid-cols-[1.4fr_1.2fr_1.5fr_160px_72px_44px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+          <div className="grid grid-cols-[1.4fr_1.1fr_1.4fr_110px_160px_72px_44px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
             <div>Member</div>
             <div>Title</div>
             <div>Email</div>
+            <div>Status</div>
             <div>Receives</div>
             <div className="text-center">Active</div>
             <div></div>
@@ -184,7 +195,7 @@ export function TeamList({
                 <div
                   key={m.id}
                   className={cn(
-                    "grid grid-cols-[1.4fr_1.2fr_1.5fr_160px_72px_44px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]",
+                    "grid grid-cols-[1.4fr_1.1fr_1.4fr_110px_160px_72px_44px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]",
                     !m.active && "opacity-60",
                   )}
                 >
@@ -201,6 +212,9 @@ export function TeamList({
                     {m.title ?? "—"}
                   </div>
                   <div className="truncate text-[12.5px] text-[#5b6472]">{m.email}</div>
+                  <div>
+                    <TeamStatusPill member={m} />
+                  </div>
                   <div>
                     <DropdownMenu>
                       <DropdownMenuTrigger
