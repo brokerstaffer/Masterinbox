@@ -137,54 +137,47 @@ export function PipelineDetailInline({ entry }: { entry: PipelineEntry }) {
     <div className="px-12 py-6">
       {/* Top row — three stacked-field columns */}
       <div className="grid grid-cols-1 gap-x-12 gap-y-7 md:grid-cols-3">
-        <FieldColumn title="Contact" fields={contactFields} />
-        <FieldColumn title="Company" fields={companyFields} />
-        <FieldColumn title="Location" fields={locationFields} />
+        <FieldColumn fields={contactFields} />
+        <FieldColumn fields={companyFields} />
+        <FieldColumn fields={locationFields} />
       </div>
 
       {/* Pipeline / Campaign — separator above, two columns */}
       {(introducedDate || entry.campaign_name) ? (
-        <div className="mt-7 border-t border-[#ebecf0] pt-6">
-          <SectionTitle>Pipeline</SectionTitle>
-          <div className="mt-3 grid grid-cols-1 gap-x-12 gap-y-3 md:grid-cols-[200px_1fr]">
-            {introducedDate ? (
-              <FieldStack label="Introduced" value={introducedDate} />
-            ) : null}
-            {entry.campaign_name ? (
-              <FieldStack label="Campaign" value={entry.campaign_name} />
-            ) : null}
-          </div>
+        <div className="mt-7 grid grid-cols-1 gap-x-12 gap-y-3 border-t border-[#ebecf0] pt-6 md:grid-cols-[200px_1fr]">
+          {introducedDate ? (
+            <FieldStack label="Introduced" value={introducedDate} />
+          ) : null}
+          {entry.campaign_name ? (
+            <FieldStack label="Campaign" value={entry.campaign_name} />
+          ) : null}
         </div>
       ) : null}
 
       {/* Performance — full-width compact grid */}
       {performance.length > 0 ? (
-        <div className="mt-7 border-t border-[#ebecf0] pt-6">
-          <SectionTitle>Performance</SectionTitle>
-          <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-3 md:grid-cols-4">
-            {performance.map(([k, v]) => (
-              <FieldStack key={k} label={k} value={v} />
-            ))}
-          </div>
+        <div className="mt-7 grid grid-cols-2 gap-x-8 gap-y-3 border-t border-[#ebecf0] pt-6 md:grid-cols-4">
+          {performance.map(([k, v]) => (
+            <FieldStack key={k} label={k} value={v} />
+          ))}
         </div>
       ) : null}
 
       {/* Catch-all */}
       {other.length > 0 ? (
-        <div className="mt-7 border-t border-[#ebecf0] pt-6">
-          <SectionTitle>Other</SectionTitle>
-          <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-3 md:grid-cols-4">
-            {other.map(([k, v]) => (
-              <FieldStack key={k} label={k} value={v} />
-            ))}
-          </div>
+        <div className="mt-7 grid grid-cols-2 gap-x-8 gap-y-3 border-t border-[#ebecf0] pt-6 md:grid-cols-4">
+          {other.map(([k, v]) => (
+            <FieldStack key={k} label={k} value={v} />
+          ))}
         </div>
       ) : null}
 
       {entry.notes ? (
         <div className="mt-7 border-t border-[#ebecf0] pt-6">
-          <SectionTitle>Your notes</SectionTitle>
-          <p className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-[#5b6472]">
+          <div className="text-[10.5px] font-medium uppercase tracking-wide text-[#aab0ba]">
+            Notes
+          </div>
+          <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-[#0f1320]">
             {entry.notes}
           </p>
         </div>
@@ -206,32 +199,16 @@ interface FieldData {
   external?: boolean;
 }
 
-function FieldColumn({ title, fields }: { title: string; fields: FieldData[] }) {
+function FieldColumn({ fields }: { title?: string; fields: FieldData[] }) {
   if (fields.length === 0) {
-    return (
-      <div>
-        <SectionTitle>{title}</SectionTitle>
-        <div className="mt-3 text-[12.5px] text-[#aab0ba]">—</div>
-      </div>
-    );
+    return <div className="text-[12.5px] text-[#aab0ba]">—</div>;
   }
   return (
-    <div>
-      <SectionTitle>{title}</SectionTitle>
-      <div className="mt-3 space-y-3">
-        {fields.map((f) => (
-          <FieldStack key={f.label} {...f} />
-        ))}
-      </div>
+    <div className="space-y-3">
+      {fields.map((f) => (
+        <FieldStack key={f.label} {...f} />
+      ))}
     </div>
-  );
-}
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[#9aa0ab]">
-      {children}
-    </h3>
   );
 }
 
