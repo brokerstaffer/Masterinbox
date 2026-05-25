@@ -131,34 +131,30 @@ export const loadTeamMembers = cache(
   },
 );
 
-// Counts for the admin overview and the portal sidebar pills. One round
-// trip per surface; cached per-render.
+// Counts for the admin overview and the portal sidebar pills. One RPC
+// call returns all four counts in a single round-trip — the SQL lives in
+// migration 0025 (portal_counts). Cached per-render so the layout +
+// page can share the same numbers without re-asking.
 export const loadPortalCounts = cache(
   async (clientId: string) => {
     const admin = createAdminSupabase();
-    const [pipeline, dnc, agents, team] = await Promise.all([
-      admin
-        .from("client_pipeline_entries")
-        .select("id", { count: "exact", head: true })
-        .eq("client_id", clientId),
-      admin
-        .from("client_dnc_entries")
-        .select("id", { count: "exact", head: true })
-        .eq("client_id", clientId),
-      admin
-        .from("client_agents")
-        .select("id", { count: "exact", head: true })
-        .eq("client_id", clientId),
-      admin
-        .from("client_team_members")
-        .select("id", { count: "exact", head: true })
-        .eq("client_id", clientId),
-    ]);
+    const { data, error } = await admin
+      .rpc("portal_counts", { client_uuid: clientId })
+      .single();
+    if (error || !data) {
+      return { pipeline: 0, dnc: 0, agents: 0, team: 0 };
+    }
+    const row = data as {
+      pipeline: number | null;
+      dnc: number | null;
+      agents: number | null;
+      team: number | null;
+    };
     return {
-      pipeline: pipeline.count ?? 0,
-      dnc: dnc.count ?? 0,
-      agents: agents.count ?? 0,
-      team: team.count ?? 0,
+      pipeline: row.pipeline ?? 0,
+      dnc: row.dnc ?? 0,
+      agents: row.agents ?? 0,
+      team: row.team ?? 0,
     };
   },
 );

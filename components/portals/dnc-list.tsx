@@ -1,8 +1,16 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Search, Trash2, Loader2, Ban } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Trash2,
+  Loader2,
+  Ban,
+  Upload,
+  FileText,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -16,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { DncEntry } from "@/lib/portals/portal-data";
+import { parseCsv, csvRowToDnc, type DncRow } from "@/lib/portals/csv";
 import {
   PortalPageHeader,
   PortalEmpty,
@@ -34,6 +43,7 @@ export function DncList({
   const router = useRouter();
   const mounted = useMounted();
   const [openAdd, setOpenAdd] = useState(false);
+  const [openCsv, setOpenCsv] = useState(false);
   const [search, setSearch] = useState("");
 
   const agents = useMemo(
@@ -72,10 +82,20 @@ export function DncList({
         title="Do Not Contact"
         subtitle="Agents and companies we should never reach out to. Adding an email here immediately blocks it on Instantly and EmailBison."
         actions={
-          <Button onClick={() => setOpenAdd(true)} className="gap-1.5">
-            <Plus className="size-4" />
-            Add to DNC
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              onClick={() => setOpenCsv(true)}
+              className="gap-1.5"
+            >
+              <Upload className="size-4" />
+              Import CSV
+            </Button>
+            <Button onClick={() => setOpenAdd(true)} className="gap-1.5">
+              <Plus className="size-4" />
+              Add to DNC
+            </Button>
+          </>
         }
       />
 
@@ -84,10 +104,20 @@ export function DncList({
           title="No DNC entries yet"
           hint="Add agents or companies you want excluded from outreach — anyone who unsubscribes is added here automatically too."
           action={
-            <Button onClick={() => setOpenAdd(true)} className="gap-1.5">
-              <Plus className="size-4" />
-              Add the first one
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setOpenCsv(true)}
+                className="gap-1.5"
+              >
+                <Upload className="size-4" />
+                Import CSV
+              </Button>
+              <Button onClick={() => setOpenAdd(true)} className="gap-1.5">
+                <Plus className="size-4" />
+                Add the first one
+              </Button>
+            </div>
           }
         />
       ) : (
@@ -137,6 +167,16 @@ export function DncList({
           onClose={() => setOpenAdd(false)}
           onAdded={() => {
             setOpenAdd(false);
+            router.refresh();
+          }}
+        />
+      ) : null}
+      {openCsv ? (
+        <CsvImportDialog
+          token={token}
+          onClose={() => setOpenCsv(false)}
+          onImported={() => {
+            setOpenCsv(false);
             router.refresh();
           }}
         />
@@ -391,6 +431,175 @@ function AddDncDialog({
           <Button onClick={save} disabled={pending || !name.trim()}>
             {pending ? <Loader2 className="size-4 animate-spin" /> : "Add"}
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CsvImportDialog({
+  token,
+  onClose,
+  onImported,
+}: {
+  token: string;
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [rows, setRows] = useState<DncRow[] | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [importedCount, setImportedCount] = useState<number | null>(null);
+
+  function handleFile(file: File | undefined | null) {
+    if (!file) return;
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result ?? "");
+      const parsed = parseCsv(text);
+      const mapped = parsed
+        .map(csvRowToDnc)
+        .filter((r): r is DncRow => Boolean(r));
+      setRows(mapped);
+    };
+    reader.readAsText(file);
+  }
+
+  async function submit() {
+    if (!rows || rows.length === 0) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/portal/${token}/dnc/csv`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(j.error ?? "Import failed");
+        setSubmitting(false);
+        return;
+      }
+      setImportedCount(j.inserted ?? rows.length);
+      toast.success(`${j.inserted ?? rows.length} entries added to DNC`);
+      onImported();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Import DNC entries from CSV</DialogTitle>
+        </DialogHeader>
+        {!rows ? (
+          <div>
+            <div
+              onClick={() => fileRef.current?.click()}
+              className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#ebecf0] bg-[#fafbfc] px-6 py-12 text-center transition-colors hover:border-[#bcd5f1] hover:bg-[#f4f8fd]"
+            >
+              <FileText className="size-7 text-[#aab0ba]" />
+              <div className="text-sm font-medium">
+                Click to choose a CSV file
+              </div>
+              <div className="text-[12px] text-[#9aa0ab]">
+                Columns we recognise: <code>name</code>, <code>email</code>,{" "}
+                <code>phone</code>, <code>brokerage</code>, <code>kind</code>
+                {" "}(<code>agent</code> or <code>company</code>),{" "}
+                <code>notes</code>
+                <br />
+                Anything not marked <code>company</code> in the{" "}
+                <code>kind</code> column is treated as an agent.
+              </div>
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(e) => handleFile(e.target.files?.[0])}
+            />
+          </div>
+        ) : (
+          <div>
+            <div className="mb-2 flex items-center justify-between text-[12px]">
+              <span className="font-medium">
+                {fileName} —{" "}
+                <span className="text-[#5b6472]">
+                  {rows.length} ready to import
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setRows(null);
+                  setFileName(null);
+                }}
+                className="text-[#1565C0] hover:underline"
+              >
+                Choose a different file
+              </button>
+            </div>
+            <div className="max-h-72 overflow-y-auto rounded-lg border border-[#ebecf0]">
+              <div className="grid grid-cols-[80px_1.4fr_1.1fr_1fr_100px] border-b border-[#ebecf0] bg-[#fafbfc] px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+                <div>Kind</div>
+                <div>Name</div>
+                <div>Email</div>
+                <div>Brokerage</div>
+                <div>Phone</div>
+              </div>
+              {rows.slice(0, 50).map((r, i) => (
+                <div
+                  key={i}
+                  className="grid grid-cols-[80px_1.4fr_1.1fr_1fr_100px] gap-2 border-b border-[#f0f1f4] px-3 py-1.5 text-[12.5px] last:border-0"
+                >
+                  <div className="truncate text-[#9aa0ab] capitalize">
+                    {r.kind}
+                  </div>
+                  <div className="truncate font-medium">{r.name}</div>
+                  <div className="truncate text-[#5b6472]">{r.email ?? "—"}</div>
+                  <div className="truncate text-[#5b6472]">
+                    {r.brokerage ?? "—"}
+                  </div>
+                  <div className="truncate text-[#5b6472]">{r.phone ?? "—"}</div>
+                </div>
+              ))}
+              {rows.length > 50 ? (
+                <div className="px-3 py-1.5 text-center text-[11.5px] text-[#9aa0ab]">
+                  …and {rows.length - 50} more
+                </div>
+              ) : null}
+            </div>
+            {importedCount !== null ? (
+              <p className="mt-3 rounded-md bg-[#e9f7ef] px-3 py-2 text-[12px] text-[#0c8a4e]">
+                Added {importedCount} to DNC. Provider blocklist push runs in
+                the background.
+              </p>
+            ) : (
+              <p className="mt-3 text-[11.5px] leading-relaxed text-[#9aa0ab]">
+                Rows with an email get pushed to Instantly and EmailBison
+                blocklists after import — outreach stops immediately.
+              </p>
+            )}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {importedCount !== null ? "Close" : "Cancel"}
+          </Button>
+          {rows && importedCount === null ? (
+            <Button onClick={submit} disabled={submitting || rows.length === 0}>
+              {submitting ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                `Import ${rows.length} entries`
+              )}
+            </Button>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>

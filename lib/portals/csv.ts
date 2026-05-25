@@ -107,3 +107,63 @@ export function csvRowToAgent(row: CsvRow): AgentRow | null {
     market: pick("market", "city", "region", "location"),
   };
 }
+
+export interface DncRow {
+  kind: "agent" | "company";
+  name: string;
+  email: string | null;
+  phone: string | null;
+  brokerage: string | null;
+  notes: string | null;
+}
+
+// Maps a parsed CSV row to a DNC insert payload. Kind defaults to "agent"
+// unless the row explicitly says company / brokerage / firm.
+export function csvRowToDnc(row: CsvRow): DncRow | null {
+  const pick = (...keys: string[]): string | null => {
+    for (const k of keys) {
+      const v = row[k];
+      if (v && v.trim().length > 0) return v.trim();
+    }
+    return null;
+  };
+  const first = pick("first_name", "firstname", "first");
+  const last = pick("last_name", "lastname", "last");
+  const name =
+    pick(
+      "name",
+      "full_name",
+      "fullname",
+      "agent_name",
+      "agent",
+      "company_name",
+      "company",
+      "brokerage_name",
+      "firm",
+    ) ?? (first && last ? `${first} ${last}` : first ?? last);
+  if (!name) return null;
+
+  const kindRaw = pick("kind", "type", "category")?.toLowerCase() ?? "";
+  let kind: "agent" | "company" = "agent";
+  if (
+    kindRaw === "company" ||
+    kindRaw === "brokerage" ||
+    kindRaw === "firm" ||
+    kindRaw === "org" ||
+    kindRaw === "organization"
+  ) {
+    kind = "company";
+  }
+
+  return {
+    kind,
+    name,
+    email: pick("email", "email_address"),
+    phone: pick("phone", "phone_number", "mobile", "cell"),
+    brokerage:
+      kind === "agent"
+        ? pick("brokerage", "company", "firm", "agency")
+        : null,
+    notes: pick("notes", "reason", "comment"),
+  };
+}

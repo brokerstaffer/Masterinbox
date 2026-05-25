@@ -129,21 +129,22 @@ export function TeamList({
         }
       />
 
-      <div className="mb-6 rounded-2xl border border-[#d4e4f8] bg-[#eaf2fd]/60 p-4">
+      <div className="mb-6 rounded-2xl border border-[#fde8c4] bg-[#fef7e6]/70 p-4">
         <div className="flex gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#1565C0] text-white">
-            <Mail className="size-4" />
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#a06200] text-white">
+            <Clock className="size-4" />
           </div>
           <div>
             <div className="text-[13px] font-semibold text-[#0f1320]">
-              How intro delivery works
+              Email notifications are coming soon
             </div>
             <p className="mt-1 max-w-2xl text-[12.5px] leading-relaxed text-[#5b6472]">
-              When a warm intro lands, an email goes to everyone here set to{" "}
-              <strong>Every intro</strong>. Members on{" "}
-              <strong>Weekly digest</strong> get a Monday summary instead.{" "}
-              <em>Admin</em> reserves portal-wide access for the future per-user
-              login (not active yet).
+              For now the team roster is saved here so it&apos;s ready when
+              delivery goes live. Pick the cadence each member should get —{" "}
+              <strong>Every intro</strong> for an email per warm intro,{" "}
+              <strong>Weekly digest</strong> for a Monday summary, or{" "}
+              <strong>Admin</strong> for the future portal-wide login. Until
+              then introductions arrive only in this portal.
             </p>
           </div>
         </div>

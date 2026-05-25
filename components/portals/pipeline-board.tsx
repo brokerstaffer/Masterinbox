@@ -40,16 +40,16 @@ import {
   useMounted,
 } from "@/components/portals/portal-ui";
 
-// Stage → swatch (gradient when active, neutral chip otherwise). Same
-// palette family as the Introductions charts so the surfaces feel one.
+// Stage → coloured chip. Tone matches the Google Sheets pipeline board:
+// saturated fill, white text — readable at a glance across a long table.
 const STAGE_STYLE: Record<PipelineStage, { bg: string; text: string }> = {
-  introduction:    { bg: "bg-[#eaf2fd]",   text: "text-[#1565C0]" },
-  phone_screen:    { bg: "bg-[#eef0f3]",   text: "text-[#5b6472]" },
-  interview:       { bg: "bg-[#e6efff]",   text: "text-[#3956c2]" },
-  hired:           { bg: "bg-[#e9f7ef]",   text: "text-[#0c8a4e]" },
-  keep_warm:       { bg: "bg-[#fef7e6]",   text: "text-[#a06200]" },
-  we_they_rejected:{ bg: "bg-[#fde7e7]",   text: "text-[#b91c1c]" },
-  no_show:         { bg: "bg-[#f0f1f4]",   text: "text-[#6b7280]" },
+  introduction:    { bg: "bg-[#1976d2]", text: "text-white" },
+  phone_screen:    { bg: "bg-[#4f63d2]", text: "text-white" },
+  interview:       { bg: "bg-[#7c4dff]", text: "text-white" },
+  hired:           { bg: "bg-[#10a05d]", text: "text-white" },
+  keep_warm:       { bg: "bg-[#f5a623]", text: "text-white" },
+  we_they_rejected:{ bg: "bg-[#e23a3a]", text: "text-white" },
+  no_show:         { bg: "bg-[#8b95a3]", text: "text-white" },
 };
 
 export function PipelineBoard({
@@ -289,8 +289,8 @@ function PipelineRow({
   onOpenNotes: () => void;
 }) {
   return (
-    <div className="grid grid-cols-[1.6fr_1.2fr_120px_140px_180px_72px_80px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]">
-      <div className="flex min-w-0 items-center gap-3">
+    <div className="grid grid-cols-[1.6fr_1.2fr_120px_140px_180px_72px_80px] items-start gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]">
+      <div className="flex min-w-0 items-start gap-3">
         <Avatar name={entry.lead_name ?? entry.lead_email ?? "?"} />
         <div className="min-w-0">
           <div className="truncate text-[13.5px] font-medium">
@@ -298,6 +298,16 @@ function PipelineRow({
           </div>
           {entry.lead_email ? (
             <div className="truncate text-[11.5px] text-[#9aa0ab]">{entry.lead_email}</div>
+          ) : null}
+          {entry.notes ? (
+            <button
+              type="button"
+              onClick={onOpenNotes}
+              className="mt-1 line-clamp-2 max-w-[36ch] cursor-pointer text-left text-[11.5px] italic leading-snug text-[#5b6472] hover:text-[#0f1320]"
+              title={entry.notes}
+            >
+              {entry.notes}
+            </button>
           ) : null}
         </div>
       </div>
@@ -329,7 +339,7 @@ function PipelineRow({
           title={entry.notes ?? "Add notes"}
         >
           <StickyNote className="size-3.5" />
-          {entry.notes ? "View" : "Add"}
+          {entry.notes ? "Edit" : "Add"}
         </button>
       </div>
     </div>
