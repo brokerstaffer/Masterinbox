@@ -1,26 +1,12 @@
 "use client";
 
-import {
-  Mail,
-  Phone,
-  Globe,
-  Link2,
-  MapPin,
-  Building2,
-  Calendar,
-  Megaphone,
-  TrendingUp,
-  ExternalLink,
-  IdCard,
-  Clock,
-} from "lucide-react";
 import type { PipelineEntry } from "@/lib/portals/portal-data";
 
 // Inline expandable detail block for a Recruiting Pipeline row.
-// Rendered directly underneath the row (NOT in a side-panel) so the
-// data shows in-context within the table. Sectioned into Contact /
-// Company / Location / Performance / Pipeline + a catch-all so every
-// field Instantly captured stays visible.
+// Stacked label-above-value layout — same pattern Linear, Notion and
+// Stripe use for property panels: small muted-uppercase labels, regular
+// values, generous vertical rhythm. All data comes from
+// external_intros.lead_detail joined onto the pipeline row.
 
 const PERFORMANCE_KEYS = new Set([
   "Closed Transactions",
@@ -88,113 +74,124 @@ export function PipelineDetailInline({ entry }: { entry: PipelineEntry }) {
     .filter(([k, v]) => !SURFACED_KEYS.has(k) && hasValue(v))
     .map(([k, v]) => [prettyKey(k), String(v)]);
 
-  const hasContact = entry.lead_email || phone || website || linkedIn || agentProfile;
-  const hasCompany = entry.current_brokerage || brand || license || tenure || detail.title;
-  const hasLocation = location || city || state || county || agencyZip;
+  const contactFields: Array<FieldData> = [
+    entry.lead_email && {
+      label: "Email",
+      value: entry.lead_email,
+      href: `mailto:${entry.lead_email}`,
+    },
+    phone && {
+      label: "Phone",
+      value: phone,
+      href: `tel:${phone.replace(/[^+\d]/g, "")}`,
+    },
+    website && {
+      label: "Website",
+      value: trimUrl(website),
+      href: website,
+      external: true,
+    },
+    linkedIn && {
+      label: "LinkedIn",
+      value: trimUrl(linkedIn),
+      href: linkedIn,
+      external: true,
+    },
+    agentProfile && {
+      label: "Profile",
+      value: trimUrl(agentProfile),
+      href: agentProfile,
+      external: true,
+    },
+  ].filter(Boolean) as FieldData[];
+
+  const companyFields: Array<FieldData> = [
+    entry.current_brokerage && {
+      label: "Company",
+      value: entry.current_brokerage,
+    },
+    detail.title && { label: "Title", value: String(detail.title) },
+    brand && { label: "Brand", value: brand },
+    license && { label: "License #", value: license },
+    tenure && { label: "Tenure", value: tenure },
+  ].filter(Boolean) as FieldData[];
+
+  const locationFields: Array<FieldData> = [
+    location && { label: "Market", value: location },
+    city && city !== location && { label: "City", value: city },
+    state && { label: "State", value: state },
+    county && { label: "County", value: county },
+    agencyZip && { label: "Office ZIP", value: agencyZip },
+  ].filter(Boolean) as FieldData[];
+
+  const introducedDate = entry.introduced_at
+    ? new Date(entry.introduced_at).toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+    : null;
 
   return (
-    <div className="grid grid-cols-1 gap-x-8 gap-y-5 px-12 py-5 md:grid-cols-3">
-      {hasContact ? (
-        <Section title="Contact" icon={Mail}>
-          {entry.lead_email ? (
-            <Field
-              icon={Mail}
-              label="Email"
-              value={entry.lead_email}
-              href={`mailto:${entry.lead_email}`}
-            />
-          ) : null}
-          {phone ? (
-            <Field
-              icon={Phone}
-              label="Phone"
-              value={phone}
-              href={`tel:${phone.replace(/[^+\d]/g, "")}`}
-            />
-          ) : null}
-          {website ? (
-            <Field icon={Globe} label="Website" value={website} href={website} external />
-          ) : null}
-          {linkedIn ? (
-            <Field icon={Link2} label="LinkedIn" value={linkedIn} href={linkedIn} external />
-          ) : null}
-          {agentProfile ? (
-            <Field
-              icon={ExternalLink}
-              label="Profile"
-              value={agentProfile}
-              href={agentProfile}
-              external
-            />
-          ) : null}
-        </Section>
-      ) : null}
+    <div className="px-12 py-6">
+      {/* Top row — three stacked-field columns */}
+      <div className="grid grid-cols-1 gap-x-12 gap-y-7 md:grid-cols-3">
+        <FieldColumn title="Contact" fields={contactFields} />
+        <FieldColumn title="Company" fields={companyFields} />
+        <FieldColumn title="Location" fields={locationFields} />
+      </div>
 
-      {hasCompany ? (
-        <Section title="Company" icon={Building2}>
-          {entry.current_brokerage ? (
-            <Field label="Company" value={entry.current_brokerage} />
-          ) : null}
-          {detail.title ? <Field label="Title" value={detail.title} /> : null}
-          {brand ? <Field label="Brand" value={brand} /> : null}
-          {license ? <Field icon={IdCard} label="License #" value={license} /> : null}
-          {tenure ? <Field icon={Clock} label="Tenure" value={tenure} /> : null}
-        </Section>
-      ) : null}
-
-      {hasLocation ? (
-        <Section title="Location" icon={MapPin}>
-          {location ? <Field label="Market" value={location} /> : null}
-          {city && city !== location ? <Field label="City" value={city} /> : null}
-          {state ? <Field label="State" value={state} /> : null}
-          {county ? <Field label="County" value={county} /> : null}
-          {agencyZip ? <Field label="Office ZIP" value={agencyZip} /> : null}
-        </Section>
-      ) : null}
-
-      {performance.length > 0 ? (
-        <Section title="Performance" icon={TrendingUp} span={3}>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 md:grid-cols-4">
-            {performance.map(([k, v]) => (
-              <Field key={k} label={k} value={v} compact />
-            ))}
+      {/* Pipeline / Campaign — separator above, two columns */}
+      {(introducedDate || entry.campaign_name) ? (
+        <div className="mt-7 border-t border-[#ebecf0] pt-6">
+          <SectionTitle>Pipeline</SectionTitle>
+          <div className="mt-3 grid grid-cols-1 gap-x-12 gap-y-3 md:grid-cols-[200px_1fr]">
+            {introducedDate ? (
+              <FieldStack label="Introduced" value={introducedDate} />
+            ) : null}
+            {entry.campaign_name ? (
+              <FieldStack label="Campaign" value={entry.campaign_name} />
+            ) : null}
           </div>
-        </Section>
-      ) : null}
-
-      <Section title="Pipeline" icon={Calendar} span={hasContact || hasCompany || hasLocation ? 3 : 1}>
-        <div className="grid grid-cols-1 gap-x-6 gap-y-1.5 md:grid-cols-3">
-          <Field
-            label="Introduced"
-            value={
-              entry.introduced_at
-                ? new Date(entry.introduced_at).toLocaleDateString("en-US", {
-                    weekday: "short",
-                    month: "long",
-                    day: "numeric",
-                    year: "numeric",
-                  })
-                : "—"
-            }
-          />
-          {entry.campaign_name ? (
-            <Field icon={Megaphone} label="Campaign" value={entry.campaign_name} />
-          ) : null}
         </div>
-      </Section>
-
-      {other.length > 0 ? (
-        <Section title="Other details" span={3}>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 md:grid-cols-4">
-            {other.map(([k, v]) => (
-              <Field key={k} label={k} value={v} compact />
-            ))}
-          </div>
-        </Section>
       ) : null}
 
-      {!entry.lead_detail ? (
-        <div className="md:col-span-3 rounded-md border border-dashed border-[#ebecf0] bg-white px-4 py-3 text-[12px] text-[#9aa0ab]">
+      {/* Performance — full-width compact grid */}
+      {performance.length > 0 ? (
+        <div className="mt-7 border-t border-[#ebecf0] pt-6">
+          <SectionTitle>Performance</SectionTitle>
+          <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-3 md:grid-cols-4">
+            {performance.map(([k, v]) => (
+              <FieldStack key={k} label={k} value={v} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Catch-all */}
+      {other.length > 0 ? (
+        <div className="mt-7 border-t border-[#ebecf0] pt-6">
+          <SectionTitle>Other</SectionTitle>
+          <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-3 md:grid-cols-4">
+            {other.map(([k, v]) => (
+              <FieldStack key={k} label={k} value={v} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {entry.notes ? (
+        <div className="mt-7 border-t border-[#ebecf0] pt-6">
+          <SectionTitle>Your notes</SectionTitle>
+          <p className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-[#5b6472]">
+            {entry.notes}
+          </p>
+        </div>
+      ) : null}
+
+      {!entry.lead_detail && contactFields.length === 0 && companyFields.length === 0 && locationFields.length === 0 ? (
+        <div className="rounded-md border border-dashed border-[#ebecf0] bg-white px-4 py-3 text-[12px] text-[#9aa0ab]">
           No Instantly enrichment captured for this lead yet.
         </div>
       ) : null}
@@ -202,72 +199,54 @@ export function PipelineDetailInline({ entry }: { entry: PipelineEntry }) {
   );
 }
 
-function Section({
-  title,
-  icon: Icon,
-  span = 1,
-  children,
-}: {
-  title: string;
-  icon?: typeof Mail;
-  span?: 1 | 2 | 3;
-  children: React.ReactNode;
-}) {
-  const colClass =
-    span === 3 ? "md:col-span-3" : span === 2 ? "md:col-span-2" : "md:col-span-1";
-  return (
-    <section className={colClass}>
-      <div className="mb-2 flex items-center gap-1.5">
-        {Icon ? <Icon className="size-3 text-[#9aa0ab]" /> : null}
-        <h3 className="text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
-          {title}
-        </h3>
-      </div>
-      <div className="space-y-1.5">{children}</div>
-    </section>
-  );
-}
-
-function Field({
-  icon: Icon,
-  label,
-  value,
-  href,
-  external,
-  compact,
-}: {
-  icon?: typeof Mail;
+interface FieldData {
   label: string;
   value: string;
   href?: string;
   external?: boolean;
-  compact?: boolean;
-}) {
-  return (
-    <div
-      className={
-        compact
-          ? "min-w-0"
-          : "flex items-baseline gap-3"
-      }
-    >
-      <div
-        className={
-          compact
-            ? "text-[10.5px] font-medium uppercase tracking-wide text-[#9aa0ab]"
-            : "flex w-[88px] shrink-0 items-center gap-1.5 text-[11.5px] text-[#9aa0ab]"
-        }
-      >
-        {!compact && Icon ? <Icon className="size-3 shrink-0" /> : null}
-        <span className="truncate">{label}</span>
+}
+
+function FieldColumn({ title, fields }: { title: string; fields: FieldData[] }) {
+  if (fields.length === 0) {
+    return (
+      <div>
+        <SectionTitle>{title}</SectionTitle>
+        <div className="mt-3 text-[12.5px] text-[#aab0ba]">—</div>
       </div>
-      <div
-        className={
-          compact
-            ? "mt-0.5 text-[12.5px] font-medium tabular-nums text-[#0f1320]"
-            : "min-w-0 flex-1 text-[12.5px]"
-        }
-      >
+    );
+  }
+  return (
+    <div>
+      <SectionTitle>{title}</SectionTitle>
+      <div className="mt-3 space-y-3">
+        {fields.map((f) => (
+          <FieldStack key={f.label} {...f} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[#9aa0ab]">
+      {children}
+    </h3>
+  );
+}
+
+function FieldStack({
+  label,
+  value,
+  href,
+  external,
+}: FieldData) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10.5px] font-medium uppercase tracking-wide text-[#aab0ba]">
+        {label}
+      </div>
+      <div className="mt-0.5 text-[13px] leading-snug text-[#0f1320]">
         {href ? (
           <a
             href={href}
@@ -279,7 +258,7 @@ function Field({
             {value}
           </a>
         ) : (
-          <span className={compact ? "block truncate" : "block break-words text-[#0f1320]"} title={value}>
+          <span className="block break-words" title={value}>
             {value}
           </span>
         )}
@@ -312,4 +291,13 @@ function prettyKey(k: string): string {
     .replace(/\s+/g, " ")
     .replace(/^./, (c) => c.toUpperCase())
     .trim();
+}
+
+// Strip the protocol + trailing slash so links read as cleaner labels:
+// "https://www.homes.com/real-estate-agents/foo/" → "homes.com/real-estate-agents/foo"
+function trimUrl(url: string): string {
+  return url
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/$/, "");
 }
