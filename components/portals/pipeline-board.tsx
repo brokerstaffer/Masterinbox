@@ -34,7 +34,6 @@ import {
   STAGE_ORDER,
 } from "@/lib/portals/portal-data";
 import {
-  PortalPageHeader,
   PortalEmpty,
   Avatar,
   useMounted,
@@ -142,22 +141,7 @@ export function PipelineBoard({
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
-      <PortalPageHeader
-        title="Recruiting Pipeline"
-        subtitle="Every introduction lands here. Move candidates through the stages and keep your notes in one place."
-        actions={
-          <button
-            type="button"
-            onClick={() => router.refresh()}
-            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-[#ebecf0] bg-white px-3 text-[13px] font-medium text-[#5b6472] transition-colors hover:bg-[#f6f7f9]"
-          >
-            <RefreshCw className="size-3.5" />
-            Refresh
-          </button>
-        }
-      />
-
+    <div className="mx-auto max-w-6xl px-6 pb-12 pt-6">
       {entries.length === 0 ? (
         <PortalEmpty
           title="No introductions yet"
@@ -187,6 +171,15 @@ export function PipelineBoard({
                 />
                 Needs replacement only
               </label>
+              <button
+                type="button"
+                onClick={() => router.refresh()}
+                className="inline-flex h-9 items-center gap-1.5 rounded-md border border-[#ebecf0] bg-white px-3 text-[13px] font-medium text-[#5b6472] transition-colors hover:bg-[#f6f7f9]"
+                title="Refresh"
+              >
+                <RefreshCw className="size-3.5" />
+                Refresh
+              </button>
               <span className="ml-auto text-[12px] text-[#9aa0ab]">
                 {filtered.length} of {entries.length} candidates
               </span>

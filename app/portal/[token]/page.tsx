@@ -1,55 +1,49 @@
 import type { Metadata } from "next";
-import { createAdminSupabase } from "@/lib/supabase/admin";
-import { loadCombinedClientIntroLeads } from "@/lib/portals/intro-leads";
-import { computePortalMetrics } from "@/lib/portals/metrics";
-import { ClientPortalView } from "@/components/portals/client-portal";
+import { resolvePortalClient } from "@/lib/portals/token";
+import { loadPipelineEntries } from "@/lib/portals/portal-data";
+import { computePipelineSummary } from "@/lib/portals/pipeline-metrics";
+import { PipelineHeader } from "@/components/portals/pipeline-header";
+import { PipelineBoard } from "@/components/portals/pipeline-board";
 import { PortalLogo } from "@/components/portals/portal-logo";
-import { CLIENT_PORTALS_ENABLED } from "@/lib/portals/flag";
 
-// Public, login-free client portal. The token in the path IS the
-// credential — the proxy.ts middleware lets /portal/* through without a
-// session. Every query here goes through the service-role admin client,
-// scoped by the resolved client_id (see lib/portals/intro-leads.ts).
+// The Recruiting Pipeline IS the portal home now. Every Introduction
+// (legacy MasterInbox feed + new Postgres-triggered label assignments)
+// lands as a client_pipeline_entries row — see migration 0027 — so this
+// page renders the full lead list with stage management, notes, and the
+// "needs replacement" toggle in one place. The old standalone
+// /pipeline subroute redirects here.
+
 export const dynamic = "force-dynamic";
-
-async function resolveClient(token: string) {
-  // Feature-flagged off → resolve nothing (skips the portal_* columns
-  // that migration 0016 may not have created on this environment yet).
-  if (!CLIENT_PORTALS_ENABLED) return null;
-  const admin = createAdminSupabase();
-  const { data } = await admin
-    .from("clients")
-    .select("id, name, slug, portal_enabled")
-    .eq("portal_token", token)
-    .maybeSingle();
-  if (!data || data.slug === "unknown") return null;
-  if (data.portal_enabled === false) return null;
-  return { id: data.id as string, name: data.name as string };
-}
 
 export async function generateMetadata(props: {
   params: Promise<{ token: string }>;
 }): Promise<Metadata> {
   const { token } = await props.params;
-  const client = await resolveClient(token);
+  const client = await resolvePortalClient(token);
   return {
-    title: client ? `${client.name} — Introductions Portal` : "Portal not found",
-    robots: { index: false, follow: false }, // never index a secret URL
+    title: client
+      ? `${client.name} — Recruiting Pipeline`
+      : "Portal not found",
+    robots: { index: false, follow: false },
   };
 }
 
-export default async function PortalPage(props: {
+export default async function PortalRoot(props: {
   params: Promise<{ token: string }>;
 }) {
   const { token } = await props.params;
-  const client = await resolveClient(token);
-
+  const client = await resolvePortalClient(token);
   if (!client) return <PortalNotFound />;
 
-  const leads = await loadCombinedClientIntroLeads(client.id);
-  const metrics = computePortalMetrics(leads, 12);
+  const entries = await loadPipelineEntries(client.id);
+  const summary = computePipelineSummary(entries);
 
-  return <ClientPortalView clientName={client.name} leads={leads} metrics={metrics} />;
+  return (
+    <>
+      <PipelineHeader clientName={client.name} summary={summary} />
+      <PipelineBoard token={token} entries={entries} />
+    </>
+  );
 }
 
 function PortalNotFound() {
@@ -62,7 +56,7 @@ function PortalNotFound() {
         </h1>
         <p className="mt-1.5 text-sm text-[#5b6370]">
           This portal link is invalid or has been turned off. Please check the
-          link, or contact Corofy for an updated one.
+          link, or contact BrokerStaffer for an updated one.
         </p>
       </div>
     </div>

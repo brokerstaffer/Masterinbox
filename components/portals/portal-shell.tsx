@@ -2,13 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  TrendingUp,
-  Workflow,
-  UserCheck,
-  Ban,
-  Users,
-} from "lucide-react";
+import { Workflow, UserCheck, Ban, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PortalLogo } from "@/components/portals/portal-logo";
 
@@ -19,18 +13,16 @@ interface Props {
   children: React.ReactNode;
 }
 
-// Sidebar shell for every page under /portal/[token]/. The Introductions
-// page keeps its own sticky top bar (lives in client-portal.tsx); the
-// other surfaces (Pipeline / Agents / DNC / Team) render their own page
-// header inside <main>. Light / premium aesthetic matching the existing
-// portal.
+// Sidebar shell for every page under /portal/[token]/. Recruiting
+// Pipeline lives at the portal root — it merges what used to be a
+// separate Introductions surface with the per-row stage tracker
+// (see migration 0027 + app/portal/[token]/page.tsx).
 export function PortalShell({ token, clientName, counts, children }: Props) {
   const pathname = usePathname();
   const base = `/portal/${token}`;
 
   const items = [
-    { href: base, label: "Introductions", icon: TrendingUp },
-    { href: `${base}/pipeline`, label: "Recruiting Pipeline", icon: Workflow, count: counts.pipeline },
+    { href: base, label: "Recruiting Pipeline", icon: Workflow, count: counts.pipeline },
     { href: `${base}/agents`, label: "Your Agents", icon: UserCheck, count: counts.agents },
     { href: `${base}/dnc`, label: "DNC List", icon: Ban, count: counts.dnc, tone: "danger" as const },
     { href: `${base}/team`, label: "Team", icon: Users, count: counts.team },
@@ -106,9 +98,14 @@ export function PortalShell({ token, clientName, counts, children }: Props) {
 function isActive(pathname: string | null, href: string, base: string): boolean {
   if (!pathname) return false;
   if (href === base) {
-    // Introductions = portal root. Only highlight when pathname is exactly
-    // the base — sub-routes (/pipeline etc.) shouldn't light it up.
-    return pathname === base || pathname === `${base}/`;
+    // Recruiting Pipeline = portal root. The legacy /pipeline sub-route
+    // redirects here, so highlight on either path.
+    return (
+      pathname === base ||
+      pathname === `${base}/` ||
+      pathname === `${base}/pipeline` ||
+      pathname === `${base}/pipeline/`
+    );
   }
   return pathname === href || pathname.startsWith(`${href}/`);
 }

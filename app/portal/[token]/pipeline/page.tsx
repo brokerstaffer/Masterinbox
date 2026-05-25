@@ -1,35 +1,13 @@
-import type { Metadata } from "next";
-import { notFound } from "next/navigation";
-import { resolvePortalClient } from "@/lib/portals/token";
-import { loadPipelineEntries } from "@/lib/portals/portal-data";
-import { PipelineBoard } from "@/components/portals/pipeline-board";
-import { PortalRefresher } from "@/components/portals/portal-refresher";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
+// The Recruiting Pipeline lives at the portal root now (see migration
+// 0027 + the page.tsx redesign that merged Introductions and Pipeline
+// into one surface). This route exists only so old bookmarks keep
+// resolving.
 
-export async function generateMetadata(props: {
-  params: Promise<{ token: string }>;
-}): Promise<Metadata> {
-  const { token } = await props.params;
-  const client = await resolvePortalClient(token);
-  return {
-    title: client ? `${client.name} — Recruiting Pipeline` : "Portal not found",
-    robots: { index: false, follow: false },
-  };
-}
-
-export default async function PipelinePage(props: {
+export default async function PipelineLegacyRedirect(props: {
   params: Promise<{ token: string }>;
 }) {
   const { token } = await props.params;
-  const client = await resolvePortalClient(token);
-  if (!client) notFound();
-  const entries = await loadPipelineEntries(client.id);
-
-  return (
-    <>
-      <PortalRefresher />
-      <PipelineBoard token={token} entries={entries} />
-    </>
-  );
+  redirect(`/portal/${token}`);
 }
