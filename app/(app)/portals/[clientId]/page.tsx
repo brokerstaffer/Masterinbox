@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, ExternalLink } from "lucide-react";
+import { ChevronLeft, ExternalLink, Workflow, UserCheck, Ban, Users } from "lucide-react";
 import { requireSession } from "@/lib/auth/workspace";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { loadCombinedClientIntroLeads } from "@/lib/portals/intro-leads";
 import { computePortalMetrics } from "@/lib/portals/metrics";
+import { loadPortalCounts } from "@/lib/portals/portal-data";
 import { ClientPortalView } from "@/components/portals/client-portal";
 import { CLIENT_PORTALS_ENABLED } from "@/lib/portals/flag";
 import { PortalsComingSoon } from "@/components/portals/portals-coming-soon";
@@ -29,7 +30,10 @@ export default async function PortalDrilldownPage(props: {
     .maybeSingle();
   if (!client || client.slug === "unknown") notFound();
 
-  const leads = await loadCombinedClientIntroLeads(client.id as string);
+  const [leads, counts] = await Promise.all([
+    loadCombinedClientIntroLeads(client.id as string),
+    loadPortalCounts(client.id as string),
+  ]);
   const metrics = computePortalMetrics(leads, 12);
   const portalPath = client.portal_token ? `/portal/${client.portal_token}` : null;
 
@@ -44,6 +48,24 @@ export default async function PortalDrilldownPage(props: {
           <ChevronLeft className="size-4" />
           All client portals
         </Link>
+        <div className="flex items-center gap-4 text-[12px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
+            <Workflow className="size-3.5" />
+            {counts.pipeline} in pipeline
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <UserCheck className="size-3.5" />
+            {counts.agents} agents
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Ban className="size-3.5" />
+            {counts.dnc} DNC
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Users className="size-3.5" />
+            {counts.team} team
+          </span>
+        </div>
         {portalPath ? (
           <a
             href={portalPath}

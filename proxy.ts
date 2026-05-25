@@ -14,7 +14,10 @@ export async function proxy(request: NextRequest) {
   if (
     pathname.startsWith("/api/webhooks") ||
     pathname.startsWith("/api/health") ||
-    pathname.startsWith("/api/admin")
+    pathname.startsWith("/api/admin") ||
+    // /api/portal/<token>/... — token in the path IS the credential; the
+    // route handlers validate it via lib/portals/token.ts.
+    pathname.startsWith("/api/portal/")
   ) {
     return NextResponse.next();
   }
