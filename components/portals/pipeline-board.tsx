@@ -38,6 +38,7 @@ import {
   Avatar,
   useMounted,
 } from "@/components/portals/portal-ui";
+import { PipelineDetailSheet } from "@/components/portals/pipeline-detail-sheet";
 
 // Stage → coloured chip. Tone matches the Google Sheets pipeline board:
 // saturated fill, white text — readable at a glance across a long table.
@@ -69,6 +70,7 @@ export function PipelineBoard({
   const [stageFilter, setStageFilter] = useState<Set<PipelineStage>>(new Set());
   const [replaceOnly, setReplaceOnly] = useState(false);
   const [editingNotes, setEditingNotes] = useState<PipelineEntry | null>(null);
+  const [detailEntry, setDetailEntry] = useState<PipelineEntry | null>(null);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -228,7 +230,7 @@ export function PipelineBoard({
           >
             <div className="grid grid-cols-[1.6fr_1.2fr_120px_140px_180px_72px_80px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
               <div>Candidate</div>
-              <div>Brokerage</div>
+              <div>Company</div>
               <div>Phone</div>
               <div>Introduced</div>
               <div>Stage</div>
@@ -248,6 +250,7 @@ export function PipelineBoard({
                     onStage={(s) => changeStage(e.id, s)}
                     onReplaceToggle={(v) => toggleReplace(e.id, v)}
                     onOpenNotes={() => setEditingNotes(e)}
+                    onOpenDetail={() => setDetailEntry(e)}
                   />
                 ))}
               </div>
@@ -266,6 +269,13 @@ export function PipelineBoard({
           }}
         />
       ) : null}
+
+      <PipelineDetailSheet
+        entry={detailEntry}
+        onOpenChange={(open) => {
+          if (!open) setDetailEntry(null);
+        }}
+      />
     </div>
   );
 }
@@ -275,35 +285,40 @@ function PipelineRow({
   onStage,
   onReplaceToggle,
   onOpenNotes,
+  onOpenDetail,
 }: {
   entry: PipelineEntry;
   onStage: (s: PipelineStage) => void;
   onReplaceToggle: (v: boolean) => void;
   onOpenNotes: () => void;
+  onOpenDetail: () => void;
 }) {
   return (
     <div className="grid grid-cols-[1.6fr_1.2fr_120px_140px_180px_72px_80px] items-start gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]">
-      <div className="flex min-w-0 items-start gap-3">
+      <button
+        type="button"
+        onClick={onOpenDetail}
+        className="flex min-w-0 items-start gap-3 text-left"
+        title="View full lead details"
+      >
         <Avatar name={entry.lead_name ?? entry.lead_email ?? "?"} />
         <div className="min-w-0">
-          <div className="truncate text-[13.5px] font-medium">
+          <div className="truncate text-[13.5px] font-medium hover:text-[#1565C0]">
             {entry.lead_name || entry.lead_email || "Unknown"}
           </div>
           {entry.lead_email ? (
             <div className="truncate text-[11.5px] text-[#9aa0ab]">{entry.lead_email}</div>
           ) : null}
           {entry.notes ? (
-            <button
-              type="button"
-              onClick={onOpenNotes}
-              className="mt-1 line-clamp-2 max-w-[36ch] cursor-pointer text-left text-[11.5px] italic leading-snug text-[#5b6472] hover:text-[#0f1320]"
+            <span
+              className="mt-1 line-clamp-2 block max-w-[36ch] text-[11.5px] italic leading-snug text-[#5b6472]"
               title={entry.notes}
             >
               {entry.notes}
-            </button>
+            </span>
           ) : null}
         </div>
-      </div>
+      </button>
       <div className="truncate text-[13px] text-[#5b6472]">{entry.current_brokerage ?? "—"}</div>
       <div className="text-[12.5px] tabular-nums text-[#5b6472]">{entry.lead_phone ?? "—"}</div>
       <div className="text-[12.5px] text-[#5b6472]">{fmtDate(entry.introduced_at)}</div>

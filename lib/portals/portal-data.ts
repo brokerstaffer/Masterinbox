@@ -25,6 +25,11 @@ export interface PipelineEntry {
   current_brokerage: string | null;
   agent_profile_url: string | null;
   introduced_at: string | null;
+  // Full Instantly enrichment payload for the lead detail side-panel.
+  // null when the entry was triggered by a label assignment (no
+  // external_intros row backed it).
+  lead_detail: Record<string, unknown> | null;
+  campaign_name: string | null;
 }
 
 export interface DncEntry {
@@ -75,16 +80,39 @@ export interface TeamMember {
 export const loadPipelineEntries = cache(
   async (clientId: string): Promise<PipelineEntry[]> => {
     const admin = createAdminSupabase();
+    // Pull the pipeline rows + the enriched lead_detail / campaign_name
+    // from external_intros via the FK. PostgREST flattens this into a
+    // nested object on each row.
     const { data, error } = await admin
       .from("client_pipeline_entries")
       .select(
-        "id, stage, needs_replacement, notes, lead_name, lead_email, lead_phone, current_brokerage, agent_profile_url, introduced_at",
+        "id, stage, needs_replacement, notes, lead_name, lead_email, lead_phone, current_brokerage, agent_profile_url, introduced_at, external_intros:external_intro_id (lead_detail, campaign_name)",
       )
       .eq("client_id", clientId)
       .order("introduced_at", { ascending: false })
       .range(0, 9_999);
     if (error || !data) return [];
-    return data as PipelineEntry[];
+    return (data as unknown as Array<
+      Omit<PipelineEntry, "lead_detail" | "campaign_name"> & {
+        external_intros:
+          | { lead_detail: Record<string, unknown> | null; campaign_name: string | null }
+          | { lead_detail: Record<string, unknown> | null; campaign_name: string | null }[]
+          | null;
+      }
+    >).map((r) => {
+      // PostgREST returns the joined row as either a single object or an
+      // array depending on cardinality config. Normalise to scalar.
+      const ext = Array.isArray(r.external_intros)
+        ? r.external_intros[0] ?? null
+        : r.external_intros;
+      const { external_intros: _ignore, ...rest } = r;
+      void _ignore;
+      return {
+        ...rest,
+        lead_detail: ext?.lead_detail ?? null,
+        campaign_name: ext?.campaign_name ?? null,
+      } satisfies PipelineEntry;
+    });
   },
 );
 
