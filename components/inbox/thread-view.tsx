@@ -256,6 +256,28 @@ export function ThreadView({
             null
           }
           fromName={detail.channel.display_name ?? null}
+          leadCompany={(() => {
+            const cf = detail.lead.custom_fields as
+              | Record<string, unknown>
+              | undefined;
+            const v =
+              detail.lead.company ??
+              (cf?.company as string | undefined) ??
+              (cf?.Company as string | undefined) ??
+              null;
+            return typeof v === "string" && v.trim() ? v : null;
+          })()}
+          leadTitle={(() => {
+            const cf = detail.lead.custom_fields as
+              | Record<string, unknown>
+              | undefined;
+            const v =
+              detail.lead.title ??
+              (cf?.title as string | undefined) ??
+              (cf?.Title as string | undefined) ??
+              null;
+            return typeof v === "string" && v.trim() ? v : null;
+          })()}
           quoted={(() => {
             if (composeState.mode === "forward") return null;
             const source =
@@ -284,13 +306,32 @@ function buildForwardBody(source: MessageRow, detail: ThreadDetail): string {
   const when = source.sent_at
     ? new Date(source.sent_at).toLocaleString()
     : "";
-  const body = source.body_text ??
-    (source.body_html ?? "")
+
+  // body_text is the preferred source — but it's often stored as an
+  // empty string when the sender's mail client only emitted HTML.
+  // `??` would let that empty string through and produce an empty
+  // forward; check for *non-empty* content explicitly.
+  const plainText = source.body_text?.trim();
+  let body: string;
+  if (plainText && plainText.length > 0) {
+    body = plainText;
+  } else if (source.body_html && source.body_html.trim().length > 0) {
+    // Strip HTML to a readable plain-text fallback. Keep paragraph /
+    // line breaks before tag removal so the forwarded message stays
+    // readable instead of collapsing to one long line.
+    body = source.body_html
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+      .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, "\n")
+      .replace(/<br\s*\/?>/gi, "\n")
       .replace(/<[^>]+>/g, "")
-      .replace(/\s+/g, " ")
+      .replace(/[ \t]+/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
       .trim();
+  } else {
+    body = "(original message had no body)";
+  }
+
   return [
     "",
     "",

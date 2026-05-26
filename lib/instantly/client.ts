@@ -136,6 +136,20 @@ export function createInstantlyClient(opts: ClientOpts = {}) {
       include_original_body?: boolean;
     }) => request<InstantlyEmail>("POST", "/emails/reply", input),
 
+    // Send a fresh email (not a reply) to one or more recipients. Used
+    // for FORWARD on Instantly threads — sendReply binds the recipient
+    // to the original sender of the inbound, so it can't deliver to an
+    // arbitrary forward target. POST /emails (v2 send endpoint) takes
+    // `to_address_email_list` as a comma-joined string.
+    sendEmail: (input: {
+      eaccount: string; // mailbox to send from (required)
+      to_address_email_list: string; // comma-joined
+      subject: string;
+      body: { text?: string; html?: string };
+      cc_address_email_list?: string;
+      bcc_address_email_list?: string;
+    }) => request<InstantlyEmail>("POST", "/emails", input),
+
     markThreadRead: (threadId: string) =>
       request<{ success?: boolean }>("POST", `/emails/threads/${threadId}/mark-as-read`),
 

@@ -10,7 +10,9 @@ export default async function TemplatesSettingsPage() {
   const supabase = await createServerSupabase();
   const { data } = await supabase
     .from("reply_templates")
-    .select("id, name, body, category, sort_order")
+    .select(
+      "id, name, body, body_html, subject, cc, bcc, category, sort_order",
+    )
     .eq("workspace_id", session.activeWorkspace.id)
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
@@ -18,14 +20,18 @@ export default async function TemplatesSettingsPage() {
   const initial = (data ?? []).map((t) => ({
     id: t.id as string,
     name: t.name as string,
-    body: t.body as string,
+    body: (t.body as string) ?? "",
+    body_html: (t.body_html as string | null) ?? null,
+    subject: (t.subject as string | null) ?? null,
+    cc: (t.cc as string | null) ?? null,
+    bcc: (t.bcc as string | null) ?? null,
     category: (t.category as string | null) ?? null,
   }));
 
   return (
     <SettingsPageShell
       title="Templates"
-      description="Saved reply snippets you can drop into the composer instead of retyping."
+      description="Saved reply snippets you can drop into the composer instead of retyping. Use variables like {{lead.first_name}} for instant personalisation."
     >
       <TemplatesManager initial={initial} />
     </SettingsPageShell>

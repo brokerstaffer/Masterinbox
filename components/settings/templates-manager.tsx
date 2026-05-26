@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Plus,
@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronRight,
   Folder,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -23,11 +24,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { TEMPLATE_VARIABLES } from "@/lib/inbox/template-variables";
 
 export interface TemplateRow {
   id: string;
   name: string;
   body: string;
+  body_html: string | null;
+  subject: string | null;
+  cc: string | null;
+  bcc: string | null;
   category: string | null;
 }
 
@@ -58,8 +64,21 @@ export function TemplatesManager({ initial }: { initial: TemplateRow[] }) {
   const router = useRouter();
   const [editing, setEditing] = useState<TemplateRow | "new" | null>(null);
   const [deleting, setDeleting] = useState<TemplateRow | null>(null);
+  const [search, setSearch] = useState("");
 
-  const groups = useMemo(() => groupByCategory(initial), [initial]);
+  // Filter by search term across name, body, subject, category — case
+  // insensitive.
+  const filtered = useMemo(() => {
+    if (!search.trim()) return initial;
+    const q = search.trim().toLowerCase();
+    return initial.filter((t) =>
+      [t.name, t.body, t.subject, t.category]
+        .filter(Boolean)
+        .some((v) => v!.toLowerCase().includes(q)),
+    );
+  }, [initial, search]);
+
+  const groups = useMemo(() => groupByCategory(filtered), [filtered]);
   // Distinct existing category names — fed to the dialog's datalist.
   const categories = useMemo(
     () =>
@@ -75,12 +94,19 @@ export function TemplatesManager({ initial }: { initial: TemplateRow[] }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search templates…"
+            className="h-9 w-full rounded-lg border bg-background pl-8 pr-3 text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/30"
+          />
+        </div>
         <span className="text-xs text-muted-foreground">
-          {initial.length} template{initial.length === 1 ? "" : "s"}
-          {categories.length > 0
-            ? ` · ${categories.length} categor${categories.length === 1 ? "y" : "ies"}`
-            : ""}
+          {filtered.length} of {initial.length} template{initial.length === 1 ? "" : "s"}
         </span>
         <Button size="sm" onClick={() => setEditing("new")} className="gap-1.5">
           <Plus className="size-4" />
@@ -96,6 +122,10 @@ export function TemplatesManager({ initial }: { initial: TemplateRow[] }) {
             Create your first reusable reply snippet — group them into categories
             to stay organised.
           </p>
+        </div>
+      ) : groups.length === 0 ? (
+        <div className="rounded-lg border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">
+          No templates match &quot;{search}&quot;.
         </div>
       ) : (
         <div className="space-y-3">
@@ -170,9 +200,20 @@ function CategorySection({
             <div key={t.id} className="flex items-start gap-3 px-4 py-3">
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium">{t.name}</div>
+                {t.subject ? (
+                  <div className="text-xs text-muted-foreground/80 mt-0.5">
+                    Subject: <span className="font-medium">{t.subject}</span>
+                  </div>
+                ) : null}
                 <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2 whitespace-pre-wrap">
                   {t.body || "(empty)"}
                 </div>
+                {(t.cc || t.bcc) ? (
+                  <div className="text-[10.5px] text-muted-foreground/70 mt-1 space-x-2">
+                    {t.cc ? <span>CC: {t.cc}</span> : null}
+                    {t.bcc ? <span>BCC: {t.bcc}</span> : null}
+                  </div>
+                ) : null}
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <button
@@ -212,9 +253,35 @@ function EditDialog({
   onSaved: () => void;
 }) {
   const [name, setName] = useState(template?.name ?? "");
+  const [subject, setSubject] = useState(template?.subject ?? "");
+  const [cc, setCc] = useState(template?.cc ?? "");
+  const [bcc, setBcc] = useState(template?.bcc ?? "");
   const [body, setBody] = useState(template?.body ?? "");
   const [category, setCategory] = useState(template?.category ?? "");
   const [pending, startTransition] = useTransition();
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+
+  function insertVariable(token: string) {
+    const ta = bodyRef.current;
+    if (!ta) {
+      setBody((b) => `${b}{{${token}}}`);
+      return;
+    }
+    const start = ta.selectionStart ?? body.length;
+    const end = ta.selectionEnd ?? body.length;
+    const before = body.slice(0, start);
+    const after = body.slice(end);
+    const insert = `{{${token}}}`;
+    const next = `${before}${insert}${after}`;
+    setBody(next);
+    // Restore caret right after the inserted token.
+    requestAnimationFrame(() => {
+      if (!ta) return;
+      const pos = before.length + insert.length;
+      ta.focus();
+      ta.setSelectionRange(pos, pos);
+    });
+  }
 
   async function save() {
     if (!name.trim()) {
@@ -229,6 +296,9 @@ function EditDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
+          subject: subject.trim() || null,
+          cc: cc.trim() || null,
+          bcc: bcc.trim() || null,
           body,
           category: category.trim() || null,
         }),
@@ -245,7 +315,7 @@ function EditDialog({
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{template ? "Edit template" : "New template"}</DialogTitle>
         </DialogHeader>
@@ -275,14 +345,71 @@ function EditDialog({
               </datalist>
             </div>
           </div>
+
           <div className="space-y-1.5">
-            <label className="text-xs font-medium">Body</label>
+            <label className="text-xs font-medium">
+              Subject{" "}
+              <span className="text-muted-foreground/70 font-normal">
+                (optional · only used on forward / new emails — replies keep the
+                existing subject)
+              </span>
+            </label>
+            <Input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Pre-fill the subject line"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">CC</label>
+              <Input
+                value={cc}
+                onChange={(e) => setCc(e.target.value)}
+                placeholder="comma-separated emails"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">BCC</label>
+              <Input
+                value={bcc}
+                onChange={(e) => setBcc(e.target.value)}
+                placeholder="comma-separated emails"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium">Body</label>
+              <span className="text-[10.5px] text-muted-foreground">
+                Click a variable to insert at the cursor
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5 rounded-md border bg-muted/30 px-2 py-2">
+              {TEMPLATE_VARIABLES.map((v) => (
+                <button
+                  key={v.key}
+                  type="button"
+                  onClick={() => insertVariable(v.key)}
+                  title={v.description}
+                  className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-[11.5px] font-medium text-foreground/80 hover:bg-accent hover:text-foreground transition-colors"
+                >
+                  <span className="text-muted-foreground">{v.label}</span>
+                  <code className="font-mono text-[10.5px] text-muted-foreground/70">
+                    {`{{${v.key}}}`}
+                  </code>
+                </button>
+              ))}
+            </div>
             <Textarea
+              ref={bodyRef}
               value={body}
               onChange={(e) => setBody(e.target.value)}
-              placeholder="The reply text to insert…"
-              rows={8}
-              className="resize-y"
+              placeholder="The reply text to insert…&#10;&#10;Use {{lead.first_name}}, {{lead.company}}, etc. — they'll resolve when you insert this template into a reply."
+              rows={10}
+              className="resize-y font-sans"
             />
           </div>
         </div>

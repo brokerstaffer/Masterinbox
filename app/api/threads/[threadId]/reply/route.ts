@@ -410,22 +410,61 @@ async function sendInstantlyReply(args: {
     return rows.map((r) => r.email_address).join(",");
   };
 
+  // Detect a forward: TO is set AND none of its addresses match the
+  // original sender of the inbound being "replied" to. Instantly's
+  // sendReply silently ignores TO (it always goes back to the original
+  // sender), so for forwards we have to use the standalone /emails send
+  // endpoint instead — which accepts an arbitrary TO list.
+  const originalSenderLower = replyTarget.sender?.toLowerCase() ?? "";
+  const toCsv = recipientsCsv(payload.to);
+  const isForward =
+    Boolean(toCsv) &&
+    payload.to !== undefined &&
+    payload.to.length > 0 &&
+    !payload.to.some(
+      (r) => r.email_address.toLowerCase() === originalSenderLower,
+    );
+
   let newEmailId: string | null = null;
   try {
     const instantly = createInstantlyClient();
-    const res = await instantly.sendReply({
-      reply_to_uuid: replyTarget.instantly_email_id,
-      subject: payload.subject,
-      body:
-        payload.content_type === "html"
-          ? { html: payload.body }
-          : { text: payload.body },
-      eaccount: outboundSenderEmail ?? undefined,
-      cc_address_email_list: recipientsCsv(payload.cc),
-      bcc_address_email_list: recipientsCsv(payload.bcc),
-      include_original_body: payload.inject_previous_email_body,
-    });
-    newEmailId = res?.id ?? null;
+    if (isForward) {
+      if (!outboundSenderEmail) {
+        return NextResponse.json(
+          {
+            error:
+              "Forwarding from an Instantly thread needs a sender mailbox; this thread has none on file.",
+          },
+          { status: 400 },
+        );
+      }
+      const res = await instantly.sendEmail({
+        eaccount: outboundSenderEmail,
+        to_address_email_list: toCsv!,
+        subject: payload.subject ?? "(forward)",
+        body:
+          payload.content_type === "html"
+            ? { html: payload.body }
+            : { text: payload.body },
+        cc_address_email_list: recipientsCsv(payload.cc),
+        bcc_address_email_list: recipientsCsv(payload.bcc),
+      });
+      newEmailId = res?.id ?? null;
+    } else {
+      const res = await instantly.sendReply({
+        reply_to_uuid: replyTarget.instantly_email_id,
+        subject: payload.subject,
+        body:
+          payload.content_type === "html"
+            ? { html: payload.body }
+            : { text: payload.body },
+        eaccount: outboundSenderEmail ?? undefined,
+        cc_address_email_list: recipientsCsv(payload.cc),
+        bcc_address_email_list: recipientsCsv(payload.bcc),
+        include_original_body: payload.inject_previous_email_body,
+      });
+      newEmailId = res?.id ?? null;
+    }
   } catch (err) {
     if (err instanceof InstantlyError) {
       console.error("[reply] Instantly error:", {

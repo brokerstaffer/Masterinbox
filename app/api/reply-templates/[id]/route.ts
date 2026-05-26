@@ -4,13 +4,17 @@ import { requireSession } from "@/lib/auth/workspace";
 import { createServerSupabase } from "@/lib/supabase/server";
 
 // PATCH  /api/reply-templates/[id]  → rename / edit body / reorder
-// DELETE /api/reply-templates/[id]  → delete
+// DELETE /api/reply-templates/[id]
 
 export const dynamic = "force-dynamic";
 
 const patchSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
-  body: z.string().max(8000).optional(),
+  body: z.string().max(20_000).optional(),
+  body_html: z.string().max(40_000).nullable().optional(),
+  subject: z.string().trim().max(200).nullable().optional(),
+  cc: z.string().trim().max(400).nullable().optional(),
+  bcc: z.string().trim().max(400).nullable().optional(),
   category: z.string().trim().max(60).nullable().optional(),
   sort_order: z.number().int().optional(),
 });

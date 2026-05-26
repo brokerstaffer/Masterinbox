@@ -24,6 +24,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import {
+  substituteVariables,
+  type SubstitutionContext,
+} from "@/lib/inbox/template-variables";
 
 const PER_FILE_MAX = 25 * 1024 * 1024; // 25 MB
 const COMBINED_MAX = 50 * 1024 * 1024; // 50 MB
@@ -54,6 +58,8 @@ export function Composer({
   toName,
   fromEmail,
   fromName,
+  leadCompany = null,
+  leadTitle = null,
   quoted,
   draft,
   initialBody,
@@ -71,6 +77,12 @@ export function Composer({
   toName?: string | null;
   fromEmail?: string | null;
   fromName?: string | null;
+  // Optional lead enrichment for template-variable substitution. When
+  // a template body uses {{lead.company}} or {{lead.title}}, these
+  // values fill the placeholder; missing values leave the placeholder
+  // in the inserted body so the user notices and can fix manually.
+  leadCompany?: string | null;
+  leadTitle?: string | null;
   quoted?: QuotedMessage | null;
   draft?: DraftSeed | null;
   // Provider this thread came from. Drives provider-specific UX: Instantly
@@ -186,7 +198,18 @@ export function Composer({
       if (addSignature && signatureHtml && signatureHtml.trim().length > 0) {
         bodyHtml += `<br><br>${signatureHtml}`;
       }
-      const toArr = to ? [{ email_address: to, name: toName ?? null }] : undefined;
+      // Parse the TO field the same way CC/BCC are parsed so multiple
+      // comma/semicolon-separated addresses work. Single-recipient mode
+      // (the common reply case) still produces a one-element array.
+      // We preserve the `toName` only when the user didn't expand TO into
+      // multiple addresses — once it's a list, names aren't paired any
+      // more and EmailBison just wants the addresses.
+      const parsedTo = parseRecipients(to);
+      const toArr = parsedTo
+        ? parsedTo.length === 1 && toName
+          ? [{ email_address: parsedTo[0].email_address, name: toName }]
+          : parsedTo
+        : undefined;
       const ccArr = parseRecipients(cc);
       const bccArr = parseRecipients(bcc);
 
@@ -306,8 +329,11 @@ export function Composer({
           <Input
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            placeholder="enter email address…"
-            type="email"
+            placeholder="email address (separate multiple with commas)"
+            // Note: type="email" blocks commas via browser validation,
+            // which silently breaks multi-recipient sends — keep as
+            // plain text.
+            type="text"
             className="flex-1 h-7 border-0 bg-transparent shadow-none px-1 focus-visible:ring-0 text-sm"
           />
         </FieldRow>
@@ -317,7 +343,7 @@ export function Composer({
             <Input
               value={cc}
               onChange={(e) => setCc(e.target.value)}
-              placeholder="enter email address…"
+              placeholder="email addresses (separate multiple with commas)"
               className="flex-1 h-7 border-0 bg-transparent shadow-none px-1 focus-visible:ring-0 text-sm"
             />
           </FieldRow>
@@ -328,7 +354,7 @@ export function Composer({
             <Input
               value={bcc}
               onChange={(e) => setBcc(e.target.value)}
-              placeholder="enter email address…"
+              placeholder="email addresses (separate multiple with commas)"
               className="flex-1 h-7 border-0 bg-transparent shadow-none px-1 focus-visible:ring-0 text-sm"
             />
           </FieldRow>
@@ -503,9 +529,37 @@ export function Composer({
             {generating ? "Generating…" : "AI reply"}
           </button>
           <TemplatePicker
-            onInsert={(tplBody) =>
-              setBody((cur) => (cur.trim() ? `${cur}\n\n${tplBody}` : tplBody))
-            }
+            substitutionContext={{
+              lead: {
+                name: toName ?? null,
+                email: toEmail,
+                company: leadCompany,
+                title: leadTitle,
+              },
+              thread: { subject: composerSubject },
+              sender: { name: fromName ?? null, email: fromEmail ?? null },
+            }}
+            onApply={(t) => {
+              if (t.body) {
+                setBody((cur) => (cur.trim() ? `${cur}\n\n${t.body}` : t.body));
+              }
+              // Subject: only honour if the field is editable (forward/new),
+              // and only when the composer doesn't already have a subject
+              // the user has personalised.
+              if (!subjectLocked && t.subject && !composerSubject.trim()) {
+                setComposerSubject(t.subject);
+              }
+              const tplCc = t.cc;
+              if (tplCc) {
+                setCc((cur) => mergeRecipientStrings(cur, tplCc));
+                setShowCc(true);
+              }
+              const tplBcc = t.bcc;
+              if (tplBcc) {
+                setBcc((cur) => mergeRecipientStrings(cur, tplBcc));
+                setShowBcc(true);
+              }
+            }}
           />
         </div>
         <Button onClick={onSend} disabled={sending} className="gap-1.5">
@@ -583,6 +637,27 @@ function parseRecipients(
   return tokens.map((email_address) => ({ email_address }));
 }
 
+// Merge two CC/BCC strings, dedup case-insensitively, preserve order.
+// Used when a template carries its own CC/BCC and we don't want to
+// clobber whatever the user already typed manually.
+function mergeRecipientStrings(existing: string, incoming: string): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (raw: string) => {
+    for (const tok of raw.split(/[,;\s]+/)) {
+      const t = tok.trim();
+      if (!t || !/@/.test(t)) continue;
+      const k = t.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(t);
+    }
+  };
+  push(existing);
+  push(incoming);
+  return out.join(", ");
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -605,16 +680,36 @@ interface PickerTemplate {
   id: string;
   name: string;
   body: string;
+  body_html: string | null;
+  subject: string | null;
+  cc: string | null;
+  bcc: string | null;
   category: string | null;
 }
 
 const UNCATEGORISED_LABEL = "Uncategorised";
 
+interface AppliedTemplate {
+  body: string;
+  subject: string | null;
+  cc: string | null;
+  bcc: string | null;
+}
+
 // Footer "Templates" button — lazy-loads the workspace's reply templates
-// on first open, grouped by category, then inserts the chosen one.
-function TemplatePicker({ onInsert }: { onInsert: (body: string) => void }) {
+// on first open, applies variable substitution against the current
+// thread context, and hands the whole payload to the composer so it
+// can populate subject / cc / bcc / body in one shot.
+function TemplatePicker({
+  substitutionContext,
+  onApply,
+}: {
+  substitutionContext: SubstitutionContext;
+  onApply: (t: AppliedTemplate) => void;
+}) {
   const [items, setItems] = useState<PickerTemplate[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState("");
 
   async function ensureLoaded() {
     if (items !== null || loading) return;
@@ -630,11 +725,20 @@ function TemplatePicker({ onInsert }: { onInsert: (body: string) => void }) {
     }
   }
 
+  // Filter by name / subject / body / category.
+  const filtered = (items ?? []).filter((t) => {
+    if (!filter.trim()) return true;
+    const q = filter.trim().toLowerCase();
+    return [t.name, t.subject, t.body, t.category]
+      .filter(Boolean)
+      .some((v) => v!.toLowerCase().includes(q));
+  });
+
   // Group by category — named categories alphabetically, uncategorised last.
   const groups: Array<{ category: string; templates: PickerTemplate[] }> = [];
-  if (items) {
+  {
     const map = new Map<string, PickerTemplate[]>();
-    for (const t of items) {
+    for (const t of filtered) {
       const cat = (t.category ?? "").trim() || UNCATEGORISED_LABEL;
       const list = map.get(cat) ?? [];
       list.push(t);
@@ -649,6 +753,17 @@ function TemplatePicker({ onInsert }: { onInsert: (body: string) => void }) {
           return a.category.localeCompare(b.category);
         }),
     );
+  }
+
+  function apply(t: PickerTemplate) {
+    const subst = (s: string | null) =>
+      s ? substituteVariables(s, substitutionContext) : null;
+    onApply({
+      body: substituteVariables(t.body ?? "", substitutionContext),
+      subject: subst(t.subject),
+      cc: subst(t.cc),
+      bcc: subst(t.bcc),
+    });
   }
 
   return (
@@ -666,7 +781,17 @@ function TemplatePicker({ onInsert }: { onInsert: (body: string) => void }) {
           </button>
         }
       />
-      <DropdownMenuContent align="start" className="w-72 max-h-80 overflow-y-auto">
+      <DropdownMenuContent align="start" className="w-80 max-h-96 overflow-y-auto p-0">
+        <div className="sticky top-0 z-10 border-b bg-background p-2">
+          <input
+            type="search"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Search templates…"
+            autoFocus
+            className="w-full h-8 rounded-md border bg-background px-2 text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/30"
+          />
+        </div>
         {loading ? (
           <div className="px-3 py-3 text-sm text-muted-foreground flex items-center gap-2">
             <Loader2 className="size-3.5 animate-spin" />
@@ -675,6 +800,10 @@ function TemplatePicker({ onInsert }: { onInsert: (body: string) => void }) {
         ) : (items ?? []).length === 0 ? (
           <div className="px-3 py-3 text-xs text-muted-foreground">
             No templates yet. Create them in Settings → Templates.
+          </div>
+        ) : groups.length === 0 ? (
+          <div className="px-3 py-3 text-xs text-muted-foreground">
+            No templates match &quot;{filter}&quot;.
           </div>
         ) : (
           groups.map((g) => (
@@ -685,10 +814,15 @@ function TemplatePicker({ onInsert }: { onInsert: (body: string) => void }) {
               {g.templates.map((t) => (
                 <DropdownMenuItem
                   key={t.id}
-                  onClick={() => onInsert(t.body)}
+                  onClick={() => apply(t)}
                   className="flex flex-col items-start gap-0.5"
                 >
                   <span className="text-sm font-medium">{t.name}</span>
+                  {t.subject ? (
+                    <span className="text-[10.5px] text-muted-foreground/80">
+                      Subject: {t.subject}
+                    </span>
+                  ) : null}
                   <span className="text-[11px] text-muted-foreground line-clamp-2 whitespace-pre-wrap">
                     {t.body || "(empty)"}
                   </span>

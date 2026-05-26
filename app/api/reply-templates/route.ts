@@ -4,22 +4,30 @@ import { requireSession } from "@/lib/auth/workspace";
 import { createServerSupabase } from "@/lib/supabase/server";
 
 // GET  /api/reply-templates  → list templates for the workspace
-// POST /api/reply-templates  → create a template { name, body }
+// POST /api/reply-templates  → create a template
+//   { name, body, category?, subject?, cc?, bcc?, body_html? }
 
 export const dynamic = "force-dynamic";
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(80),
-  body: z.string().max(8000).default(""),
+  body: z.string().max(20_000).default(""),
+  body_html: z.string().max(40_000).nullable().optional(),
+  subject: z.string().trim().max(200).nullable().optional(),
+  cc: z.string().trim().max(400).nullable().optional(),
+  bcc: z.string().trim().max(400).nullable().optional(),
   category: z.string().trim().max(60).nullable().optional(),
 });
+
+const TEMPLATE_SELECT =
+  "id, name, body, body_html, subject, cc, bcc, category, sort_order";
 
 export async function GET() {
   const session = await requireSession();
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
     .from("reply_templates")
-    .select("id, name, body, category, sort_order")
+    .select(TEMPLATE_SELECT)
     .eq("workspace_id", session.activeWorkspace.id)
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
@@ -54,10 +62,14 @@ export async function POST(request: Request) {
       workspace_id: session.activeWorkspace.id,
       name: parsed.data.name,
       body: parsed.data.body,
+      body_html: parsed.data.body_html ?? null,
+      subject: parsed.data.subject ?? null,
+      cc: parsed.data.cc ?? null,
+      bcc: parsed.data.bcc ?? null,
       category: parsed.data.category || null,
       sort_order: nextOrder,
     })
-    .select("id, name, body, category, sort_order")
+    .select(TEMPLATE_SELECT)
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json({ template: data });
