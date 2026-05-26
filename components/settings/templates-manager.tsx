@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Plus,
@@ -16,7 +16,6 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -24,7 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { TEMPLATE_VARIABLES } from "@/lib/inbox/template-variables";
+import { TemplateRichEditor } from "@/components/settings/template-rich-editor";
 
 export interface TemplateRow {
   id: string;
@@ -256,32 +255,14 @@ function EditDialog({
   const [subject, setSubject] = useState(template?.subject ?? "");
   const [cc, setCc] = useState(template?.cc ?? "");
   const [bcc, setBcc] = useState(template?.bcc ?? "");
-  const [body, setBody] = useState(template?.body ?? "");
+  // Body is stored as both rich HTML (for the composer / future inbound
+  // mail clients that respect it) and plain text (legacy `body` column,
+  // also used as a fallback for variable substitution).
+  const initialHtml = template?.body_html ?? template?.body ?? "";
+  const [bodyHtml, setBodyHtml] = useState(initialHtml);
+  const [bodyText, setBodyText] = useState(template?.body ?? "");
   const [category, setCategory] = useState(template?.category ?? "");
   const [pending, startTransition] = useTransition();
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
-
-  function insertVariable(token: string) {
-    const ta = bodyRef.current;
-    if (!ta) {
-      setBody((b) => `${b}{{${token}}}`);
-      return;
-    }
-    const start = ta.selectionStart ?? body.length;
-    const end = ta.selectionEnd ?? body.length;
-    const before = body.slice(0, start);
-    const after = body.slice(end);
-    const insert = `{{${token}}}`;
-    const next = `${before}${insert}${after}`;
-    setBody(next);
-    // Restore caret right after the inserted token.
-    requestAnimationFrame(() => {
-      if (!ta) return;
-      const pos = before.length + insert.length;
-      ta.focus();
-      ta.setSelectionRange(pos, pos);
-    });
-  }
 
   async function save() {
     if (!name.trim()) {
@@ -299,7 +280,8 @@ function EditDialog({
           subject: subject.trim() || null,
           cc: cc.trim() || null,
           bcc: bcc.trim() || null,
-          body,
+          body: bodyText,
+          body_html: bodyHtml || null,
           category: category.trim() || null,
         }),
       },
@@ -381,35 +363,16 @@ function EditDialog({
           </div>
 
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium">Body</label>
-              <span className="text-[10.5px] text-muted-foreground">
-                Click a variable to insert at the cursor
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-1.5 rounded-md border bg-muted/30 px-2 py-2">
-              {TEMPLATE_VARIABLES.map((v) => (
-                <button
-                  key={v.key}
-                  type="button"
-                  onClick={() => insertVariable(v.key)}
-                  title={v.description}
-                  className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-[11.5px] font-medium text-foreground/80 hover:bg-accent hover:text-foreground transition-colors"
-                >
-                  <span className="text-muted-foreground">{v.label}</span>
-                  <code className="font-mono text-[10.5px] text-muted-foreground/70">
-                    {`{{${v.key}}}`}
-                  </code>
-                </button>
-              ))}
-            </div>
-            <Textarea
-              ref={bodyRef}
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder="The reply text to insert…&#10;&#10;Use {{lead.first_name}}, {{lead.company}}, etc. — they'll resolve when you insert this template into a reply."
-              rows={10}
-              className="resize-y font-sans"
+            <label className="text-xs font-medium">Body</label>
+            <TemplateRichEditor
+              valueHtml={bodyHtml}
+              onChange={({ html, text }) => {
+                setBodyHtml(html);
+                setBodyText(text);
+              }}
+              placeholder={
+                "Write the reply text…\nUse the Insert variable dropdown for {{lead.first_name}}, {{lead.company}}, etc."
+              }
             />
           </div>
         </div>
