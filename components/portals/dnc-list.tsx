@@ -10,6 +10,8 @@ import {
   Ban,
   Upload,
   FileText,
+  Pencil,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -24,7 +26,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { DncEntry } from "@/lib/portals/portal-data";
-import { parseCsv, csvRowToDnc, type DncRow } from "@/lib/portals/csv";
+import {
+  parseCsv,
+  csvRowToDnc,
+  toCsv,
+  downloadCsv,
+  type DncRow,
+} from "@/lib/portals/csv";
 import {
   PortalPageHeader,
   PortalEmpty,
@@ -45,6 +53,7 @@ export function DncList({
   const [openAdd, setOpenAdd] = useState(false);
   const [openCsv, setOpenCsv] = useState(false);
   const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState<DncEntry | null>(null);
 
   const agents = useMemo(
     () => entries.filter((e) => e.kind === "agent"),
@@ -76,6 +85,27 @@ export function DncList({
     router.refresh();
   }
 
+  function exportCsv() {
+    const visible = entries.filter(filterFn);
+    if (visible.length === 0) {
+      toast.info("Nothing to export");
+      return;
+    }
+    const csv = toCsv(
+      visible.map((e) => ({
+        kind: e.kind,
+        name: e.name,
+        email: e.email ?? "",
+        phone: e.phone ?? "",
+        brokerage: e.brokerage ?? "",
+        notes: e.notes ?? "",
+      })),
+      ["kind", "name", "email", "phone", "brokerage", "notes"],
+    );
+    const today = new Date().toISOString().slice(0, 10);
+    downloadCsv(`dnc-${today}.csv`, csv);
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-8">
       <PortalPageHeader
@@ -83,6 +113,15 @@ export function DncList({
         subtitle="Agents and companies we should never reach out to. Adding an email here immediately blocks it on Instantly and EmailBison."
         actions={
           <>
+            <Button
+              variant="outline"
+              onClick={exportCsv}
+              className="gap-1.5"
+              disabled={entries.length === 0}
+            >
+              <Download className="size-4" />
+              Export CSV
+            </Button>
             <Button
               variant="outline"
               onClick={() => setOpenCsv(true)}
@@ -144,6 +183,7 @@ export function DncList({
             entries={agents.filter(filterFn)}
             mounted={mounted}
             onRemove={remove}
+            onEdit={setEditing}
           />
 
           {companies.length > 0 || agents.length === 0 ? (
@@ -154,6 +194,7 @@ export function DncList({
                 entries={companies.filter(filterFn)}
                 mounted={mounted}
                 onRemove={remove}
+                onEdit={setEditing}
                 companyStyle
               />
             </div>
@@ -162,11 +203,23 @@ export function DncList({
       )}
 
       {openAdd ? (
-        <AddDncDialog
+        <DncDialog
           token={token}
+          entry={null}
           onClose={() => setOpenAdd(false)}
-          onAdded={() => {
+          onSaved={() => {
             setOpenAdd(false);
+            router.refresh();
+          }}
+        />
+      ) : null}
+      {editing ? (
+        <DncDialog
+          token={token}
+          entry={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
             router.refresh();
           }}
         />
@@ -191,6 +244,7 @@ function DncSection({
   entries,
   mounted,
   onRemove,
+  onEdit,
   companyStyle,
 }: {
   title: string;
@@ -198,6 +252,7 @@ function DncSection({
   entries: DncEntry[];
   mounted: boolean;
   onRemove: (id: string) => void;
+  onEdit: (entry: DncEntry) => void;
   companyStyle?: boolean;
 }) {
   return (
@@ -212,7 +267,7 @@ function DncSection({
           mounted ? "opacity-100" : "opacity-0",
         )}
       >
-        <div className="grid grid-cols-[1.5fr_1.2fr_1.4fr_120px_44px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+        <div className="grid grid-cols-[1.5fr_1.2fr_1.4fr_120px_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
           <div>{companyStyle ? "Company" : "Agent"}</div>
           <div>{companyStyle ? "" : "Brokerage"}</div>
           <div>Email / phone</div>
@@ -228,7 +283,7 @@ function DncSection({
             {entries.map((e) => (
               <div
                 key={e.id}
-                className="grid grid-cols-[1.5fr_1.2fr_1.4fr_120px_44px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]"
+                className="grid grid-cols-[1.5fr_1.2fr_1.4fr_120px_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]"
               >
                 <div className="flex min-w-0 items-center gap-3">
                   {companyStyle ? (
@@ -260,7 +315,15 @@ function DncSection({
                 <div>
                   <StatusPill entry={e} />
                 </div>
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onEdit(e)}
+                    aria-label="Edit"
+                    className="inline-flex size-8 items-center justify-center rounded-md text-[#9aa0ab] transition-colors hover:bg-[#eaf2fd] hover:text-[#1565C0]"
+                  >
+                    <Pencil className="size-4" />
+                  </button>
                   <button
                     type="button"
                     onClick={() => onRemove(e.id)}
@@ -296,21 +359,28 @@ function StatusPill({ entry }: { entry: DncEntry }) {
   return <Pill tone="neutral">Pending</Pill>;
 }
 
-function AddDncDialog({
+// One dialog for both Add and Edit. When `entry` is non-null the form
+// prefills + saves via PATCH; when null it's a fresh insert via POST.
+// `kind` is locked when editing — agent vs company is set at creation
+// and can't change (see DNC PATCH route).
+function DncDialog({
   token,
+  entry,
   onClose,
-  onAdded,
+  onSaved,
 }: {
   token: string;
+  entry: DncEntry | null;
   onClose: () => void;
-  onAdded: () => void;
+  onSaved: () => void;
 }) {
-  const [kind, setKind] = useState<"agent" | "company">("agent");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [brokerage, setBrokerage] = useState("");
-  const [notes, setNotes] = useState("");
+  const isEdit = entry !== null;
+  const [kind, setKind] = useState<"agent" | "company">(entry?.kind ?? "agent");
+  const [name, setName] = useState(entry?.name ?? "");
+  const [email, setEmail] = useState(entry?.email ?? "");
+  const [phone, setPhone] = useState(entry?.phone ?? "");
+  const [brokerage, setBrokerage] = useState(entry?.brokerage ?? "");
+  const [notes, setNotes] = useState(entry?.notes ?? "");
   const [pending, startTransition] = useTransition();
 
   async function save() {
@@ -318,58 +388,76 @@ function AddDncDialog({
       toast.error("Add a name");
       return;
     }
-    const res = await fetch(`/api/portal/${token}/dnc`, {
-      method: "POST",
+    const url = isEdit
+      ? `/api/portal/${token}/dnc/${entry!.id}`
+      : `/api/portal/${token}/dnc`;
+    const method = isEdit ? "PATCH" : "POST";
+    // PATCH route doesn't accept `kind` (locked on edit). For POST the
+    // current local state of `kind` is correct.
+    const payload: Record<string, unknown> = {
+      name: name.trim(),
+      email: email.trim() || null,
+      phone: phone.trim() || null,
+      brokerage: kind === "agent" ? (brokerage.trim() || null) : null,
+      notes: notes.trim() || null,
+    };
+    if (!isEdit) payload.kind = kind;
+
+    const res = await fetch(url, {
+      method,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        kind,
-        name: name.trim(),
-        email: email.trim() || null,
-        phone: phone.trim() || null,
-        brokerage: brokerage.trim() || null,
-        notes: notes.trim() || null,
-      }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
       toast.error(j.error ?? "Save failed");
       return;
     }
-    const j = await res.json().catch(() => ({}));
-    if (j.pushedInstantly || j.pushedEmailBison) {
-      toast.success("Added · pushed to provider blocklists");
-    } else if (email.trim()) {
-      toast.success("Added · provider push pending");
+    if (isEdit) {
+      toast.success("Updated");
     } else {
-      toast.success("Added");
+      const j = await res.json().catch(() => ({}));
+      if (j.pushedInstantly || j.pushedEmailBison) {
+        toast.success("Added · pushed to provider blocklists");
+      } else if (email.trim()) {
+        toast.success("Added · provider push pending");
+      } else {
+        toast.success("Added");
+      }
     }
-    startTransition(() => onAdded());
+    startTransition(() => onSaved());
   }
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add to DNC list</DialogTitle>
+          <DialogTitle>
+            {isEdit
+              ? `Edit ${entry!.kind === "agent" ? "agent" : "company"}`
+              : "Add to DNC list"}
+          </DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="inline-flex rounded-md border border-[#ebecf0] bg-[#fafbfc] p-0.5 text-[12.5px]">
-            {(["agent", "company"] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setKind(k)}
-                className={cn(
-                  "rounded-[5px] px-3 py-1 font-medium capitalize transition-colors",
-                  kind === k
-                    ? "bg-white text-[#0f1320] shadow-sm"
-                    : "text-[#5b6472] hover:text-[#0f1320]",
-                )}
-              >
-                {k === "agent" ? "Agent" : "Company"}
-              </button>
-            ))}
-          </div>
+          {isEdit ? null : (
+            <div className="inline-flex rounded-md border border-[#ebecf0] bg-[#fafbfc] p-0.5 text-[12.5px]">
+              {(["agent", "company"] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setKind(k)}
+                  className={cn(
+                    "rounded-[5px] px-3 py-1 font-medium capitalize transition-colors",
+                    kind === k
+                      ? "bg-white text-[#0f1320] shadow-sm"
+                      : "text-[#5b6472] hover:text-[#0f1320]",
+                  )}
+                >
+                  {k === "agent" ? "Agent" : "Company"}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="space-y-1.5">
             <label className="text-xs font-medium">
               {kind === "agent" ? "Agent name" : "Company name"}
@@ -419,17 +507,30 @@ function AddDncDialog({
               rows={2}
             />
           </div>
-          <p className="text-[11px] leading-relaxed text-[#9aa0ab]">
-            If you supply an email, it&apos;s pushed to Instantly and EmailBison
-            blocklists immediately — the sequencer stops emailing them.
-          </p>
+          {isEdit && entry!.email && email.trim() && email.trim() !== entry!.email ? (
+            <p className="text-[11px] leading-relaxed text-[#9aa0ab]">
+              The new email will be pushed to provider blocklists. The
+              previous address stays blocked there too.
+            </p>
+          ) : (
+            <p className="text-[11px] leading-relaxed text-[#9aa0ab]">
+              If you supply an email, it&apos;s pushed to Instantly and EmailBison
+              blocklists immediately — the sequencer stops emailing them.
+            </p>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
           <Button onClick={save} disabled={pending || !name.trim()}>
-            {pending ? <Loader2 className="size-4 animate-spin" /> : "Add"}
+            {pending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : isEdit ? (
+              "Save"
+            ) : (
+              "Add"
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -512,8 +613,11 @@ function CsvImportDialog({
                 {" "}(<code>agent</code> or <code>company</code>),{" "}
                 <code>notes</code>
                 <br />
-                Anything not marked <code>company</code> in the{" "}
-                <code>kind</code> column is treated as an agent.
+                Headers don&apos;t need to match exactly — e.g.{" "}
+                <code>Full Name</code>, <code>Email Address</code>,{" "}
+                <code>Current Brokerage</code> all work. Anything not marked
+                <code>company</code> in the <code>kind</code> column is
+                treated as an agent.
               </div>
             </div>
             <input

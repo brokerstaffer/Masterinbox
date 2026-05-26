@@ -53,7 +53,6 @@ export interface AgentEntry {
   email: string | null;
   phone: string | null;
   license: string | null;
-  market: string | null;
   pushed_to_instantly: boolean;
   pushed_to_emailbison: boolean;
   push_error: string | null;
@@ -138,7 +137,7 @@ export const loadAgentEntries = cache(
     const { data, error } = await admin
       .from("client_agents")
       .select(
-        "id, name, email, phone, license, market, pushed_to_instantly, pushed_to_emailbison, push_error, created_at",
+        "id, name, email, phone, license, pushed_to_instantly, pushed_to_emailbison, push_error, created_at",
       )
       .eq("client_id", clientId)
       .order("created_at", { ascending: false })

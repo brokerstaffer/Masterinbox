@@ -17,7 +17,6 @@ const rowSchema = z.object({
   email: z.string().trim().email().nullable().optional(),
   phone: z.string().trim().max(40).nullable().optional(),
   license: z.string().trim().max(80).nullable().optional(),
-  market: z.string().trim().max(80).nullable().optional(),
 });
 
 const schema = z.object({
@@ -75,7 +74,6 @@ export async function POST(
       email: r.email ?? null,
       phone: r.phone ?? null,
       license: r.license ?? null,
-      market: r.market ?? null,
       pushed_to_instantly: pushedInstantly,
       pushed_to_emailbison: pushedEmailBison,
       push_error: pushError,

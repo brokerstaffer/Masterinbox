@@ -10,6 +10,8 @@ import {
   Loader2,
   Shield,
   FileText,
+  Pencil,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -22,7 +24,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { AgentEntry } from "@/lib/portals/portal-data";
-import { parseCsv, csvRowToAgent, type AgentRow } from "@/lib/portals/csv";
+import {
+  parseCsv,
+  csvRowToAgent,
+  toCsv,
+  downloadCsv,
+  type AgentRow,
+} from "@/lib/portals/csv";
 import {
   PortalPageHeader,
   PortalEmpty,
@@ -44,12 +52,13 @@ export function AgentsList({
   const [search, setSearch] = useState("");
   const [openAdd, setOpenAdd] = useState(false);
   const [openCsv, setOpenCsv] = useState(false);
+  const [editing, setEditing] = useState<AgentEntry | null>(null);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return entries;
     const q = search.trim().toLowerCase();
     return entries.filter((e) =>
-      [e.name, e.email, e.license, e.market]
+      [e.name, e.email, e.license]
         .filter(Boolean)
         .some((v) => v!.toLowerCase().includes(q)),
     );
@@ -75,6 +84,24 @@ export function AgentsList({
     router.refresh();
   }
 
+  function exportCsv() {
+    if (filtered.length === 0) {
+      toast.info("Nothing to export");
+      return;
+    }
+    const csv = toCsv(
+      filtered.map((e) => ({
+        name: e.name,
+        email: e.email ?? "",
+        phone: e.phone ?? "",
+        license: e.license ?? "",
+      })),
+      ["name", "email", "phone", "license"],
+    );
+    const today = new Date().toISOString().slice(0, 10);
+    downloadCsv(`agents-${today}.csv`, csv);
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-8">
       <PortalPageHeader
@@ -82,6 +109,15 @@ export function AgentsList({
         subtitle="Your brokerage's own agents — always excluded from outreach. Emails listed here are pushed to Instantly and EmailBison blocklists."
         actions={
           <>
+            <Button
+              variant="outline"
+              onClick={exportCsv}
+              className="gap-1.5"
+              disabled={entries.length === 0}
+            >
+              <Download className="size-4" />
+              Export CSV
+            </Button>
             <Button variant="outline" onClick={() => setOpenCsv(true)} className="gap-1.5">
               <Upload className="size-4" />
               Import CSV
@@ -151,11 +187,10 @@ export function AgentsList({
               mounted ? "opacity-100" : "opacity-0",
             )}
           >
-            <div className="grid grid-cols-[1.5fr_1.1fr_140px_120px_120px_110px_44px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+            <div className="grid grid-cols-[1.5fr_1.2fr_140px_140px_110px_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
               <div>Agent</div>
               <div>Email</div>
               <div>License</div>
-              <div>Market</div>
               <div>Phone</div>
               <div>Status</div>
               <div></div>
@@ -169,7 +204,7 @@ export function AgentsList({
                 {filtered.map((a) => (
                   <div
                     key={a.id}
-                    className="grid grid-cols-[1.5fr_1.1fr_140px_120px_120px_110px_44px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]"
+                    className="grid grid-cols-[1.5fr_1.2fr_140px_140px_110px_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]"
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <Avatar name={a.name} />
@@ -184,14 +219,21 @@ export function AgentsList({
                     <div className="truncate text-[12.5px] tabular-nums text-[#5b6472]">
                       {a.license ?? "—"}
                     </div>
-                    <div className="truncate text-[12.5px] text-[#5b6472]">{a.market ?? "—"}</div>
                     <div className="truncate text-[12.5px] tabular-nums text-[#5b6472]">
                       {a.phone ?? "—"}
                     </div>
                     <div>
                       <StatusPill entry={a} />
                     </div>
-                    <div className="flex justify-end">
+                    <div className="flex justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setEditing(a)}
+                        aria-label="Edit"
+                        className="inline-flex size-8 items-center justify-center rounded-md text-[#9aa0ab] transition-colors hover:bg-[#eaf2fd] hover:text-[#1565C0]"
+                      >
+                        <Pencil className="size-4" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => remove(a.id)}
@@ -210,11 +252,23 @@ export function AgentsList({
       )}
 
       {openAdd ? (
-        <AddAgentDialog
+        <AgentDialog
           token={token}
+          entry={null}
           onClose={() => setOpenAdd(false)}
-          onAdded={() => {
+          onSaved={() => {
             setOpenAdd(false);
+            router.refresh();
+          }}
+        />
+      ) : null}
+      {editing ? (
+        <AgentDialog
+          token={token}
+          entry={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
             router.refresh();
           }}
         />
@@ -288,20 +342,24 @@ function StatusPill({ entry }: { entry: AgentEntry }) {
   return <Pill tone="neutral">Pending</Pill>;
 }
 
-function AddAgentDialog({
+// One dialog for both Add and Edit. When `entry` is non-null the form
+// prefills + saves via PATCH; when null it's a fresh insert via POST.
+function AgentDialog({
   token,
+  entry,
   onClose,
-  onAdded,
+  onSaved,
 }: {
   token: string;
+  entry: AgentEntry | null;
   onClose: () => void;
-  onAdded: () => void;
+  onSaved: () => void;
 }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [license, setLicense] = useState("");
-  const [market, setMarket] = useState("");
+  const isEdit = entry !== null;
+  const [name, setName] = useState(entry?.name ?? "");
+  const [email, setEmail] = useState(entry?.email ?? "");
+  const [phone, setPhone] = useState(entry?.phone ?? "");
+  const [license, setLicense] = useState(entry?.license ?? "");
   const [pending, startTransition] = useTransition();
 
   async function save() {
@@ -309,31 +367,35 @@ function AddAgentDialog({
       toast.error("Add a name");
       return;
     }
-    const res = await fetch(`/api/portal/${token}/agents`, {
-      method: "POST",
+    const payload = {
+      name: name.trim(),
+      email: email.trim() || null,
+      phone: phone.trim() || null,
+      license: license.trim() || null,
+    };
+    const url = isEdit
+      ? `/api/portal/${token}/agents/${entry!.id}`
+      : `/api/portal/${token}/agents`;
+    const method = isEdit ? "PATCH" : "POST";
+    const res = await fetch(url, {
+      method,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: name.trim(),
-        email: email.trim() || null,
-        phone: phone.trim() || null,
-        license: license.trim() || null,
-        market: market.trim() || null,
-      }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
       toast.error(j.error ?? "Save failed");
       return;
     }
-    toast.success("Agent added");
-    startTransition(() => onAdded());
+    toast.success(isEdit ? "Agent updated" : "Agent added");
+    startTransition(() => onSaved());
   }
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add an agent</DialogTitle>
+          <DialogTitle>{isEdit ? "Edit agent" : "Add an agent"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
@@ -350,23 +412,29 @@ function AddAgentDialog({
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium">License #</label>
-              <Input value={license} onChange={(e) => setLicense(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium">Market</label>
-              <Input value={market} onChange={(e) => setMarket(e.target.value)} />
-            </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium">License #</label>
+            <Input value={license} onChange={(e) => setLicense(e.target.value)} />
           </div>
+          {isEdit && entry!.email && email.trim() && email.trim() !== entry!.email ? (
+            <p className="text-[11px] leading-relaxed text-[#9aa0ab]">
+              The new email will be pushed to provider blocklists. The
+              previous address stays blocked there too.
+            </p>
+          ) : null}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
           <Button onClick={save} disabled={pending || !name.trim()}>
-            {pending ? <Loader2 className="size-4 animate-spin" /> : "Add"}
+            {pending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : isEdit ? (
+              "Save"
+            ) : (
+              "Add"
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -441,9 +509,11 @@ function CsvImportDialog({
               <div className="text-sm font-medium">Click to choose a CSV file</div>
               <div className="text-[12px] text-[#9aa0ab]">
                 Columns we recognise: <code>name</code>, <code>email</code>,{" "}
-                <code>phone</code>, <code>license</code>, <code>market</code>
+                <code>phone</code>, <code>license</code>
                 <br />
-                (Synonyms like <code>full_name</code> / <code>email_address</code> work too.)
+                Headers don&apos;t need to match exactly — e.g.{" "}
+                <code>Full Name</code>, <code>Email Address</code>,{" "}
+                <code>License Number</code> all work.
               </div>
             </div>
             <input
@@ -473,22 +543,20 @@ function CsvImportDialog({
               </button>
             </div>
             <div className="max-h-72 overflow-y-auto rounded-lg border border-[#ebecf0]">
-              <div className="grid grid-cols-[1.4fr_1.1fr_120px_100px_100px] border-b border-[#ebecf0] bg-[#fafbfc] px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+              <div className="grid grid-cols-[1.4fr_1.2fr_120px_120px] border-b border-[#ebecf0] bg-[#fafbfc] px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
                 <div>Name</div>
                 <div>Email</div>
                 <div>License</div>
-                <div>Market</div>
                 <div>Phone</div>
               </div>
               {rows.slice(0, 50).map((r, i) => (
                 <div
                   key={i}
-                  className="grid grid-cols-[1.4fr_1.1fr_120px_100px_100px] gap-2 border-b border-[#f0f1f4] px-3 py-1.5 text-[12.5px] last:border-0"
+                  className="grid grid-cols-[1.4fr_1.2fr_120px_120px] gap-2 border-b border-[#f0f1f4] px-3 py-1.5 text-[12.5px] last:border-0"
                 >
                   <div className="truncate font-medium">{r.name}</div>
                   <div className="truncate text-[#5b6472]">{r.email ?? "—"}</div>
                   <div className="truncate text-[#5b6472]">{r.license ?? "—"}</div>
-                  <div className="truncate text-[#5b6472]">{r.market ?? "—"}</div>
                   <div className="truncate text-[#5b6472]">{r.phone ?? "—"}</div>
                 </div>
               ))}

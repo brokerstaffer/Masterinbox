@@ -1,6 +1,7 @@
 // Minimal CSV parser — handles quoted fields (with escaped "" quotes),
 // commas and newlines inside quotes. No external dependency. Used for
-// the Your Agents bulk import in the portal.
+// the Your Agents + DNC bulk imports in the portal, and for the
+// client-side Export CSV buttons on the same pages.
 
 export type CsvRow = Record<string, string>;
 
@@ -75,36 +76,60 @@ function normaliseHeader(h: string): string {
   return h.toLowerCase().trim().replace(/[\s\-]+/g, "_");
 }
 
-// Maps a parsed CSV row to a Your Agents insert payload. Header detection
-// is forgiving — accepts a few common synonyms.
+// Two-tier header matcher. Tries an exact-key list first (so an
+// explicit `email` column always wins over `email_address` when both
+// exist), then falls back to substring contains so headers like
+// "Current Brokerage" (normalised → "current_brokerage") still map to
+// the `brokerage` field via the contains token "brokerage".
+function pickFuzzy(
+  row: CsvRow,
+  exact: string[],
+  contains: string[],
+): string | null {
+  for (const k of exact) {
+    const v = row[k];
+    if (v && v.trim().length > 0) return v.trim();
+  }
+  for (const key of Object.keys(row)) {
+    if (contains.some((tok) => key.includes(tok))) {
+      const v = row[key];
+      if (v && v.trim().length > 0) return v.trim();
+    }
+  }
+  return null;
+}
+
+// Maps a parsed CSV row to a Your Agents insert payload.
 export interface AgentRow {
   name: string;
   email: string | null;
   phone: string | null;
   license: string | null;
-  market: string | null;
 }
 
 export function csvRowToAgent(row: CsvRow): AgentRow | null {
-  const pick = (...keys: string[]): string | null => {
-    for (const k of keys) {
-      const v = row[k];
-      if (v && v.trim().length > 0) return v.trim();
-    }
-    return null;
-  };
-  const first = pick("first_name", "firstname", "first");
-  const last = pick("last_name", "lastname", "last");
+  const first = pickFuzzy(row, ["first_name", "firstname", "first"], []);
+  const last = pickFuzzy(row, ["last_name", "lastname", "last"], []);
   const name =
-    pick("name", "full_name", "fullname", "agent_name", "agent") ??
-    (first && last ? `${first} ${last}` : first ?? last);
+    pickFuzzy(
+      row,
+      ["name", "full_name", "fullname", "agent_name", "agent"],
+      ["name", "agent"],
+    ) ?? (first && last ? `${first} ${last}` : first ?? last);
   if (!name) return null;
   return {
     name,
-    email: pick("email", "email_address", "agent_email"),
-    phone: pick("phone", "phone_number", "mobile", "cell"),
-    license: pick("license", "license_number", "license_no", "lic"),
-    market: pick("market", "city", "region", "location"),
+    email: pickFuzzy(row, ["email", "email_address", "agent_email"], ["email"]),
+    phone: pickFuzzy(
+      row,
+      ["phone", "phone_number", "mobile", "cell"],
+      ["phone", "mobile", "cell"],
+    ),
+    license: pickFuzzy(
+      row,
+      ["license", "license_number", "license_no", "lic"],
+      ["license", "lic"],
+    ),
   };
 }
 
@@ -120,30 +145,31 @@ export interface DncRow {
 // Maps a parsed CSV row to a DNC insert payload. Kind defaults to "agent"
 // unless the row explicitly says company / brokerage / firm.
 export function csvRowToDnc(row: CsvRow): DncRow | null {
-  const pick = (...keys: string[]): string | null => {
-    for (const k of keys) {
-      const v = row[k];
-      if (v && v.trim().length > 0) return v.trim();
-    }
-    return null;
-  };
-  const first = pick("first_name", "firstname", "first");
-  const last = pick("last_name", "lastname", "last");
+  const first = pickFuzzy(row, ["first_name", "firstname", "first"], []);
+  const last = pickFuzzy(row, ["last_name", "lastname", "last"], []);
   const name =
-    pick(
-      "name",
-      "full_name",
-      "fullname",
-      "agent_name",
-      "agent",
-      "company_name",
-      "company",
-      "brokerage_name",
-      "firm",
+    pickFuzzy(
+      row,
+      [
+        "name",
+        "full_name",
+        "fullname",
+        "agent_name",
+        "agent",
+        "company_name",
+        "company",
+        "brokerage_name",
+        "firm",
+      ],
+      ["name", "agent", "company", "firm"],
     ) ?? (first && last ? `${first} ${last}` : first ?? last);
   if (!name) return null;
 
-  const kindRaw = pick("kind", "type", "category")?.toLowerCase() ?? "";
+  const kindRaw = pickFuzzy(
+    row,
+    ["kind", "type", "category"],
+    ["kind", "type", "category"],
+  )?.toLowerCase() ?? "";
   let kind: "agent" | "company" = "agent";
   if (
     kindRaw === "company" ||
@@ -158,12 +184,53 @@ export function csvRowToDnc(row: CsvRow): DncRow | null {
   return {
     kind,
     name,
-    email: pick("email", "email_address"),
-    phone: pick("phone", "phone_number", "mobile", "cell"),
+    email: pickFuzzy(row, ["email", "email_address"], ["email"]),
+    phone: pickFuzzy(
+      row,
+      ["phone", "phone_number", "mobile", "cell"],
+      ["phone", "mobile", "cell"],
+    ),
     brokerage:
       kind === "agent"
-        ? pick("brokerage", "company", "firm", "agency")
+        ? pickFuzzy(
+            row,
+            ["brokerage", "company", "firm", "agency"],
+            ["brokerage", "company", "firm", "agency"],
+          )
         : null,
-    notes: pick("notes", "reason", "comment"),
+    notes: pickFuzzy(
+      row,
+      ["notes", "reason", "comment"],
+      ["notes", "reason", "comment"],
+    ),
   };
+}
+
+// CSV export helpers used by the portal Agents + DNC pages. The rows
+// they export are already in memory (component state), so the whole
+// generate-and-download flow stays client-side — no API roundtrip.
+
+export function toCsv(
+  rows: Record<string, unknown>[],
+  columns: string[],
+): string {
+  const escape = (v: unknown) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [columns.join(",")];
+  for (const r of rows) lines.push(columns.map((c) => escape(r[c])).join(","));
+  return lines.join("\r\n");
+}
+
+export function downloadCsv(filename: string, csv: string): void {
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

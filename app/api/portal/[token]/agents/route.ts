@@ -15,7 +15,6 @@ const schema = z.object({
   email: z.string().trim().email().nullable().optional(),
   phone: z.string().trim().max(40).nullable().optional(),
   license: z.string().trim().max(80).nullable().optional(),
-  market: z.string().trim().max(80).nullable().optional(),
 });
 
 export async function POST(
@@ -35,7 +34,7 @@ export async function POST(
       { status: 400 },
     );
   }
-  const { name, email, phone, license, market } = parsed.data;
+  const { name, email, phone, license } = parsed.data;
 
   let pushedInstantly = false;
   let pushedEmailBison = false;
@@ -56,7 +55,6 @@ export async function POST(
       email: email ?? null,
       phone: phone ?? null,
       license: license ?? null,
-      market: market ?? null,
       pushed_to_instantly: pushedInstantly,
       pushed_to_emailbison: pushedEmailBison,
       push_error: pushError,
