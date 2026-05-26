@@ -52,12 +52,21 @@ function initials(name: string | null | undefined, email: string | null | undefi
 export function ThreadView({
   detail,
   availableLabels = [],
+  channels = [],
   prevThreadHref = null,
   nextThreadHref = null,
   backHref = "..",
 }: {
   detail: ThreadDetail;
   availableLabels?: LabelRow[];
+  // Connected sender mailboxes for this workspace; feeds the composer's
+  // From-dropdown so the user can override the thread's pinned sender.
+  channels?: Array<{
+    id: string;
+    provider: "instantly" | "emailbison" | "unipile";
+    display_name: string;
+    instantly_account_id: string | null;
+  }>;
   prevThreadHref?: string | null;
   nextThreadHref?: string | null;
   backHref?: string;
@@ -278,6 +287,7 @@ export function ThreadView({
               null;
             return typeof v === "string" && v.trim() ? v : null;
           })()}
+          channels={channels}
           quoted={(() => {
             if (composeState.mode === "forward") return null;
             const source =

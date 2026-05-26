@@ -44,6 +44,12 @@ const schema = z.object({
   // email_id / EmailBison reply_id) as the reply target so the outbound's
   // In-Reply-To header points at the right ancestor for Gmail threading.
   source_message_id: z.string().uuid().optional(),
+  // Override the sender mailbox for THIS send. When set, we look up the
+  // channels row and use its provider-specific identifier (Instantly
+  // eaccount / EmailBison sender_email_id) instead of the default
+  // resolution from the thread's outbound_sender_email. Required for
+  // the "From" dropdown in the composer.
+  sender_channel_id: z.string().uuid().optional(),
 });
 
 type ParsedInput = z.infer<typeof schema>;
@@ -141,6 +147,42 @@ export async function POST(
 
   const admin = createAdminSupabase();
 
+  // Resolve the sender override (if supplied) into provider-specific
+  // identifiers. The composer's From-dropdown sends sender_channel_id;
+  // we look it up here so the downstream send calls don't have to know
+  // about the channel layer.
+  let senderOverride:
+    | {
+        emailbisonSenderEmailId: number | null;
+        instantlyEaccount: string | null;
+        emailbisonTeamId: number | null;
+      }
+    | null = null;
+  if (payload.sender_channel_id) {
+    const { data: ch } = await admin
+      .from("channels")
+      .select(
+        "id, workspace_id, provider, display_name, emailbison_sender_email_id, instantly_account_id, emailbison_team_id",
+      )
+      .eq("id", payload.sender_channel_id)
+      .eq("workspace_id", thread.workspace_id)
+      .maybeSingle();
+    if (!ch) {
+      return NextResponse.json(
+        { error: "Selected sender channel not found in this workspace." },
+        { status: 400 },
+      );
+    }
+    const ebId = ch.emailbison_sender_email_id as string | null;
+    senderOverride = {
+      emailbisonSenderEmailId: ebId ? Number(ebId) : null,
+      instantlyEaccount:
+        (ch.instantly_account_id as string | null) ??
+        (ch.display_name as string | null),
+      emailbisonTeamId: (ch.emailbison_team_id as number | null) ?? null,
+    };
+  }
+
   // Instantly threads use a completely different send API. Dispatch early so
   // the rest of this handler can stay EmailBison-specific.
   if (thread.source_provider === "instantly") {
@@ -148,7 +190,8 @@ export async function POST(
       admin,
       threadId,
       workspaceId: thread.workspace_id,
-      outboundSenderEmail: thread.outbound_sender_email,
+      outboundSenderEmail:
+        senderOverride?.instantlyEaccount ?? thread.outbound_sender_email,
       payload,
       attachments,
     });
@@ -157,8 +200,10 @@ export async function POST(
   // EmailBison team_id is pinned on the channel (one per sender_email)
   // — workspaces don't carry a team_id anymore in single-tenant BrokerStaffer
   // because brokerstaffer.com has multiple teams feeding one workspace.
-  let ebTeamId: number | null = null;
-  if (thread.channel_id) {
+  // When the user picks a sender override, use its team instead of the
+  // thread's original channel team.
+  let ebTeamId: number | null = senderOverride?.emailbisonTeamId ?? null;
+  if (ebTeamId === null && thread.channel_id) {
     const { data: ch } = await admin
       .from("channels")
       .select("emailbison_team_id")
@@ -253,7 +298,9 @@ export async function POST(
         bcc_emails: payload.bcc && payload.bcc.length > 0 ? payload.bcc : undefined,
         reply_all: payload.reply_all,
         inject_previous_email_body: payload.inject_previous_email_body,
-        sender_email_id: payload.reply_all ? null : senderEmailId,
+        sender_email_id: payload.reply_all
+          ? null
+          : senderOverride?.emailbisonSenderEmailId ?? senderEmailId,
         attachments,
       });
       // Response shape: { data: { success, reply: { id } } }
@@ -267,7 +314,9 @@ export async function POST(
         bcc_emails: payload.bcc && payload.bcc.length > 0 ? payload.bcc : undefined,
         reply_all: payload.reply_all,
         inject_previous_email_body: payload.inject_previous_email_body,
-        sender_email_id: payload.reply_all ? null : senderEmailId,
+        sender_email_id: payload.reply_all
+          ? null
+          : senderOverride?.emailbisonSenderEmailId ?? senderEmailId,
       });
       // Response shape: { data: { success, reply: { id } } }
       newReplyId = res?.data?.reply?.id ?? null;

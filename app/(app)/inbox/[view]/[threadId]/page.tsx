@@ -119,6 +119,19 @@ export default async function ThreadDetailPage(props: {
         <ThreadView
           detail={detail}
           availableLabels={labels}
+          channels={channels
+            .filter(
+              (c): c is typeof c & {
+                provider: "instantly" | "emailbison" | "unipile";
+                display_name: string;
+              } => Boolean(c.provider) && Boolean(c.display_name),
+            )
+            .map((c) => ({
+              id: c.id,
+              provider: c.provider,
+              display_name: c.display_name,
+              instantly_account_id: null,
+            }))}
           backHref={`/inbox/${view}`}
           prevThreadHref={(() => {
             const idx = threadPage.rows.findIndex((t) => t.id === threadId);

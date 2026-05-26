@@ -60,6 +60,7 @@ export function Composer({
   fromName,
   leadCompany = null,
   leadTitle = null,
+  channels = [],
   quoted,
   draft,
   initialBody,
@@ -83,6 +84,10 @@ export function Composer({
   // in the inserted body so the user notices and can fix manually.
   leadCompany?: string | null;
   leadTitle?: string | null;
+  // All connected sender mailboxes for this workspace. Drives the From
+  // dropdown — user can override which mailbox the message is sent
+  // from (defaults to the thread's pinned sender).
+  channels?: ChannelOption[];
   quoted?: QuotedMessage | null;
   draft?: DraftSeed | null;
   // Provider this thread came from. Drives provider-specific UX: Instantly
@@ -124,6 +129,21 @@ export function Composer({
   const [to, setTo] = useState(toEmail);
   const [cc, setCc] = useState(ccInitial);
   const [bcc, setBcc] = useState("");
+  // Pre-select the channel whose display_name / instantly_account_id
+  // matches the thread's pinned sender. Falls back to null (use the
+  // thread's default) when no match — typically because the channel
+  // pinned on the thread is no longer in the workspace's channel list.
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(
+    () => {
+      if (!fromEmail) return null;
+      const match = channels.find(
+        (c) =>
+          c.display_name.toLowerCase() === fromEmail.toLowerCase() ||
+          (c.instantly_account_id ?? "").toLowerCase() === fromEmail.toLowerCase(),
+      );
+      return match?.id ?? null;
+    },
+  );
   // Auto-open the CC row when we pre-filled it — otherwise the user has no
   // visual signal that anyone's being looped in.
   const [showCc, setShowCc] = useState(ccInitial.trim().length > 0);
@@ -228,6 +248,7 @@ export function Composer({
         form.append("reply_all", "0");
         form.append("inject_previous_email_body", "1");
         if (sourceMessageId) form.append("source_message_id", sourceMessageId);
+        if (selectedChannelId) form.append("sender_channel_id", selectedChannelId);
         for (const f of files) form.append("attachments", f, f.name);
         res = await fetch(`/api/threads/${threadId}/reply`, {
           method: "POST",
@@ -245,6 +266,7 @@ export function Composer({
             cc: ccArr,
             bcc: bccArr,
             source_message_id: sourceMessageId ?? undefined,
+            sender_channel_id: selectedChannelId ?? undefined,
           }),
         });
       }
@@ -291,17 +313,17 @@ export function Composer({
 
       {/* Header fields */}
       <div className="px-4 py-3 space-y-2 text-sm border-b shrink-0">
-        {/* From */}
+        {/* From — pre-filled with the thread's sender; click to override
+            with any other connected mailbox on the same provider. */}
         <FieldRow label="From">
-          <div className="flex items-center gap-2 px-2.5 py-1 rounded border bg-muted/40 text-sm">
-            <span className="size-4 rounded bg-red-500/90 text-white flex items-center justify-center text-[8px] font-bold">
-              <Mail className="size-3" />
-            </span>
-            <span className="font-medium">{fromName ?? "You"}</span>
-            {fromEmail ? (
-              <span className="text-muted-foreground">({fromEmail})</span>
-            ) : null}
-          </div>
+          <SenderPicker
+            channels={channels}
+            sourceProvider={sourceProvider}
+            defaultEmail={fromEmail ?? null}
+            defaultName={fromName ?? null}
+            selectedId={selectedChannelId}
+            onChange={setSelectedChannelId}
+          />
         </FieldRow>
 
         {/* To + Cc/Bcc toggles */}
@@ -830,6 +852,163 @@ function TemplatePicker({
             </div>
           ))
         )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+// Shape of the channel rows the composer cares about — display + the
+// provider-specific identifiers. Loaded by the parent and passed down
+// via the `channels` prop. Kept exported so thread-view can satisfy
+// the type without restating the fields.
+export interface ChannelOption {
+  id: string;
+  provider: "instantly" | "emailbison" | "unipile";
+  display_name: string;
+  instantly_account_id: string | null;
+}
+
+// Searchable From-dropdown. Filters channels to the same provider as
+// the thread (cross-provider sends aren't supported by the underlying
+// APIs), shows display_name + email, and lets the user override the
+// pinned sender on this thread for a single send.
+function SenderPicker({
+  channels,
+  sourceProvider,
+  defaultEmail,
+  defaultName,
+  selectedId,
+  onChange,
+}: {
+  channels: ChannelOption[];
+  sourceProvider: "instantly" | "emailbison" | null;
+  defaultEmail: string | null;
+  defaultName: string | null;
+  selectedId: string | null;
+  onChange: (id: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+
+  // Limit the picker to mailboxes that can actually be used for this
+  // thread's provider. Mixed-provider sends aren't supported by the
+  // underlying APIs.
+  const available = channels.filter(
+    (c) => !sourceProvider || c.provider === sourceProvider,
+  );
+
+  const selected = selectedId
+    ? available.find((c) => c.id === selectedId) ?? null
+    : null;
+
+  // Display string for the trigger button — prefers the picked channel,
+  // falls back to whatever the parent told us is the default sender.
+  const triggerLabel =
+    selected?.display_name ?? defaultEmail ?? defaultName ?? "Choose sender";
+  const triggerSubLabel = selected ? "" : defaultName ?? "";
+
+  const filtered = filter.trim()
+    ? available.filter((c) =>
+        c.display_name.toLowerCase().includes(filter.trim().toLowerCase()),
+      )
+    : available;
+
+  if (available.length <= 1) {
+    // Nothing to pick from — render read-only with the default.
+    return (
+      <div className="flex items-center gap-2 px-2.5 py-1 rounded border bg-muted/40 text-sm">
+        <span className="size-4 rounded bg-red-500/90 text-white flex items-center justify-center text-[8px] font-bold">
+          <Mail className="size-3" />
+        </span>
+        <span className="font-medium">{defaultName ?? "You"}</span>
+        {defaultEmail ? (
+          <span className="text-muted-foreground">({defaultEmail})</span>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 px-2.5 py-1 rounded border bg-background text-sm hover:bg-accent transition-colors"
+            aria-label="Choose sender mailbox"
+            title="Click to change the sender mailbox"
+          >
+            <span className="size-4 rounded bg-red-500/90 text-white flex items-center justify-center text-[8px] font-bold">
+              <Mail className="size-3" />
+            </span>
+            <span className="font-medium truncate max-w-[260px]">
+              {triggerLabel}
+            </span>
+            {triggerSubLabel ? (
+              <span className="text-muted-foreground truncate max-w-[160px]">
+                ({triggerSubLabel})
+              </span>
+            ) : null}
+            <span className="text-muted-foreground text-[10px]">▾</span>
+          </button>
+        }
+      />
+      <DropdownMenuContent
+        align="start"
+        className="w-[360px] max-h-[400px] overflow-y-auto p-0"
+      >
+        <div className="sticky top-0 z-10 border-b bg-background p-2">
+          <input
+            type="search"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder={`Search ${available.length} sender${available.length === 1 ? "" : "s"}…`}
+            autoFocus
+            className="w-full h-8 rounded-md border bg-background px-2 text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/30"
+          />
+        </div>
+        {defaultEmail ? (
+          <DropdownMenuItem
+            onClick={() => {
+              onChange(null);
+              setFilter("");
+              setOpen(false);
+            }}
+            className="flex flex-col items-start gap-0 border-b text-[12px]"
+          >
+            <span className="font-medium">Use thread default</span>
+            <span className="text-muted-foreground">{defaultEmail}</span>
+          </DropdownMenuItem>
+        ) : null}
+        {filtered.length === 0 ? (
+          <div className="px-3 py-3 text-xs text-muted-foreground">
+            No senders match &quot;{filter}&quot;.
+          </div>
+        ) : (
+          filtered.slice(0, 200).map((c) => (
+            <DropdownMenuItem
+              key={c.id}
+              onClick={() => {
+                onChange(c.id);
+                setFilter("");
+                setOpen(false);
+              }}
+              className="flex items-center justify-between gap-2 text-[13px]"
+            >
+              <span className="truncate">{c.display_name}</span>
+              {c.id === selectedId ? (
+                <span className="text-[10px] text-[#1565C0] font-semibold uppercase">
+                  Selected
+                </span>
+              ) : null}
+            </DropdownMenuItem>
+          ))
+        )}
+        {filtered.length > 200 ? (
+          <div className="px-3 py-1.5 text-center text-[11px] text-muted-foreground border-t">
+            {filtered.length - 200} more — refine your search to see them
+          </div>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
