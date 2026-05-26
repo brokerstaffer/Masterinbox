@@ -410,11 +410,12 @@ async function sendInstantlyReply(args: {
     return rows.map((r) => r.email_address).join(",");
   };
 
-  // Detect a forward: TO is set AND none of its addresses match the
+  // Forward detection: TO is set AND none of its addresses match the
   // original sender of the inbound being "replied" to. Instantly's
-  // sendReply silently ignores TO (it always goes back to the original
-  // sender), so for forwards we have to use the standalone /emails send
-  // endpoint instead — which accepts an arbitrary TO list.
+  // /emails/reply silently ignores TO (always returns to the original
+  // sender), so for forwards we route through /emails/forward which
+  // accepts an arbitrary to_address_email_list while still threading
+  // off the source email via reply_to_uuid.
   const originalSenderLower = replyTarget.sender?.toLowerCase() ?? "";
   const toCsv = recipientsCsv(payload.to);
   const isForward =
@@ -433,13 +434,14 @@ async function sendInstantlyReply(args: {
         return NextResponse.json(
           {
             error:
-              "Forwarding from an Instantly thread needs a sender mailbox; this thread has none on file.",
+              "Forwarding from this Instantly thread needs a sender mailbox; none on file.",
           },
           { status: 400 },
         );
       }
-      const res = await instantly.sendEmail({
+      const res = await instantly.forwardEmail({
         eaccount: outboundSenderEmail,
+        reply_to_uuid: replyTarget.instantly_email_id,
         to_address_email_list: toCsv!,
         subject: payload.subject ?? "(forward)",
         body:
@@ -448,6 +450,7 @@ async function sendInstantlyReply(args: {
             : { text: payload.body },
         cc_address_email_list: recipientsCsv(payload.cc),
         bcc_address_email_list: recipientsCsv(payload.bcc),
+        include_original_body: payload.inject_previous_email_body,
       });
       newEmailId = res?.id ?? null;
     } else {

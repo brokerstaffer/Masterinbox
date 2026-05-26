@@ -46,8 +46,23 @@ function firstName(full?: string | null): string {
 }
 
 // Replace every {{key}} occurrence with the matching value from the
-// context. Unknown keys are left in place so the user notices and can
-// either fix the template or supply the missing context.
+// context. Known keys with no value resolve to empty string so the
+// composed message reads naturally (no literal `{{lead.name}}` left in
+// the body when a lead has no name on file). Only UNKNOWN keys — i.e.
+// a typo in the template like {{lead.namee}} — are left in place so
+// the user spots the mistake.
+const KNOWN_KEYS = new Set([
+  "lead.name",
+  "lead.first_name",
+  "lead.email",
+  "lead.company",
+  "lead.title",
+  "thread.subject",
+  "sender.name",
+  "sender.first_name",
+  "sender.email",
+]);
+
 export function substituteVariables(
   text: string,
   context: SubstitutionContext,
@@ -77,7 +92,9 @@ export function substituteVariables(
     }
   };
   return text.replace(/\{\{\s*([a-z_.]+)\s*\}\}/gi, (match, key: string) => {
-    const v = get(key);
-    return v !== null && v.length > 0 ? v : match;
+    const lower = key.toLowerCase();
+    if (!KNOWN_KEYS.has(lower)) return match; // unknown key — leave for user to spot
+    const v = get(lower);
+    return v !== null && v.length > 0 ? v : "";
   });
 }

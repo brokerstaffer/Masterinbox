@@ -360,32 +360,31 @@ export function Composer({
           </FieldRow>
         ) : null}
 
-        {/* Subject — locked in reply mode (see subjectLocked prop docs). */}
+        {/* Subject — pre-filled but always editable. On replies, changing
+            the subject can break Gmail/Outlook threading on the
+            recipient side; surfaced as a tooltip rather than locking. */}
         <FieldRow
           label="Subject"
           right={
-            subjectLocked ? null : (
-              <button
-                type="button"
-                onClick={() => setComposerSubject("")}
-                className="size-5 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-accent"
-                aria-label="Clear subject"
-              >
-                <X className="size-3.5" />
-              </button>
-            )
+            <button
+              type="button"
+              onClick={() => setComposerSubject("")}
+              className="size-5 rounded-sm flex items-center justify-center text-muted-foreground hover:bg-accent"
+              aria-label="Clear subject"
+            >
+              <X className="size-3.5" />
+            </button>
           }
         >
           <Input
             value={composerSubject}
             onChange={(e) => setComposerSubject(e.target.value)}
-            readOnly={subjectLocked}
-            tabIndex={subjectLocked ? -1 : undefined}
-            title={subjectLocked ? "Subject is locked on replies to preserve email threading" : undefined}
-            className={cn(
-              "flex-1 h-7 border-0 bg-transparent shadow-none px-1 focus-visible:ring-0 text-sm",
-              subjectLocked && "cursor-default text-foreground/80 pointer-events-none",
-            )}
+            title={
+              mode === "reply"
+                ? "Changing the subject on a reply may break threading on the recipient's side"
+                : undefined
+            }
+            className="flex-1 h-7 border-0 bg-transparent shadow-none px-1 focus-visible:ring-0 text-sm"
             placeholder="(no subject)"
           />
         </FieldRow>
@@ -543,10 +542,10 @@ export function Composer({
               if (t.body) {
                 setBody((cur) => (cur.trim() ? `${cur}\n\n${t.body}` : t.body));
               }
-              // Subject: only honour if the field is editable (forward/new),
-              // and only when the composer doesn't already have a subject
-              // the user has personalised.
-              if (!subjectLocked && t.subject && !composerSubject.trim()) {
+              // Subject: apply the template's subject only when the
+              // composer doesn't already have one the user has typed/
+              // personalised (don't clobber their work).
+              if (t.subject && !composerSubject.trim()) {
                 setComposerSubject(t.subject);
               }
               const tplCc = t.cc;
