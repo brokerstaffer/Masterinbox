@@ -106,17 +106,32 @@ export const loadViewCounts = cache(async function loadViewCounts(
   const totalUnseen = unseenSet.size;
 
   // label_id → { all threads, unseen threads }
+  //
+  // CHUNK was 500 — that built a PostgREST URL with `target_id=in.(uuid1,
+  // …,uuid500)` totalling ~18KB which Node's default fetch (16KB header
+  // cap) couldn't handle, producing a silent 7-second retry per page
+  // render. 150 matches the safer cap used in lib/inbox/open-responses.ts
+  // and keeps every chunk URL under ~6KB.
+  //
+  // The chunks are independent — fire them in parallel via Promise.all
+  // instead of awaiting sequentially. With 465 threads → 4 chunks ×
+  // ~80ms each, totalling 80ms instead of 320ms.
   const byLabel = new Map<string, { all: Set<string>; unseen: Set<string> }>();
-  const CHUNK = 500;
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const slice = ids.slice(i, i + CHUNK);
-    const { data: assignments } = await supabase
-      .from("label_assignments")
-      .select("label_id, target_id")
-      .eq("workspace_id", workspaceId)
-      .eq("target_type", "thread")
-      .in("target_id", slice)
-      .range(0, 49_999);
+  const CHUNK = 150;
+  const slices: string[][] = [];
+  for (let i = 0; i < ids.length; i += CHUNK) slices.push(ids.slice(i, i + CHUNK));
+  const chunkResults = await Promise.all(
+    slices.map((slice) =>
+      supabase
+        .from("label_assignments")
+        .select("label_id, target_id")
+        .eq("workspace_id", workspaceId)
+        .eq("target_type", "thread")
+        .in("target_id", slice)
+        .range(0, 49_999),
+    ),
+  );
+  for (const { data: assignments } of chunkResults) {
     for (const row of assignments ?? []) {
       const r = row as { label_id: string; target_id: string };
       const bucket = byLabel.get(r.label_id) ?? { all: new Set(), unseen: new Set() };
