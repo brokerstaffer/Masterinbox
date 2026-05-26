@@ -39,7 +39,7 @@ export default async function Page() {
   return (
     <SettingsPageShell
       title="Clients"
-      description="Corofy's active clients. Each inbound reply gets auto-tagged against one of these by matching the campaign name against the client's name or aliases. Replies that don't match any client land on the 'Unknown' fallback."
+      description="BrokerStaffer's active clients. Each inbound reply gets auto-tagged against one of these by matching the campaign name against the client's name or aliases. Replies that don't match any client land on the 'Unknown' fallback."
     >
       <ClientsManager initial={initial} />
     </SettingsPageShell>

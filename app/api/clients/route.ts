@@ -9,7 +9,7 @@ import { CLIENT_PORTALS_ENABLED } from "@/lib/portals/flag";
 // GET  /api/clients          -> list every client (id, name, slug, aliases, thread_count)
 // POST /api/clients          -> create a new client { name, aliases? }
 //
-// Auth: any signed-in workspace member can read; member can write (Corofy
+// Auth: any signed-in workspace member can read; member can write (BrokerStaffer
 // is single-tenant). The clients table is a global catalog (no
 // workspace_id) so we don't filter by workspace.
 

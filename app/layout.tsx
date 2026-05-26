@@ -9,7 +9,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Corofy Master Inbox",
+  title: "BrokerStaffer Master Inbox",
   description: "Unified sales inbox for cold outreach email replies.",
 };
 

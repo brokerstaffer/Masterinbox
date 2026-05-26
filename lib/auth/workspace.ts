@@ -5,8 +5,8 @@ import { createAdminSupabase } from "@/lib/supabase/admin";
 import { demoSession, isDemoMode } from "@/lib/demo";
 import { env } from "@/lib/env";
 
-// Single-tenant: Corofy runs exactly one workspace. The 0010 migration
-// installs an auth.users trigger that creates the singleton "Corofy"
+// Single-tenant: BrokerStaffer runs exactly one workspace. The 0010
+// migration installs an auth.users trigger that creates the singleton
 // workspace on the first sign-up and adds every subsequent user as an
 // 'owner' member. The SessionContext shape stays identical to the old
 // multi-workspace API (workspaces: WorkspaceSummary[], activeWorkspace:
@@ -54,16 +54,16 @@ export const requireSession = cache(async function requireSession(): Promise<Ses
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Hot path: when COROFY_WORKSPACE_ID is set, skip the workspace lookup
-  // query entirely — Corofy is single-tenant so the workspace is known
+  // Hot path: when WORKSPACE_ID is set, skip the workspace lookup query
+  // entirely — BrokerStaffer is single-tenant so the workspace is known
   // ahead of time. This saves ~280ms (one Supabase round-trip) on EVERY
   // page render. Everything we need (id, name, slug) is static metadata
   // we can hardcode in env. Role is always 'owner' in single-tenant.
-  if (env.COROFY_WORKSPACE_ID) {
+  if (env.WORKSPACE_ID) {
     const summary: WorkspaceSummary = {
-      id: env.COROFY_WORKSPACE_ID,
+      id: env.WORKSPACE_ID,
       name: "BrokerStaffer",
-      slug: "corofy",
+      slug: "brokerstaffer",
       role: "owner",
     };
     return {
@@ -78,7 +78,7 @@ export const requireSession = cache(async function requireSession(): Promise<Ses
     };
   }
 
-  // Fallback path — only fires in dev or before COROFY_WORKSPACE_ID is
+  // Fallback path — only fires in dev or before WORKSPACE_ID is
   // configured. One round-trip: pull membership + joined workspace.
   const { data: memberships, error } = await supabase
     .from("workspace_members")
@@ -140,12 +140,16 @@ async function bootstrapMembership(userId: string): Promise<WorkspaceSummary> {
   if (!ws) {
     const { data: created, error } = await admin
       .from("workspaces")
-      .insert({ name: "Corofy", slug: "corofy", owner_user_id: userId })
+      .insert({
+        name: "BrokerStaffer",
+        slug: "brokerstaffer",
+        owner_user_id: userId,
+      })
       .select("id, name, slug")
       .single();
     if (error || !created) {
       throw new Error(
-        `Failed to bootstrap Corofy workspace: ${error?.message ?? "unknown error"}`,
+        `Failed to bootstrap BrokerStaffer workspace: ${error?.message ?? "unknown error"}`,
       );
     }
     ws = created;
@@ -168,4 +172,4 @@ async function bootstrapMembership(userId: string): Promise<WorkspaceSummary> {
 // Retained for back-compat with any caller still importing this constant.
 // No longer set or read in the codebase — single-tenant has no concept
 // of an "active" workspace to remember.
-export const WORKSPACE_COOKIE = "corofy_active_workspace";
+export const WORKSPACE_COOKIE = "active_workspace";

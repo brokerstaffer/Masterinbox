@@ -29,7 +29,7 @@ function clampMaxTokens(model: string, requested: number): number {
 
 // One turn in the email thread. Direction is from OUR perspective:
 //   - inbound  = sent by the lead
-//   - outbound = sent by us (Corofy)
+//   - outbound = sent by us (BrokerStaffer)
 export interface ConversationTurn {
   direction: "inbound" | "outbound";
   sentAt: string | null;

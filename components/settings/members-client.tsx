@@ -159,7 +159,7 @@ export function MembersClient({ workspaces, members }: { workspaces: Workspace[]
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="teammate@corofy.com"
+                placeholder="teammate@brokerstaffer.com"
               />
             </div>
             <div className="space-y-1.5">

@@ -155,7 +155,7 @@ export async function POST(
   }
 
   // EmailBison team_id is pinned on the channel (one per sender_email)
-  // — workspaces don't carry a team_id anymore in single-tenant Corofy
+  // — workspaces don't carry a team_id anymore in single-tenant BrokerStaffer
   // because brokerstaffer.com has multiple teams feeding one workspace.
   let ebTeamId: number | null = null;
   if (thread.channel_id) {

@@ -12,7 +12,7 @@ export default async function LoginPage(props: {
         <div className="size-9 rounded-md bg-zinc-900 text-white flex items-center justify-center">
           <Inbox className="size-5" />
         </div>
-        <span className="text-lg font-semibold tracking-tight">Corofy Master Inbox</span>
+        <span className="text-lg font-semibold tracking-tight">BrokerStaffer Master Inbox</span>
       </div>
       <div className="rounded-xl border bg-card p-6 shadow-sm">
         <h1 className="text-xl font-semibold tracking-tight">Sign in</h1>

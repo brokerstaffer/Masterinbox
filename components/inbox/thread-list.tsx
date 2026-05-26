@@ -328,7 +328,7 @@ function SourceBadge({ source }: { source: ThreadRow["source_provider"] }) {
 }
 
 // Client chip — derived from the EmailBison/Instantly campaign name at sync
-// time. Renders the Corofy client this thread belongs to. "Unknown" gets a
+// time. Renders the BrokerStaffer client this thread belongs to. "Unknown" gets a
 // muted treatment so real clients pop visually.
 function ClientChip({ name, slug }: { name: string | null; slug: string | null }) {
   if (!name) return null;

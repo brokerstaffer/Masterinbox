@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Master Inbox — User Guide</title>
+<style>
+  :root {
+    --ink: #15181e;
+    --ink-soft: #2c313a;
+    --muted: #5b6370;
+    --rule: #e6e8ec;
+    --rule-soft: #eef0f3;
+    --bg-soft: #f7f8fa;
+    --bg-cream: #fafaf7;
+    --accent: #1f4d8a;
+    --accent-soft: #eef3fb;
+    --positive: #2f7d4f;
+    --negative: #b03030;
+    --warn: #b67a00;
+    --serif: "Iowan Old Style", "Source Serif Pro", Georgia, "Times New Roman", serif;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .page {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 64px 56px 96px;
+  }
+
+  /* Cover */
+  .cover {
+    padding: 80px 56px 56px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 48px;
+  }
+  .cover .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 11px;
+    color: var(--muted);
+    font-weight: 600;
+    margin-bottom: 18px;
+  }
+  .cover h1 {
+    font-family: var(--serif);
+    font-size: 56px;
+    line-height: 1.08;
+    margin: 0 0 14px;
+    letter-spacing: -0.01em;
+    font-weight: 700;
+  }
+  .cover .subtitle {
+    color: var(--muted);
+    font-size: 18px;
+    max-width: 560px;
+    line-height: 1.55;
+  }
+
+  /* Section headers */
+  h2 {
+    font-family: var(--serif);
+    font-size: 28px;
+    line-height: 1.25;
+    margin: 56px 0 12px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--rule);
+    font-weight: 700;
+    letter-spacing: -0.005em;
+  }
+  h2 .num {
+    display: inline-block;
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    vertical-align: middle;
+    background: var(--accent-soft);
+    padding: 4px 9px;
+    border-radius: 4px;
+    margin-right: 12px;
+    font-family: var(--sans);
+  }
+  h3 {
+    font-family: var(--sans);
+    font-size: 17px;
+    margin: 28px 0 8px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+  h4 {
+    font-size: 14px;
+    margin: 20px 0 6px;
+    font-weight: 700;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  p { margin: 0 0 14px; color: var(--ink-soft); }
+
+  /* TOC */
+  .toc {
+    background: var(--bg-cream);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 28px 32px;
+    margin-bottom: 48px;
+  }
+  .toc h4 {
+    margin: 0 0 14px;
+  }
+  .toc ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    counter-reset: section;
+    columns: 2;
+    column-gap: 36px;
+  }
+  .toc li {
+    counter-increment: section;
+    padding: 4px 0;
+    font-size: 13.5px;
+    break-inside: avoid;
+  }
+  .toc li::before {
+    content: counter(section, decimal-leading-zero) ". ";
+    color: var(--accent);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .toc a { color: var(--ink); text-decoration: none; }
+  .toc a:hover { color: var(--accent); }
+
+  /* Lists */
+  ul, ol {
+    padding-left: 22px;
+    margin: 0 0 16px;
+  }
+  li {
+    margin-bottom: 6px;
+    color: var(--ink-soft);
+  }
+  li::marker { color: var(--muted); }
+
+  /* Inline emphasis */
+  strong { color: var(--ink); font-weight: 600; }
+  em { font-style: italic; color: var(--ink-soft); }
+
+  /* Callout / aside */
+  .note {
+    background: var(--accent-soft);
+    border-left: 3px solid var(--accent);
+    padding: 14px 18px;
+    border-radius: 0 6px 6px 0;
+    margin: 20px 0;
+    font-size: 14px;
+  }
+  .note strong { color: var(--accent); }
+
+  .tip {
+    background: #fff8e6;
+    border-left: 3px solid var(--warn);
+    padding: 14px 18px;
+    border-radius: 0 6px 6px 0;
+    margin: 20px 0;
+    font-size: 14px;
+  }
+  .tip strong { color: var(--warn); }
+
+  /* Tag chips for UI references */
+  .ui-chip {
+    display: inline-block;
+    background: #eef0f3;
+    color: var(--ink);
+    padding: 1px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid #dcdfe4;
+  }
+  .ui-chip.positive { background: #e6f4ec; color: var(--positive); border-color: #c6e3d2; }
+  .ui-chip.negative { background: #fbe9e9; color: var(--negative); border-color: #efc6c6; }
+  .ui-chip.neutral { background: #eef0f3; color: var(--ink-soft); }
+  .ui-chip.label-blue { background: #e7eefb; color: #2356b8; border-color: #c8d6f1; }
+  .ui-chip.label-amber { background: #fdf3d8; color: #875600; border-color: #f3dfa3; }
+  .ui-chip.label-stone { background: #ecebe6; color: #4d4937; border-color: #d8d4c5; }
+  .ui-chip.label-pink { background: #fbe4ee; color: #a02864; border-color: #f1bcd3; }
+
+  /* Section divider */
+  .divider {
+    border: none;
+    border-top: 1px solid var(--rule);
+    margin: 36px 0;
+  }
+
+  /* Field tables for UI inventories */
+  .field-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    margin: 16px 0 22px;
+  }
+  .field-table th,
+  .field-table td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  .field-table th {
+    background: var(--bg-soft);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .field-table td:first-child {
+    font-weight: 600;
+    color: var(--ink);
+    width: 30%;
+    white-space: nowrap;
+  }
+
+  /* ASCII layout block */
+  .layout {
+    background: var(--bg-cream);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 16px 0 24px;
+    font-family: ui-monospace, SFMono-Regular, "Menlo", monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--ink-soft);
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  /* Print tuning */
+  @media print {
+    .page { max-width: none; padding: 36px 48px 48px; }
+    .cover { padding: 48px 48px 36px; margin-bottom: 28px; }
+    .cover h1 { font-size: 44px; }
+    h2 { margin-top: 36px; page-break-after: avoid; }
+    h3, h4 { page-break-after: avoid; }
+    .toc { break-inside: avoid; }
+    .note, .tip, .field-table, .layout { break-inside: avoid; }
+    .pagebreak { page-break-before: always; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ========== COVER ========== -->
+<div class="cover">
+  <div class="eyebrow">BrokerStaffer · MasterInbox</div>
+  <h1>The MasterInbox<br/>User Guide</h1>
+  <p class="subtitle">A walkthrough of every panel, button, and setting in the
+  BrokerStaffer MasterInbox — what each piece does and how to use it.</p>
+</div>
+
+<div class="page">
+
+<!-- ========== TOC ========== -->
+<div class="toc">
+  <h4>Contents</h4>
+  <ol>
+    <li><a href="#overview">The big picture</a></li>
+    <li><a href="#layout">Three-pane layout</a></li>
+    <li><a href="#sidebar">The left sidebar</a></li>
+    <li><a href="#tabs">The view tabs at the top</a></li>
+    <li><a href="#filters">The Filters bar</a></li>
+    <li><a href="#thread-list">The thread list</a></li>
+    <li><a href="#thread-view">Reading a thread</a></li>
+    <li><a href="#reply">Replying to a lead</a></li>
+    <li><a href="#prospect-panel">The Prospect panel</a></li>
+    <li><a href="#subsequences">Subsequences (Instantly)</a></li>
+    <li><a href="#followups">Follow-up campaigns (EmailBison)</a></li>
+    <li><a href="#realtime">How the inbox stays up to date</a></li>
+    <li><a href="#labels-page">Settings &middot; Labels</a></li>
+    <li><a href="#clients-page">Settings &middot; Clients</a></li>
+    <li><a href="#ai-labeling">Settings &middot; AI Labeling</a></li>
+    <li><a href="#reply-agents">Settings &middot; Reply Agents</a></li>
+    <li><a href="#webhooks-page">Settings &middot; Webhooks</a></li>
+    <li><a href="#members-page">Settings &middot; Members &amp; Personal</a></li>
+    <li><a href="#reminders">Reminders, Archive, Trash</a></li>
+    <li><a href="#search">The top search bar</a></li>
+    <li><a href="#intros-update">Update: how Intros are counted</a></li>
+  </ol>
+</div>
+
+<!-- ========== 01 OVERVIEW ========== -->
+<h2 id="overview"><span class="num">01</span>The big picture</h2>
+
+<p>The MasterInbox is one screen where every reply from every cold-outreach
+campaign lands — across both <strong>EmailBison</strong> and <strong>Instantly</strong>.
+Instead of switching between two different platforms to read and reply to
+leads, you do everything in one place: read the lead's message, reply to it,
+add a label, add them to a follow-up sequence, and move on.</p>
+
+<p>Everything is tied together by the lead's <strong>client</strong> — the partner
+brokerage the original outreach campaign was running for (Front Range Collective,
+Brooklyn Group, SERHANT., and so on). That client tag is what powers the
+sidebar lists, the dashboard intros count, and the per-client narrowing of
+every view.</p>
+
+<div class="note">
+  <strong>The two systems behind the scenes.</strong> Outreach goes out through
+  EmailBison and Instantly. When a lead replies, that reply is automatically
+  pulled into MasterInbox and tagged to the right client (matched from the
+  campaign name). You never need to open EmailBison or Instantly to read a
+  reply — but the picker on the right-hand side will still push leads back
+  into those systems when you want to (e.g. to add them to a subsequence
+  or a follow-up campaign).
+</div>
+
+<!-- ========== 02 LAYOUT ========== -->
+<h2 id="layout"><span class="num">02</span>Three-pane layout</h2>
+
+<p>Once you're signed in, the screen is split into three columns:</p>
+
+<div class="layout">┌──────────┬──────────────────────────┬──────────────────────────┬──────────────┐
+│          │  All Email · Interested  │                          │              │
+│ Sidebar  │  · Objection · Hostile…  │   Conversation messages  │  Prospect    │
+│          ├──────────────────────────┤   (Lead's reply +        │   details    │
+│  Lists,  │  Filters       1–100/214 │    your reply +          │              │
+│  inbox,  ├──────────────────────────┤    full thread)          │  Campaign,   │
+│  archive │  Thread previews         │                          │  about,      │
+│          │  (one row per            │   [ Reply ] floating     │  socials,    │
+│  Logout  │   conversation)          │   button bottom-right    │  picker      │
+└──────────┴──────────────────────────┴──────────────────────────┴──────────────┘</div>
+
+<ul>
+  <li><strong>Sidebar (left)</strong> — Workspace home, every client list, system folders.</li>
+  <li><strong>Middle</strong> — The tab bar of views (All Email, Interested, Objection…), the
+  filter bar, and either a list of threads <em>or</em> one open thread.</li>
+  <li><strong>Prospect panel (right)</strong> — Everything we know about the lead and
+  the campaign the reply belongs to, plus actions like "Add to subsequence".</li>
+</ul>
+
+<p>The sidebar's width is draggable — grab the right edge and slide it wider
+if you'd like more room for long client names. Your width preference is
+remembered per browser.</p>
+
+<!-- ========== 03 SIDEBAR ========== -->
+<h2 id="sidebar"><span class="num">03</span>The left sidebar</h2>
+
+<p>Top to bottom, the sidebar contains:</p>
+
+<h4>Sales inbox header</h4>
+<p>The little 📈 mark at the top — purely the workspace name.</p>
+
+<h4>“All”</h4>
+<p>The default destination. Clicking <span class="ui-chip">👁 All</span> takes you
+to <em>every</em> open conversation across every client and every campaign.</p>
+
+<h4>Search lists</h4>
+<p>A search box that filters the client list directly below it. Useful when
+you've got 24+ clients and want to jump to a specific one quickly. Start
+typing and only matching lists stay visible.</p>
+
+<h4>Client lists</h4>
+<p>One row per active client (Brooklyn Group, BHGRE Basecamp, Front Range
+Collective, etc.). Clicking a list narrows the whole middle pane to threads
+that belong to that client.</p>
+
+<p>Each row has a <strong>3-dot menu</strong> (visible on hover, or always visible on the
+currently-selected list):</p>
+<ul>
+  <li><strong>Edit</strong> — opens the “Update list item” dialog where you can change
+  the list's <em>name</em> and pick a new <em>emoji</em> from the picker grid.</li>
+  <li><strong>Delete</strong> — removes the list from the sidebar. Threads themselves
+  stay intact and stay tagged to the client; only the sidebar shortcut goes away.</li>
+</ul>
+
+<div class="tip">
+  <strong>Client lists update themselves.</strong> You don't have to manually add
+  threads to a client's list — the moment a new reply lands and gets matched
+  to that client, it shows up under the right list automatically.
+</div>
+
+<h4>Create list item</h4>
+<p>The <span class="ui-chip">+ Create list item</span> button at the bottom of the
+list lets you add your own custom list (not tied to a client). You pick an
+emoji from the same grid and give it a name. These are useful for personal
+buckets like “Follow up next week.”</p>
+
+<h4>Reminders / Archive / Trash</h4>
+<p>Three system folders pinned at the bottom:</p>
+<ul>
+  <li><span class="ui-chip">🕒 Reminders</span> — Threads you snoozed will land here
+  when the reminder fires. See <a href="#reminders">Section 19</a>.</li>
+  <li><span class="ui-chip">📦 Archive</span> — Threads you've finished with but want
+  to keep. They're hidden from the main views but searchable.</li>
+  <li><span class="ui-chip">🗑 Trash</span> — Threads you've moved to trash.</li>
+</ul>
+
+<h4>Workspace badge &amp; Logout</h4>
+<p>The bottom strip shows the workspace name (BrokerStaffer) and the
+<span class="ui-chip">↪ Logout</span> button. Logout drops you back to the
+sign-in page.</p>
+
+<!-- ========== 04 TABS ========== -->
+<h2 id="tabs"><span class="num">04</span>The view tabs at the top</h2>
+
+<p>Across the top of the middle pane is a row of tabs — each is a saved view
+that pre-filters the thread list.</p>
+
+<h4>The default tabs</h4>
+<p>One tab per AI-labeling category, plus the catch-all on the left:</p>
+<ul>
+  <li><span class="ui-chip">All Email</span> — Every open thread.</li>
+  <li><span class="ui-chip positive">Interested</span> — Leads who want to talk, scheduled, said yes.</li>
+  <li><span class="ui-chip label-blue">Objection</span> — Leads asking about splits, fees, Zillow, structure.</li>
+  <li><span class="ui-chip label-amber">Keep Warm</span> — Polite “maybe later” — circle back in a few months.</li>
+  <li><span class="ui-chip neutral">OOO</span> — Out-of-office auto-replies.</li>
+  <li><span class="ui-chip label-stone">Not Interested</span> — Polite no, happy where they are.</li>
+  <li><span class="ui-chip label-pink">Not Qualified</span> — Commercial-only, retired, runs their own brokerage.</li>
+  <li><span class="ui-chip negative">Hostile</span> — Aggressive demands to stop.</li>
+</ul>
+
+<h4>The “N new” pill</h4>
+<p>Each tab shows a small blue pill — like <span class="ui-chip label-blue">28 new</span>
+or <span class="ui-chip label-blue">99+ new</span> — that counts how many
+threads in that view you haven't opened yet. The number disappears once you
+read everything; it caps at <strong>“99+ new”</strong>.</p>
+
+<p>When you're inside a client list, the count narrows too: opening
+<em>Interested</em> while viewing the Brooklyn Group list shows only the
+Brooklyn Group × Interested unseen count, not the global figure.</p>
+
+<h4>The 3-dot menu on each tab</h4>
+<p>Hover any tab and a <strong>⋯</strong> menu appears with:</p>
+<ul>
+  <li><strong>Rename</strong> — change the tab's display name.</li>
+  <li><strong>Delete</strong> — remove the tab entirely.</li>
+</ul>
+
+<h4>The + button</h4>
+<p>At the end of the tab row, the <strong>+</strong> button lets you create your own
+custom view. You give it a name, optionally pick a label to filter by, and
+hit Save. It becomes a new tab.</p>
+
+<!-- ========== 05 FILTERS ========== -->
+<h2 id="filters"><span class="num">05</span>The Filters bar</h2>
+
+<p>Just below the tabs you'll see two buttons:</p>
+<ul>
+  <li><strong>↻ Refresh</strong> — re-loads the current view immediately.</li>
+  <li><strong>Filters</strong> — opens a panel where you can compose ad-hoc filter rules.</li>
+</ul>
+
+<h4>What you can filter by</h4>
+<table class="field-table">
+  <tr><th>Field</th><th>What it matches</th></tr>
+  <tr><td>Labels</td><td>Threads with one or more of the labels you pick.</td></tr>
+  <tr><td>Channels</td><td>Threads that came in through a specific sending mailbox.</td></tr>
+  <tr><td>Campaigns</td><td>Threads tied to specific EmailBison or Instantly campaigns.</td></tr>
+  <tr><td>Clients</td><td>Threads belonging to specific BrokerStaffer clients (same as choosing a sidebar list, but as a filter you can save into a view).</td></tr>
+  <tr><td>Reply Since</td><td>How long since the last reply — e.g. “Lead reply older than 3 days”.</td></tr>
+  <tr><td>Last Message From</td><td>Me (last sent by us) vs Lead (lead replied last).</td></tr>
+  <tr><td>Message Counts</td><td>Total messages on the thread above/below a number.</td></tr>
+  <tr><td>Read Status</td><td>Read vs Unread.</td></tr>
+  <tr><td>Subject / Keywords</td><td>Text contained in the subject line or body.</td></tr>
+  <tr><td>Name / Email / Domain</td><td>Lead's name, full address, or email domain (e.g. <em>@gmail.com</em>).</td></tr>
+</table>
+
+<p>Each row also has an <strong>operator</strong> next to the field (<em>IS / NOT / contains / equals / greater than / less than</em>) and a toggle to enable/disable that single rule
+without removing it.</p>
+
+<h4>What you can do with a filter</h4>
+<ul>
+  <li><strong>Apply Filter</strong> — runs the filter immediately, just for this session.
+  The URL updates so you can share the link.</li>
+  <li><strong>Save as new view</strong> — turns the filter into a permanent tab at the top.</li>
+  <li><strong>Save to &lt;view&gt;</strong> — if you're already inside a custom view, you can
+  overwrite its saved filter with the current rows.</li>
+</ul>
+
+<!-- ========== 06 THREAD LIST ========== -->
+<h2 id="thread-list"><span class="num">06</span>The thread list</h2>
+
+<p>Below the filter bar is the list of conversations matching the current
+view / list / filter combo. Each row gives you the most important details
+at a glance:</p>
+
+<ul>
+  <li><strong>Blue dot</strong> on the very left — the thread has a new reply you
+  haven't opened yet. Goes away once you click in.</li>
+  <li><strong>Checkbox</strong> — select rows for bulk actions (mark unread, archive,
+  trash, add label, etc.).</li>
+  <li><strong>Channel icon</strong> — small mail icon, indicating the inbound was email.</li>
+  <li><strong>Sender</strong> — the lead's name, falling back to email address if the
+  name isn't known.</li>
+  <li><strong>Source badge</strong> — purple <span class="ui-chip label-blue">INSTANTLY</span>
+  or <span class="ui-chip" style="background:#f0e7fa;color:#5b2382;border-color:#dcc2f0;">BISON</span> chip telling you which
+  outreach platform the reply came from.</li>
+  <li><strong>Client chip</strong> — orange <span class="ui-chip label-amber">Front Range Collective</span> chip
+  showing which client this thread belongs to. “Unknown” clients (no match)
+  show a muted gray chip.</li>
+  <li><strong>Campaign chip</strong> — light-blue chip with the campaign name, truncated.</li>
+  <li><strong>Label chips</strong> — every label the thread has been tagged with,
+  whether by the AI labeler or by you.</li>
+  <li><strong>Subject + preview</strong> — the email subject line, then the first
+  ~120 characters of the latest reply.</li>
+  <li><strong>Timestamp</strong> — relative on the day (“22:57”), absolute after
+  (“20 May”).</li>
+</ul>
+
+<h4>Paging</h4>
+<p>If there are more than 100 threads in the view, you'll see pager arrows on
+the right of the list header (<em>1–100 of 268 · Page 1 / 3</em>). Use the
+&lt; / &gt; buttons to flip pages.</p>
+
+<h4>Bulk actions</h4>
+<p>Once you tick one or more rows, a toolbar above the list shows actions you
+can apply in batch: mark as read/unread, add a label, archive, move to trash,
+export. These work on every selected row at once.</p>
+
+<!-- ========== 07 THREAD VIEW ========== -->
+<h2 id="thread-view"><span class="num">07</span>Reading a thread</h2>
+
+<p>Clicking a thread opens it in the middle pane. The top of the pane is a
+toolbar, then come the message cards.</p>
+
+<h4>Thread toolbar (top, left to right)</h4>
+<ul>
+  <li><strong>← Back</strong> — return to the thread list.</li>
+  <li><strong>⌃ Previous / ⌄ Next</strong> — jump up/down the list without going back.</li>
+  <li><strong>↻ Refresh</strong> — re-pull the thread.</li>
+  <li><strong>🏷 Labels</strong> — pick / unpick labels for this conversation.</li>
+  <li><strong>🕒 Snooze</strong> — set a reminder. The thread vanishes from the inbox
+  and re-appears in <em>Reminders</em> at the chosen time.</li>
+  <li><strong>✉ Mark unread</strong> — un-read the thread (puts the blue dot back).</li>
+  <li><strong>📦 Archive / Unarchive</strong> — move to the Archive folder, or restore.</li>
+  <li><strong>🗑 Trash / Restore</strong> — move to the Trash folder, or restore.</li>
+</ul>
+
+<h4>Message cards</h4>
+<p>Each message in the thread is a card, ordered oldest at the top → newest
+at the bottom. Inbound cards (from the lead) have a soft green tint and
+align to the left. Outbound cards (from you) align to the right with a
+blue avatar.</p>
+
+<p>Each card shows the sender's email + name, the subject line, the time
+sent, and the body. Long bodies are collapsed with a “show more” caret
+you can expand.</p>
+
+<p>On <em>inbound</em> cards only, the card header has three small action icons:</p>
+<ul>
+  <li><strong>Reply</strong> — opens the composer with TO set to the lead and CC
+  pre-filled from the sender of <em>this specific message</em>.</li>
+  <li><strong>Reply all</strong> — same TO, but CC pre-filled from every participant
+  who has been on the thread so far (excluding you and the lead).</li>
+  <li><strong>Forward</strong> — opens the composer with a quoted block of this
+  message and a blank TO field; you fill in who to forward to.</li>
+</ul>
+
+<h4>The floating Reply button</h4>
+<p>The big rounded <strong>Reply</strong> button at the bottom-right of the thread is
+shorthand for <em>“Reply to the most recent inbound on this thread.”</em>
+Same behavior as the Reply icon on the latest message card.</p>
+
+<!-- ========== 08 COMPOSER ========== -->
+<h2 id="reply"><span class="num">08</span>Replying to a lead</h2>
+
+<p>The composer opens as a panel pinned to the bottom-right. From top to
+bottom:</p>
+
+<table class="field-table">
+  <tr><th>Field</th><th>What it does</th></tr>
+  <tr><td>From</td><td>The sending mailbox. Pinned to the same address the lead's
+  reply came in on — you can't accidentally reply from the wrong mailbox.</td></tr>
+  <tr><td>To</td><td>The lead's email. Pre-filled, can be edited.</td></tr>
+  <tr><td>Cc / Bcc</td><td>Pre-filled based on which Reply button you clicked
+  (see Section 7). The Cc row auto-opens whenever there's anyone in it so you
+  can see who's getting looped in before sending.</td></tr>
+  <tr><td>Subject</td><td>Read-only on replies. It always matches the subject
+  of the message you're replying to — this is what keeps the recipient's Gmail
+  threading the conversation correctly. On Forwards the subject is fully editable
+  and pre-filled with <em>Fwd:</em>.</td></tr>
+  <tr><td>Body</td><td>Plain-text editor. Line breaks render as new lines on the
+  recipient's side.</td></tr>
+</table>
+
+<h4>AI reply</h4>
+<p>The <span class="ui-chip">✦ AI reply</span> button in the composer footer asks
+the Reply Agent (see <a href="#reply-agents">Section 16</a>) to draft a response
+for you. The full conversation history goes into the request, so the draft
+references what's already been discussed. The draft drops straight into the
+body field — review, edit, send.</p>
+
+<h4>Attachments</h4>
+<p>The 📎 <strong>Attach file</strong> and 🖼 <strong>Attach image</strong> buttons let you add files
+up to 25 MB each, 50 MB combined. Attachments are <em>only available on EmailBison
+threads</em> — Instantly's reply endpoint doesn't accept attachments, so the buttons
+are hidden when the thread came in via Instantly.</p>
+
+<h4>Add signature</h4>
+<p>When a signature is configured on the sending mailbox, a small <strong>“Add signature
+of the email account”</strong> checkbox shows up between the body and the toolbar.
+Tick it and your saved signature gets appended on send.</p>
+
+<h4>Send</h4>
+<p>The blue <strong>Send</strong> button on the bottom-right pushes the reply through
+EmailBison or Instantly (whichever the thread came from) and records the
+outbound message on the thread.</p>
+
+<!-- ========== 09 PROSPECT PANEL ========== -->
+<h2 id="prospect-panel"><span class="num">09</span>The Prospect panel</h2>
+
+<p>The right-hand column shows everything we know about the lead and the
+campaign they're in. From top to bottom:</p>
+
+<h4>Header</h4>
+<p>Avatar (initials), the lead's full name, their email — with copy-to-clipboard
+icons on both. Below that, any labels the thread has are rendered as colored chips.</p>
+
+<h4>Tabs</h4>
+<ul>
+  <li><strong>Details</strong> — the default view (the rest of this section).</li>
+  <li><strong>Attachments</strong> — files included on this conversation.</li>
+  <li><strong>Notes</strong> — your own scratch notes about the lead.</li>
+</ul>
+
+<h4>Campaign section</h4>
+<table class="field-table">
+  <tr><td>Source</td><td>Instantly or EmailBison, depending on where the
+  outreach went out from.</td></tr>
+  <tr><td>Client</td><td>Which BrokerStaffer client this campaign belongs to (matched
+  from the campaign name).</td></tr>
+  <tr><td>Campaign</td><td>The full campaign name on the source platform.</td></tr>
+</table>
+
+<p>And then one action button — see Sections 10 &amp; 11 for what each does:</p>
+<ul>
+  <li><strong>Add to subsequence</strong> — only on Instantly threads.</li>
+  <li><strong>Add to follow-up campaign</strong> — only on EmailBison threads.</li>
+</ul>
+
+<h4>About section</h4>
+<p>Email, email domain, title, company. Any extra fields the source
+platform shared (job title, location, license number, agency, etc.) show up
+here too.</p>
+
+<h4>Socials section</h4>
+<p>If the lead has a LinkedIn URL, Twitter / X, Facebook, Instagram, or
+website on file from the source, each appears as a clickable row that opens
+in a new tab.</p>
+
+<h4>Custom section</h4>
+<p>Anything the outreach platform sent that isn't in the structured fields
+above lands here — useful for per-campaign enrichment data (firstName,
+LicenseNumber, AgencyZip, etc.).</p>
+
+<!-- ========== 10 SUBSEQUENCES ========== -->
+<h2 id="subsequences"><span class="num">10</span>Subsequences (Instantly)</h2>
+
+<p>In Instantly, a <em>subsequence</em> is a branch off the main campaign — a separate
+sequence of follow-up emails you've pre-built (e.g. "Interested Leads Nurture",
+"OpsLabs Interested Leads") and want to drop specific leads into.</p>
+
+<h4>How to add a lead</h4>
+<ol>
+  <li>Open the lead's thread.</li>
+  <li>In the Prospect panel on the right, find the Campaign section.</li>
+  <li>Click <strong>Add to subsequence</strong>. A dropdown shows every subsequence
+  attached to <em>this thread's campaign</em>.</li>
+  <li>Pick one. A confirmation toast appears.</li>
+</ol>
+
+<p>Behind the scenes, MasterInbox finds the lead's Instantly ID by their email,
+then asks Instantly to move them into that subsequence. The lead is added
+immediately — Instantly takes a few seconds to start scheduling the
+subsequence's emails.</p>
+
+<div class="tip">
+  <strong>Only subsequences from the same campaign show up.</strong> If your
+  campaign has no subsequences attached, the dropdown will say so. Create the
+  subsequence inside Instantly first, then it'll appear here.
+</div>
+
+<!-- ========== 11 FOLLOWUPS ========== -->
+<h2 id="followups"><span class="num">11</span>Follow-up campaigns (EmailBison)</h2>
+
+<p>EmailBison's equivalent of a subsequence is a "<em>reply followup
+campaign</em>" — a separately-configured campaign with type
+<code>reply_followup</code> that resumes the conversation on the same email
+thread.</p>
+
+<h4>How to add a lead</h4>
+<ol>
+  <li>Open the lead's thread (must be from EmailBison).</li>
+  <li>In the Prospect panel, click <strong>Add to follow-up campaign</strong>.</li>
+  <li>The dropdown lists every <em>reply followup</em> campaign in the
+  EmailBison team this thread belongs to.</li>
+  <li>Pick one. The lead — plus the latest reply on the thread — gets pushed
+  into that campaign. EmailBison resumes follow-up sends from the most
+  recent reply in the same email thread.</li>
+</ol>
+
+<div class="note">
+  <strong>EmailBison vs Instantly.</strong> The mechanics are similar but the
+  underlying systems are different. On Instantly the lead moves into a
+  sub-sequence of the original campaign. On EmailBison the lead (and their
+  thread) are pushed into a separate campaign that's been marked as
+  "reply followup".
+</div>
+
+<!-- ========== 12 REALTIME ========== -->
+<h2 id="realtime"><span class="num">12</span>How the inbox stays up to date</h2>
+
+<p>You don't have to hit refresh. The inbox stays fresh in two complementary
+ways:</p>
+
+<ul>
+  <li><strong>Realtime push</strong> — every new reply, new thread, and new
+  label change is delivered to your browser within a second or two of the
+  event happening.</li>
+  <li><strong>Background poll</strong> — every 15 seconds, the inbox also
+  re-pulls the current view as a safety net. The poll automatically pauses
+  while the browser tab is hidden so it never burns CPU in the background.</li>
+</ul>
+
+<p>If you ever want to force an update right now, the ↻ refresh button in
+the filter bar (or in the thread toolbar) gives you that — but it shouldn't
+normally be needed.</p>
+
+<!-- ========== 13 LABELS SETTINGS ========== -->
+<h2 id="labels-page"><span class="num">13</span>Settings &middot; Labels</h2>
+
+<p>The Labels page is where you manage the chips that get attached to threads
+— by you, by bulk actions, and by the AI labeler.</p>
+
+<h4>Each label has</h4>
+<table class="field-table">
+  <tr><td>Name</td><td>The displayed text, e.g. "Interested", "Hostile".</td></tr>
+  <tr><td>Color</td><td>One of green / red / amber / zinc / stone / pink / blue.
+  Controls the chip color across the app.</td></tr>
+  <tr><td>Sentiment</td><td>Positive / Negative / Neutral. Used for dashboard
+  roll-ups and which icon a tab gets.</td></tr>
+  <tr><td>Platform</td><td>Email-only or both. Restricts where the label can be applied.</td></tr>
+  <tr><td>Obligation</td><td>Flag for labels that imply a to-do (e.g. "Meeting Booked").</td></tr>
+</table>
+
+<h4>What you can do</h4>
+<ul>
+  <li>Click any label row to edit name, color, sentiment.</li>
+  <li>Drag-handle to reorder — top-to-bottom controls the order on chips and dropdowns.</li>
+  <li>Create new labels with the + button. They appear in the filter builder,
+  the bulk-action menu, and the AI labeler's category options immediately.</li>
+  <li>Delete labels you no longer need — the chip is removed from every
+  thread it was on.</li>
+</ul>
+
+<!-- ========== 14 CLIENTS SETTINGS ========== -->
+<h2 id="clients-page"><span class="num">14</span>Settings &middot; Clients</h2>
+
+<p>The Clients page is the catalog of BrokerStaffer clients we're running outreach
+for. The sidebar lists, the dashboard intros count, and every "Client" chip
+on the thread list are all driven by what's here.</p>
+
+<h4>Each client has</h4>
+<table class="field-table">
+  <tr><td>Name</td><td>The canonical display name shown everywhere (e.g.
+  "Front Range Collective").</td></tr>
+  <tr><td>Aliases</td><td>A list of additional strings to look for when matching
+  campaign names. If a campaign is named "<em>FRC - Denver Spring 2026</em>", adding
+  <em>FRC</em> as an alias on Front Range Collective will route those threads to
+  the right client.</td></tr>
+  <tr><td>Thread count</td><td>How many threads currently point at this client.</td></tr>
+</table>
+
+<h4>How matching works</h4>
+<p>When a new reply lands, MasterInbox looks at the campaign name and scans
+for the client whose name <em>or</em> any alias appears in it. The longest match
+wins — so "Howard Hanna NYC" beats "Howard Hanna" if both apply, because it's
+more specific.</p>
+
+<div class="tip">
+  <strong>Add an alias, backfill happens automatically.</strong> When you add a
+  new alias, MasterInbox immediately re-checks every thread currently in the
+  "Unknown" bucket and re-tags any that now match. You don't have to do
+  anything extra.
+</div>
+
+<h4>The "Unknown" client</h4>
+<p>There's a built-in fallback called <strong>Unknown</strong>. Any reply whose
+campaign name doesn't match any client lands here. You can browse the
+Unknown bucket like any other client list, figure out which alias would have
+matched, add it, and the threads will move.</p>
+
+<!-- ========== 15 AI LABELING ========== -->
+<h2 id="ai-labeling"><span class="num">15</span>Settings &middot; AI Labeling</h2>
+
+<p>The AI Labeling page controls the automatic tagging of incoming replies.
+Every time a new lead reply lands, MasterInbox can ask an AI model to read
+it and pick the best label (Interested, Objection, Hostile, etc.).</p>
+
+<h4>Settings</h4>
+<table class="field-table">
+  <tr><td>Enabled</td><td>Master on/off switch. When off, replies still come
+  in — they just don't get auto-labeled.</td></tr>
+  <tr><td>Provider</td><td>OpenAI by default. You enter an API key once; it's
+  encrypted at rest.</td></tr>
+  <tr><td>Model</td><td>Which model to use. <em>gpt-4o-mini</em> is the default —
+  fast and inexpensive, plenty smart for this task.</td></tr>
+  <tr><td>Label old replies</td><td>If on, the next labeling run will also
+  process existing un-labeled threads (a backfill pass).</td></tr>
+  <tr><td>Re-label ongoing</td><td>If on, when an additional reply arrives on
+  a thread that already has a label, the model re-evaluates and may swap.</td></tr>
+  <tr><td>Custom prompt</td><td>The instructions sent to the AI. The default
+  is tuned for the BrokerStaffer / Zillow-Preferred-Brokerage context, with explicit
+  rules for objections, "later" answers, and aggressive removal requests.</td></tr>
+  <tr><td>Category set</td><td>Which labels the model is allowed to pick from.
+  Restricting this is how you stop the model from inventing labels you don't
+  have.</td></tr>
+</table>
+
+<h4>"Run" button</h4>
+<p>The Run button on this page triggers an explicit backfill — it walks
+every open thread, asks the AI to label the latest inbound on each, and
+applies the result. Useful right after you've added or renamed labels.</p>
+
+<!-- ========== 16 REPLY AGENTS ========== -->
+<h2 id="reply-agents"><span class="num">16</span>Settings &middot; Reply Agents</h2>
+
+<p>A Reply Agent is what powers the <strong>AI reply</strong> button in the composer.
+It generates a draft reply tailored to the conversation so you can review
+and send instead of writing from scratch.</p>
+
+<h4>Each agent has</h4>
+<table class="field-table">
+  <tr><td>Name</td><td>Internal label.</td></tr>
+  <tr><td>Mode</td><td><em>Human-in-loop</em> (drafts that you review — the safer
+  default) or <em>Auto</em> (drafts auto-send when triggered, used carefully).</td></tr>
+  <tr><td>Tone</td><td>Free-text tone hint passed to the model ("professional",
+  "warm", "concise"…).</td></tr>
+  <tr><td>Response length</td><td>Short / Medium / Long / Variable. "Variable"
+  mirrors the lead's message length.</td></tr>
+  <tr><td>Max tokens</td><td>A ceiling on draft length. Not a target — longer
+  drafts need a longer response_length setting, not a bigger token budget.</td></tr>
+  <tr><td>Temperature</td><td>Creativity dial. 0.4 is a balanced default.</td></tr>
+  <tr><td>Provider &amp; Model</td><td>OpenAI / Anthropic / OpenRouter / vLLM, and
+  the specific model under it.</td></tr>
+  <tr><td>API key</td><td>Encrypted per-agent.</td></tr>
+  <tr><td>System prompt</td><td>The role + rules the model follows. Includes
+  explicit guidance for handling Interested, Objection, Keep Warm, Not Qualified
+  and Hostile categories.</td></tr>
+  <tr><td>Channel filter</td><td>Email only / All. Limits which threads the
+  agent will draft for.</td></tr>
+  <tr><td>Channel scope</td><td>You can pin an agent to specific sending
+  mailboxes if you want different agents per mailbox.</td></tr>
+  <tr><td>Active</td><td>Master on/off for this agent.</td></tr>
+  <tr><td>Auto-respond to new threads</td><td>When on, the agent immediately
+  drafts a reply the moment a thread first arrives (still requires your
+  click to send if mode is human-in-loop).</td></tr>
+</table>
+
+<h4>What goes into a draft</h4>
+<p>When you click AI reply, the agent receives:</p>
+<ul>
+  <li>The <strong>full conversation history</strong> — every message on the thread,
+  inbound and outbound, oldest to newest, with timestamps. The model can
+  reference earlier turns rather than re-pitch what's already been said.</li>
+  <li>The lead's name, your name (the sending mailbox), and the subject.</li>
+  <li>Your tone and response-length settings.</li>
+  <li>Your custom system prompt.</li>
+</ul>
+
+<p>The draft appears in the composer body field with a yellow banner saying
+"Draft by &lt;Agent name&gt; — review before sending." A "Clear &amp; write from
+scratch" link lets you discard the draft.</p>
+
+<!-- ========== 17 WEBHOOKS ========== -->
+<h2 id="webhooks-page"><span class="num">17</span>Settings &middot; Webhooks</h2>
+
+<p>The Webhooks page is the bootstrap utility that registers MasterInbox as a
+listener with both EmailBison and Instantly. You typically run this once
+during onboarding and again if the EmailBison teams change.</p>
+
+<p>The page shows:</p>
+<ul>
+  <li>The webhook URLs MasterInbox is expecting events at.</li>
+  <li>A summary of which EmailBison teams have a registered webhook, and the
+  registration status of the Instantly webhook.</li>
+  <li>A button to (re-)register — useful after a teammate creates a new
+  EmailBison team or you rotate API keys.</li>
+</ul>
+
+<!-- ========== 18 MEMBERS / PERSONAL ========== -->
+<h2 id="members-page"><span class="num">18</span>Settings &middot; Members &amp; Personal</h2>
+
+<h4>Members</h4>
+<p>The Members page lists everyone with access to the BrokerStaffer workspace. From
+here you can invite a new user by email, manage roles, and remove members.
+A new invitee gets an email with a one-tap link to set their password and
+sign in.</p>
+
+<h4>Personal</h4>
+<p>The Personal page is where you change your own password and (if added in
+future) personal preferences. Currently it contains:</p>
+<ul>
+  <li>Email (read-only).</li>
+  <li>Change password — current password + new password + confirmation.</li>
+</ul>
+
+<!-- ========== 19 REMINDERS / ARCHIVE / TRASH ========== -->
+<h2 id="reminders"><span class="num">19</span>Reminders, Archive, Trash</h2>
+
+<h4>Reminders</h4>
+<p>The 🕒 Snooze button on a thread (in the toolbar) lets you pick "later
+today", "tomorrow morning", "next week", or a custom date and time. The
+thread vanishes from the inbox and re-surfaces in <strong>Reminders</strong> when
+the time hits. The blue dot returns so it stands out.</p>
+
+<h4>Archive</h4>
+<p>The 📦 Archive button on a thread removes it from active views without
+deleting anything. Archived threads are still searchable and you can
+restore them with the same button (it becomes "Unarchive" while you're on
+an archived thread).</p>
+
+<h4>Trash</h4>
+<p>The 🗑 Trash button moves a thread to the Trash folder. Same idea as
+Archive but reserved for stuff you want out of your way for good. You can
+still restore from Trash if you change your mind — nothing is hard-deleted.</p>
+
+<!-- ========== 20 SEARCH ========== -->
+<h2 id="search"><span class="num">20</span>The top search bar</h2>
+
+<p>The full-width search bar at the top of the inbox runs across every
+thread in the workspace — open, archived, trashed, all of them. It looks
+across:</p>
+<ul>
+  <li>Sender / lead name</li>
+  <li>Lead email</li>
+  <li>Company</li>
+  <li>Subject line</li>
+</ul>
+
+<p>Type a few characters and matching threads start appearing below the
+input as a dropdown — you can press Enter to open a full results page, or
+just click a result to jump straight to that thread. The keyboard shortcut
+is <strong>⌘ K</strong> (Mac) or <strong>Ctrl K</strong> (Windows).</p>
+
+<!-- ========== 21 INTRO COUNT UPDATE ========== -->
+<div class="pagebreak"></div>
+<h2 id="intros-update"><span class="num">21</span>Update: how Intros are counted</h2>
+
+<p>Until today, the "Intros" number on the dashboard was pulled from
+MasterInbox only — whenever a lead got tagged with the "Introduction" label
+there, it counted as one intro for that client.</p>
+
+<p>Going forward, intros now come from <strong>two places</strong>:</p>
+
+<ul>
+  <li><strong>MasterInbox</strong> — same as before, no change.</li>
+  <li><strong>BrokerStaffer</strong> — a new source. Whenever a lead in the new BrokerStaffer app
+  gets the "Introduction" tag, that also counts as an intro for the matching
+  client.</li>
+</ul>
+
+<p>The dashboard now shows the <strong>total of both</strong> as a single "Intros"
+number per client. So if MasterInbox has 3 intros for a client this week and
+BrokerStaffer has 2, the dashboard will simply show 5.</p>
+
+<p>The "Last Intro" column also looks at both sources and shows whichever one
+happened most recently.</p>
+
+<p>Behind the scenes, the dashboard pulls fresh data from both sources every
+<strong>15 minutes</strong> automatically — or instantly when you click the refresh
+button (<strong>↻</strong>) at the top right. Clients are matched between the two
+systems by exact client name, so if a client's name on BrokerStaffer doesn't
+exactly match the name on the dashboard, their BrokerStaffer intros won't show up
+(we have a way to spot those mismatches if it ever happens).</p>
+
+<p>Everything else on the dashboard — weekly targets, conversion rate, status
+colors, the summary card at the top — works exactly the same as before, just
+with the combined number powering it now.</p>
+
+<hr class="divider"/>
+
+<p style="text-align:center; color: var(--muted); font-size: 13px; margin-top: 64px;">
+  End of guide · BrokerStaffer MasterInbox
+</p>
+
+</div><!-- /.page -->
+</body>
+</html>

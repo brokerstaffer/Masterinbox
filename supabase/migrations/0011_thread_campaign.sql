@@ -6,7 +6,7 @@
 -- (c) filter-by-campaign in the FilterBuilder.
 --
 -- Denormalised onto threads (not a separate campaigns table) because:
---   - Corofy doesn't manage campaigns inside Master Inbox — they're read-only
+--   - BrokerStaffer doesn't manage campaigns inside Master Inbox — they're read-only
 --     metadata coming from EmailBison / Instantly. No need for a dedicated
 --     CRUD table with owner/permissions/etc.
 --   - The list of distinct campaigns is tiny (low hundreds) — Supabase can

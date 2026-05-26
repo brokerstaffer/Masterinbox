@@ -9,7 +9,7 @@
 --
 -- This cleanup removes ONLY the leftover rows that are safely replaceable
 -- by the new ones:
---   - workspace = Corofy
+--   - workspace = BrokerStaffer
 --   - client_id IS NULL on the row (i.e. came from the old migration)
 --   - row's name exactly matches a real client's name
 --   - AND a sibling row already exists for that same client with

@@ -13,14 +13,30 @@
 // out of the box. Only wrap loaders whose result is identical for every
 // caller with the same arguments (i.e. workspace-wide data, not
 // per-user-filtered data).
+//
+// In-flight dedup includes a watchdog timeout (`inflightTimeoutMs`) — if
+// the underlying fetch hangs (stuck socket, dropped connection) the
+// in-flight entry is cleared so the NEXT caller fires a fresh request
+// instead of awaiting a promise that never resolves. Without this,
+// a single hung request would poison the cache indefinitely.
 
 type Entry<T> = { data: T; expiresAt: number; promise?: Promise<T> };
 
+const DEFAULT_INFLIGHT_TIMEOUT_MS = 12_000;
+
 export function ttlCache<TArgs extends unknown[], TResult>(
   fn: (...args: TArgs) => Promise<TResult>,
-  options: { ttlMs?: number; key?: (...args: TArgs) => string } = {},
+  options: {
+    ttlMs?: number;
+    inflightTimeoutMs?: number;
+    key?: (...args: TArgs) => string;
+  } = {},
 ): (...args: TArgs) => Promise<TResult> {
-  const { ttlMs = 30_000, key = (...args) => JSON.stringify(args) } = options;
+  const {
+    ttlMs = 30_000,
+    inflightTimeoutMs = DEFAULT_INFLIGHT_TIMEOUT_MS,
+    key = (...args) => JSON.stringify(args),
+  } = options;
   const store = new Map<string, Entry<TResult>>();
 
   return async (...args: TArgs): Promise<TResult> => {
@@ -28,21 +44,29 @@ export function ttlCache<TArgs extends unknown[], TResult>(
     const now = Date.now();
     const hit = store.get(k);
     if (hit && hit.expiresAt > now) return hit.data;
-    // In-flight dedup: if another caller is already fetching, await its
-    // promise instead of firing a duplicate request.
     if (hit?.promise) return hit.promise;
+
     const promise = fn(...args).then(
       (data) => {
         store.set(k, { data, expiresAt: Date.now() + ttlMs });
         return data;
       },
       (err) => {
-        // Don't poison the cache on error — let the next caller retry.
         store.delete(k);
         throw err;
       },
     );
     store.set(k, { data: hit?.data as TResult, expiresAt: 0, promise });
+
+    // Watchdog: clear the in-flight entry if it hasn't resolved within
+    // inflightTimeoutMs, so the next caller fires a fresh request
+    // instead of awaiting a stuck promise forever.
+    const watchdog = setTimeout(() => {
+      const current = store.get(k);
+      if (current?.promise === promise) store.delete(k);
+    }, inflightTimeoutMs);
+    promise.finally(() => clearTimeout(watchdog));
+
     return promise;
   };
 }

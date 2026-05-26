@@ -1,6 +1,6 @@
 // Probes the data that GET /api/clients/intro-stats would return without
 // going through the HTTP layer. Useful to verify:
-//   - There's a label named "Introduction" in the Corofy workspace.
+//   - There's a label named "Introduction" in the BrokerStaffer workspace.
 //   - There's at least one label_assignments row for that label.
 //   - The row has a non-null assigned_at (the timestamp the label was attached).
 //   - The thread it points to has a client_id (so the stat actually buckets).

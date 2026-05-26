@@ -32,7 +32,7 @@ async function resolveContext(
 ): Promise<SyncContext | null> {
   const supabase = createAdminSupabase();
 
-  // Single-tenant: always the singleton Corofy workspace.
+  // Single-tenant: always the singleton BrokerStaffer workspace.
   const { data: ws } = await supabase
     .from("workspaces")
     .select("id")
@@ -490,7 +490,7 @@ export async function handleEmailBisonEvent(envelope: EmailBisonWebhookEnvelope)
   const externalThreadId = threadExternalId(payload.lead.id, payload.campaign?.id);
   const msg = inboundFromReply(payload.reply, payload.lead.email ?? null);
 
-  // Tag thread with the matching Corofy client (or "Unknown") based on the
+  // Tag thread with the matching BrokerStaffer client (or "Unknown") based on the
   // EmailBison campaign name. Webhook payload carries it directly, so we
   // never hit the EmailBison /campaigns endpoint just for this lookup.
   const clientId = await deriveClientIdFromCampaign(payload.campaign?.name ?? null);

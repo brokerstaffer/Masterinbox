@@ -38,12 +38,13 @@ export interface IntroSummary {
   lastAt: string | null;
 }
 
-// Resolve the Introduction label id for the Corofy workspace. Returns null
-// if the label doesn't exist yet (portal then shows an empty state).
+// Resolve the Introduction label id for the BrokerStaffer workspace.
+// Returns null if the label doesn't exist yet (portal then shows an
+// empty state).
 async function resolveIntroLabelId(
   admin: ReturnType<typeof createAdminSupabase>,
 ): Promise<string | null> {
-  const workspaceId = env.COROFY_WORKSPACE_ID;
+  const workspaceId = env.WORKSPACE_ID;
   if (!workspaceId) return null;
   const { data } = await admin
     .from("labels")
@@ -61,7 +62,7 @@ async function loadAllIntroAssignments(
 ): Promise<Array<{ target_id: string; assigned_at: string }>> {
   const labelId = await resolveIntroLabelId(admin);
   if (!labelId) return [];
-  const workspaceId = env.COROFY_WORKSPACE_ID;
+  const workspaceId = env.WORKSPACE_ID;
   const { data } = await admin
     .from("label_assignments")
     .select("target_id, assigned_at")

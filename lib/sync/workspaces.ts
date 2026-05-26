@@ -211,7 +211,7 @@ export async function syncEmailBisonWorkspaces(): Promise<SyncSummary> {
           continue;
         }
         const created = await eb.createWebhook({
-          name: "Corofy Master Inbox",
+          name: "BrokerStaffer Master Inbox",
           url: targetUrl,
           events: RELEVANT_EVENTS,
         });

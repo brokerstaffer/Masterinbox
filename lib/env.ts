@@ -53,10 +53,14 @@ export const env = {
   },
   // Hard-pinned singleton workspace UUID. Setting this lets requireSession
   // skip the per-request Supabase query that resolves "which workspace am
-  // I in" — saving ~280ms × every page render on Corofy (single-tenant by
-  // design). Falls back to a DB lookup when unset, for dev convenience.
-  get COROFY_WORKSPACE_ID() {
-    return lazyOptional("COROFY_WORKSPACE_ID")();
+  // I in" — saving ~280ms × every page render on the single-tenant
+  // BrokerStaffer install. Falls back to a DB lookup when unset, for dev
+  // convenience. Legacy alias COROFY_WORKSPACE_ID is honoured for the
+  // env-var rename transition (drop after Railway is updated).
+  get WORKSPACE_ID() {
+    return (
+      lazyOptional("WORKSPACE_ID")() ?? lazyOptional("COROFY_WORKSPACE_ID")()
+    );
   },
 };
 

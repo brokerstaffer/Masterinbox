@@ -1,6 +1,6 @@
 -- Diagnostics for the "1-100 of 100" pagination question. Run in Supabase SQL editor.
 
--- 1. Total threads in the Corofy workspace, broken down by status.
+-- 1. Total threads in the BrokerStaffer workspace, broken down by status.
 select status, count(*) as n
 from threads
 where workspace_id = '8c097b98-7f6e-440a-8987-32e110563b8c'

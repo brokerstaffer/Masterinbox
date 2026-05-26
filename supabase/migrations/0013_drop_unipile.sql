@@ -28,6 +28,6 @@ alter table reply_agents
 
 -- ---- labels: prevent any new 'linkedin' platform inserts ----
 -- label_platform is a pg enum so we can't alter the constraint directly. Any
--- existing rows with platform='linkedin' (none expected in this fresh Corofy
+-- existing rows with platform='linkedin' (none expected in this fresh BrokerStaffer
 -- DB) are coerced to 'both' so they remain visible.
 update labels set platform = 'both' where platform::text = 'linkedin';

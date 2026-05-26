@@ -1,7 +1,7 @@
 import { createAdminSupabase } from "@/lib/supabase/admin";
 
 // Maps a campaign name (e.g. "Brooklyn Group (2) - The Arc New Rochelle")
-// to the matching Corofy client (e.g. "Brooklyn Group"). Falls back to the
+// to the matching BrokerStaffer client (e.g. "Brooklyn Group"). Falls back to the
 // "Unknown" client when nothing matches.
 //
 // Matching is TOKEN-based, not raw substring, so punctuation and spacing

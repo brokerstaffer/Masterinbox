@@ -1,7 +1,7 @@
 -- ==============================================================
 -- 0001_init.sql
 -- ==============================================================
--- Corofy Master Inbox — initial schema
+-- BrokerStaffer Master Inbox — initial schema
 -- Multi-tenant from day one: every business table has workspace_id + RLS.
 -- Provider-mirror fields are prefixed emailbison_* / unipile_*.
 
@@ -866,7 +866,7 @@ update threads set seen = false where needs_reply = true;
 -- ==============================================================
 -- Denormalised: store the workspace sender email address that owns this
 -- thread. Every LEAD_REPLIED webhook carries `data.sender_email.email` —
--- that's the OUR-side address (e.g. "sender@corofy.com"). Pinning
+-- that's the OUR-side address (e.g. "sender@brokerstaffer.com"). Pinning
 -- it on the thread row means the UI can always show "(our@email) You"
 -- without having to traverse messages, and reply composers can pre-fill
 -- the From field even before the user has sent anything.
@@ -1042,23 +1042,23 @@ end$$;
 
 
 -- ==============================================================
--- 0010_corofy_singleton_instantly_clients.sql
+-- 0010_BrokerStaffer_singleton_instantly_clients.sql
 -- ==============================================================
--- Migration 0010: Corofy single-tenant changes
+-- Migration 0010: BrokerStaffer single-tenant changes
 --
 -- Three concerns bundled together because they have to land at once
 -- without leaving the schema half-cut:
 --   A. Add 'instantly' to channel_provider + instantly_* mirror columns on
 --      channels / leads / threads / messages so the new provider can share
 --      the existing sync machinery.
---   B. Add a global `clients` table seeded with Corofy's 24 active clients
+--   B. Add a global `clients` table seeded with BrokerStaffer's 24 active clients
 --      plus an "Unknown" fallback; pin a client_id on each thread at sync
 --      time by substring-matching campaign names. Also denormalise
 --      source_provider onto threads/messages so the UI doesn't have to
 --      join through channels (and to keep it correct even after a channel
 --      row is soft-deleted).
 --   C. Move from multi-workspace to single-tenant: an auth.users trigger
---      that auto-creates THE singleton "Corofy" workspace on the first
+--      that auto-creates THE singleton "BrokerStaffer" workspace on the first
 --      sign-up and auto-adds every subsequent user as an 'owner' member.
 --      The workspace_id column + RLS stay (cheap insurance) — the user
 --      surface is single-tenant only.
@@ -1080,7 +1080,7 @@ alter table messages  add column if not exists instantly_email_id   text;
 -- The EmailBison "team" (workspace) a sender_email belongs to. Multi-team
 -- EmailBison instances (brokerstaffer.com has 2) need this per-channel so
 -- sendReply can call switchWorkspace with the right team — workspaces.id is
--- single-tenant in Corofy and no longer maps 1:1 to a team.
+-- single-tenant in BrokerStaffer and no longer maps 1:1 to a team.
 alter table channels  add column if not exists emailbison_team_id integer;
 create index if not exists channels_eb_team_idx on channels (emailbison_team_id)
   where emailbison_team_id is not null;
@@ -1117,7 +1117,7 @@ update messages set source_provider = 'emailbison' where source_provider is null
 create index if not exists threads_source_provider_idx
   on threads (workspace_id, source_provider, last_message_at desc);
 
--- Global lookup table — not workspace-scoped because Corofy runs one
+-- Global lookup table — not workspace-scoped because BrokerStaffer runs one
 -- workspace and all clients are shared. Sync derives the right row by
 -- case-insensitive substring on the campaign name.
 create table if not exists clients (
@@ -1135,7 +1135,7 @@ alter table threads add column if not exists client_id uuid
   references clients(id) on delete set null;
 create index if not exists threads_client_id_idx on threads (client_id);
 
--- Seed the 24 active Corofy clients + "Unknown" fallback. Slugs are
+-- Seed the 24 active BrokerStaffer clients + "Unknown" fallback. Slugs are
 -- referenced from app code; do not change without updating
 -- lib/clients/derive.ts.
 insert into clients (name, slug) values
@@ -1179,12 +1179,12 @@ create policy clients_write_service on clients for all
 -- C. Single-tenant: auto-create singleton workspace + auto-membership
 -- ----------------------------------------------------------------------------
 
--- On the FIRST sign-up: create the singleton "Corofy" workspace and make
+-- On the FIRST sign-up: create the singleton "BrokerStaffer" workspace and make
 -- this user the owner. The existing bootstrap_workspace AFTER-INSERT
 -- trigger on workspaces seeds labels + views + their owner membership.
 --
 -- On every subsequent sign-up: add this user as an 'owner' member of the
--- singleton workspace. (Every Corofy employee is effectively co-owner;
+-- singleton workspace. (Every BrokerStaffer employee is effectively co-owner;
 -- sign-up gating happens at Supabase Auth — restrict who can sign up.)
 create or replace function public.handle_new_user()
 returns trigger
@@ -1199,7 +1199,7 @@ begin
 
   if ws_id is null then
     insert into workspaces (name, slug, owner_user_id)
-    values ('Corofy', 'corofy', new.id)
+    values ('BrokerStaffer', 'BrokerStaffer', new.id)
     returning id into ws_id;
     -- bootstrap_workspace handles the rest (member row, labels, views).
   else

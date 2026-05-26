@@ -1,0 +1,999 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Broker Staffer — Client Portal Guide</title>
+<style>
+  @page {
+    size: Letter;
+    margin: 0.7in 0.75in;
+  }
+
+  :root {
+    --accent: #1565C0;
+    --accent-soft: #eaf2fd;
+    --accent-line: #d4e4f8;
+    --ink: #0f1320;
+    --ink-soft: #2f3540;
+    --muted: #5b6472;
+    --muted-soft: #9aa0ab;
+    --border: #ebecf0;
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --shadow: 0 1px 2px rgba(15, 19, 32, 0.04);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 11.5pt;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 7.5in;
+    margin: 0 auto;
+    padding: 0.4in 0;
+  }
+
+  /* ===== Header / brand ===== */
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
+  .brand-mark {
+    width: 38px;
+    height: 38px;
+    border-radius: 9px;
+    background: linear-gradient(135deg, #1565C0 0%, #1976d2 100%);
+    color: white;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16pt;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .brand-name {
+    font-size: 14pt;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.1;
+  }
+  .brand-sub {
+    font-size: 10pt;
+    color: var(--muted-soft);
+    margin-top: 1px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  /* ===== Cover ===== */
+
+  .cover {
+    page-break-after: always;
+    padding-top: 1.2in;
+  }
+  .cover-eyebrow {
+    font-size: 10pt;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    font-weight: 700;
+    margin-bottom: 18px;
+  }
+  .cover-title {
+    font-size: 38pt;
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -0.025em;
+    margin: 0 0 18px;
+    max-width: 6in;
+  }
+  .cover-lead {
+    font-size: 13pt;
+    color: var(--muted);
+    line-height: 1.5;
+    max-width: 6in;
+    margin: 0;
+  }
+  .cover-meta {
+    margin-top: 2.4in;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    color: var(--muted-soft);
+    font-size: 10pt;
+  }
+
+  /* ===== Headings ===== */
+
+  h1.section-title {
+    font-size: 22pt;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0 0 8px;
+    color: var(--ink);
+  }
+  .section-lead {
+    color: var(--muted);
+    margin: 0 0 28px;
+    font-size: 11.5pt;
+    max-width: 6in;
+  }
+  h2 {
+    font-size: 14pt;
+    font-weight: 600;
+    letter-spacing: -0.012em;
+    margin: 32px 0 10px;
+    color: var(--ink);
+  }
+  h2 + p { margin-top: 0; }
+  h3 {
+    font-size: 11.5pt;
+    font-weight: 600;
+    margin: 22px 0 6px;
+    color: var(--ink);
+  }
+  p { margin: 0 0 12px; color: var(--ink-soft); }
+  ul {
+    margin: 0 0 14px;
+    padding-left: 1.05em;
+    color: var(--ink-soft);
+  }
+  ul li { margin-bottom: 5px; }
+  strong { color: var(--ink); font-weight: 600; }
+
+  /* ===== Section page ===== */
+
+  section.chapter {
+    page-break-before: always;
+    padding-top: 12px;
+  }
+  section.chapter:first-of-type { page-break-before: auto; }
+
+  .eyebrow {
+    font-size: 9.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--accent);
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+
+  /* ===== TOC ===== */
+
+  .toc {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px 26px;
+    background: var(--card);
+    box-shadow: var(--shadow);
+  }
+  .toc-title {
+    font-size: 10pt;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted-soft);
+    font-weight: 700;
+    margin-bottom: 14px;
+  }
+  .toc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 28px;
+  }
+  .toc-row {
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px dotted var(--border);
+    padding: 6px 0;
+    font-size: 11pt;
+  }
+  .toc-row .num {
+    color: var(--accent);
+    font-weight: 700;
+    width: 22px;
+    flex-shrink: 0;
+  }
+  .toc-row .label { color: var(--ink); flex: 1; }
+  .toc-row .pg { color: var(--muted-soft); font-variant-numeric: tabular-nums; }
+
+  /* ===== Cards / callouts ===== */
+
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 22px;
+    background: var(--card);
+    box-shadow: var(--shadow);
+    margin: 18px 0;
+  }
+  .card-accent {
+    border-color: var(--accent-line);
+    background: var(--accent-soft);
+  }
+  .card-title {
+    font-weight: 600;
+    color: var(--ink);
+    margin: 0 0 6px;
+    font-size: 11.5pt;
+  }
+  .card p { color: var(--muted); margin: 0; font-size: 10.5pt; }
+  .card-accent .card-title { color: var(--accent); }
+  .card-accent p { color: var(--ink-soft); }
+
+  /* ===== KPI tiles row ===== */
+
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin: 14px 0 8px;
+  }
+  .tile {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    background: var(--card);
+  }
+  .tile .label {
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted-soft);
+    font-weight: 700;
+  }
+  .tile .num {
+    font-size: 22pt;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+    margin-top: 6px;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .tile .hint {
+    font-size: 8pt;
+    color: var(--muted-soft);
+    margin-top: 4px;
+  }
+
+  /* ===== Stage pills ===== */
+
+  .stages {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 12px 0 6px;
+  }
+  .stage {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 9pt;
+    font-weight: 600;
+    color: white;
+  }
+  .stage-introduction { background: #1976d2; }
+  .stage-phone-screen { background: #4f63d2; }
+  .stage-interview { background: #7c4dff; }
+  .stage-hired { background: #10a05d; }
+  .stage-keep-warm { background: #f5a623; }
+  .stage-rejected { background: #e23a3a; }
+  .stage-no-show { background: #8b95a3; }
+
+  /* ===== Column reference table ===== */
+
+  table.cols {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 16px;
+    font-size: 10.5pt;
+  }
+  table.cols th, table.cols td {
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    padding: 10px 12px;
+    vertical-align: top;
+  }
+  table.cols th {
+    background: #fafbfc;
+    color: var(--muted-soft);
+    font-size: 9pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  table.cols td.col { font-weight: 600; color: var(--ink); width: 22%; }
+  table.cols td.desc { color: var(--muted); }
+
+  /* ===== Field demo (for showing what a row looks like) ===== */
+
+  .field-demo {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px 22px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 22px;
+    background: #fafbfc;
+    margin: 14px 0;
+  }
+  .field {
+    min-width: 0;
+  }
+  .field .lbl {
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted-soft);
+    font-weight: 700;
+  }
+  .field .val {
+    font-size: 10.5pt;
+    color: var(--ink);
+    margin-top: 2px;
+    word-break: break-word;
+  }
+  .field .val a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  /* ===== Status badges ===== */
+
+  .badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 10px 0 14px;
+  }
+  .badge {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 9pt;
+    font-weight: 600;
+    border: 1px solid;
+  }
+  .badge-success { background: #e9f7ef; color: #0c8a4e; border-color: #c8ebd5; }
+  .badge-warning { background: #fff7e6; color: #a06200; border-color: #fde8c4; }
+  .badge-neutral { background: #f0f1f4; color: #5b6472; border-color: #e3e5ea; }
+
+  /* ===== Divider ===== */
+
+  hr.line {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 26px 0;
+  }
+
+  /* ===== Section number stamp ===== */
+
+  .stamp {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 12pt;
+    margin-right: 12px;
+    vertical-align: middle;
+  }
+
+  /* ===== Small footnote ===== */
+
+  .footnote {
+    font-size: 9.5pt;
+    color: var(--muted-soft);
+    margin-top: 30px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ===== Print ===== */
+  @media print {
+    body { font-size: 10.5pt; }
+    .page { padding: 0; }
+    .card, .toc, .tile, .field-demo, table.cols { break-inside: avoid; }
+    h1.section-title, h2 { break-after: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+<!-- ==================== COVER ==================== -->
+
+<div class="cover">
+  <div class="brand" style="border:0; padding:0; margin-bottom:0;">
+    <div class="brand-mark">B</div>
+    <div>
+      <div class="brand-name">Broker Staffer</div>
+      <div class="brand-sub">Client Portal</div>
+    </div>
+  </div>
+
+  <div style="margin-top: 1in;">
+    <div class="cover-eyebrow">Your Hiring Pipeline — Always On</div>
+    <h1 class="cover-title">A complete guide to your Broker Staffer Client Portal.</h1>
+    <p class="cover-lead">
+      Everything you can see, every action you can take, and exactly how
+      the data gets there — written in plain language so you can hand
+      this to anyone on your team.
+    </p>
+  </div>
+
+  <div class="cover-meta">
+    <span>Broker Staffer · Client Portal Guide</span>
+    <span>Confidential — for client use only</span>
+  </div>
+</div>
+
+<!-- ==================== HEADER (subsequent pages) ==================== -->
+
+<div class="brand">
+  <div class="brand-mark">B</div>
+  <div>
+    <div class="brand-name">Broker Staffer</div>
+    <div class="brand-sub">Client Portal Guide</div>
+  </div>
+</div>
+
+<!-- ==================== TABLE OF CONTENTS ==================== -->
+
+<section>
+  <h1 class="section-title">What's inside</h1>
+  <p class="section-lead">
+    Your portal has four sections, all reachable from the left sidebar.
+    Each one is covered in detail below.
+  </p>
+
+  <div class="toc">
+    <div class="toc-title">Sections</div>
+    <div class="toc-grid">
+      <div class="toc-row"><span class="num">01</span><span class="label">Welcome &amp; access</span></div>
+      <div class="toc-row"><span class="num">02</span><span class="label">Recruiting Pipeline</span></div>
+      <div class="toc-row"><span class="num">03</span><span class="label">— Stages explained</span></div>
+      <div class="toc-row"><span class="num">04</span><span class="label">— Lead details view</span></div>
+      <div class="toc-row"><span class="num">05</span><span class="label">Your Agents</span></div>
+      <div class="toc-row"><span class="num">06</span><span class="label">DNC List</span></div>
+      <div class="toc-row"><span class="num">07</span><span class="label">Team</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 01 — Welcome ==================== -->
+
+<section class="chapter">
+  <div class="eyebrow">Section 01</div>
+  <h1 class="section-title"><span class="stamp">1</span>Welcome &amp; access</h1>
+  <p class="section-lead">
+    Your portal is a live window into the candidates Broker Staffer is
+    introducing to your brokerage — plus the lists that keep your team
+    safe from accidental cold outreach.
+  </p>
+
+  <h2>What the portal is for</h2>
+  <p>
+    Every time we introduce a new recruiting candidate to your
+    brokerage, it shows up here. You move them through your hiring
+    stages, keep notes alongside the lead, and tell us when you need a
+    replacement. You also maintain three lists that protect your
+    people and reputation: <strong>Your Agents</strong>,
+    <strong>DNC List</strong>, and <strong>Team</strong> — anyone on
+    those lists is automatically excluded from any of our campaigns,
+    immediately.
+  </p>
+
+  <h2>How to open it</h2>
+  <p>
+    Your portal lives at a private URL we sent you. Anyone on your
+    team with that URL can view and edit. No password, no login
+    screen, no separate account to set up. Bookmark it, share it with
+    your hiring team, and you're done.
+  </p>
+
+  <div class="card card-accent">
+    <div class="card-title">Treat the URL like a password</div>
+    <p>
+      The link itself is the credential. Anyone who has it can see your
+      pipeline and edit your lists. Share it with people you trust, and
+      let us know any time you'd like a fresh URL generated.
+    </p>
+  </div>
+
+  <h2>What the sidebar shows</h2>
+  <p>
+    The four sections live in a sticky sidebar on the left:
+  </p>
+  <ul>
+    <li><strong>Recruiting Pipeline</strong> — every introduction we've sent you, with stage tracking.</li>
+    <li><strong>Your Agents</strong> — your brokerage's own real estate agents (auto-protected from outreach).</li>
+    <li><strong>DNC List</strong> — agents and companies we should never contact.</li>
+    <li><strong>Team</strong> — your internal team members (also auto-protected).</li>
+  </ul>
+  <p>
+    Each item shows a live count next to its name so you always know
+    how many records are in each list at a glance.
+  </p>
+</section>
+
+<!-- ==================== 02 — Recruiting Pipeline ==================== -->
+
+<section class="chapter">
+  <div class="eyebrow">Section 02</div>
+  <h1 class="section-title"><span class="stamp">2</span>Recruiting Pipeline</h1>
+  <p class="section-lead">
+    The heart of the portal. Every warm introduction we send you lands
+    here automatically. You scan them, move them through your hiring
+    stages, keep your notes, and flag any that need a replacement.
+  </p>
+
+  <h2>At the top — your headline numbers</h2>
+  <p>
+    Four stat tiles summarise your pipeline at a glance:
+  </p>
+
+  <div class="tiles">
+    <div class="tile">
+      <div class="label">Total introductions</div>
+      <div class="num">144</div>
+      <div class="hint">All time</div>
+    </div>
+    <div class="tile">
+      <div class="label">This week</div>
+      <div class="num">12</div>
+      <div class="hint">Mon → today</div>
+    </div>
+    <div class="tile">
+      <div class="label">In active pipeline</div>
+      <div class="num">114</div>
+      <div class="hint">Not yet hired / rejected / no-show</div>
+    </div>
+    <div class="tile">
+      <div class="label">Hired</div>
+      <div class="num">3</div>
+      <div class="hint">% conversion</div>
+    </div>
+  </div>
+
+  <p>
+    The first tile uses the date of the most recent introduction
+    ("Most recent Apr 22") so you always know how fresh the pipeline
+    is. The last two automatically calculate the percentage so you can
+    track conversion without doing any math yourself.
+  </p>
+
+  <h2>Search, filters, and refresh</h2>
+  <p>
+    Just below the tiles you have:
+  </p>
+  <ul>
+    <li><strong>Search candidates</strong> — finds matches against name, email, company, or phone in real time.</li>
+    <li><strong>Needs replacement only</strong> — toggles the list to candidates you've flagged for replacement.</li>
+    <li><strong>Refresh</strong> — pulls the very latest data from our systems on demand (the page also refreshes automatically when new intros arrive).</li>
+    <li><strong>Stage chips</strong> — click any stage chip (Introduction, Phone Screen, Interview, etc.) to filter the list to just that stage. Each chip shows a live count.</li>
+  </ul>
+
+  <h2>The candidate table</h2>
+  <p>Each row in the pipeline is one introduction. The columns are:</p>
+
+  <table class="cols">
+    <thead>
+      <tr><th>Column</th><th>What it shows</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="col">Candidate</td>
+        <td class="desc">
+          The agent's full name and email. The first note you've added
+          (if any) shows as a preview line underneath, so you can scan
+          context across many rows. Click anywhere on this cell to
+          expand the full details (see next section).
+        </td>
+      </tr>
+      <tr>
+        <td class="col">Company</td>
+        <td class="desc">
+          The brokerage the agent currently works at — pulled directly
+          from the data we have on each agent. Some rows may show
+          &mdash; when we don't yet have a brokerage on file for that
+          person.
+        </td>
+      </tr>
+      <tr>
+        <td class="col">Phone</td>
+        <td class="desc">
+          Direct contact number for the agent. Click any phone number
+          in the expanded detail view to dial it directly on mobile.
+        </td>
+      </tr>
+      <tr>
+        <td class="col">Introduced</td>
+        <td class="desc">
+          The exact date the candidate became an introduction —
+          generally within seconds of them showing real interest in
+          your campaign.
+        </td>
+      </tr>
+      <tr>
+        <td class="col">Stage</td>
+        <td class="desc">
+          A coloured pill showing where the candidate sits in your
+          hiring funnel. Click the pill to change the stage instantly
+          — your change is saved in the background, no need to confirm.
+        </td>
+      </tr>
+      <tr>
+        <td class="col">Replace?</td>
+        <td class="desc">
+          Tick this box to signal that you'd like us to send a
+          replacement candidate for this one. Use the filter chip above
+          the table to see all flagged rows in one view.
+        </td>
+      </tr>
+      <tr>
+        <td class="col">Notes</td>
+        <td class="desc">
+          Click "Add" or "Edit" to open a focused notes editor for that
+          candidate. Notes appear inline under the candidate name as
+          well so you can read context without opening the editor.
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ==================== 03 — Stages explained ==================== -->
+
+<section class="chapter">
+  <div class="eyebrow">Section 03</div>
+  <h1 class="section-title"><span class="stamp">3</span>Stages explained</h1>
+  <p class="section-lead">
+    Every candidate starts as an Introduction. You move them forward
+    (or sideways) by clicking the stage chip on their row. There are
+    seven stages, each colour-coded so you can scan the pipeline at a
+    glance.
+  </p>
+
+  <div class="stages">
+    <span class="stage stage-introduction">Introduction</span>
+    <span class="stage stage-phone-screen">Phone Screen</span>
+    <span class="stage stage-interview">Interview</span>
+    <span class="stage stage-hired">Hired</span>
+    <span class="stage stage-keep-warm">Keep Warm</span>
+    <span class="stage stage-rejected">We/They Rejected</span>
+    <span class="stage stage-no-show">No Show / No Response</span>
+  </div>
+
+  <table class="cols">
+    <thead>
+      <tr><th>Stage</th><th>Use it when…</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="col"><span class="stage stage-introduction">Introduction</span></td>
+        <td class="desc">
+          The default. Every new candidate lands here when Broker Staffer
+          introduces them to you. They're a warm lead, ready for your
+          first outreach.
+        </td>
+      </tr>
+      <tr>
+        <td class="col"><span class="stage stage-phone-screen">Phone Screen</span></td>
+        <td class="desc">
+          You've made initial contact — a brief call, voicemail, or text
+          to gauge fit and interest. Move them here as soon as that
+          first conversation starts.
+        </td>
+      </tr>
+      <tr>
+        <td class="col"><span class="stage stage-interview">Interview</span></td>
+        <td class="desc">
+          A full interview is scheduled or completed. This is where
+          serious candidates live while you make a decision.
+        </td>
+      </tr>
+      <tr>
+        <td class="col"><span class="stage stage-hired">Hired</span></td>
+        <td class="desc">
+          Congratulations — they've joined your brokerage. Conversion
+          metrics at the top of the page automatically pick this up.
+        </td>
+      </tr>
+      <tr>
+        <td class="col"><span class="stage stage-keep-warm">Keep Warm</span></td>
+        <td class="desc">
+          A strong candidate but the timing isn't right — for them or
+          for you. Keep them visible without losing context, ready to
+          reactivate later.
+        </td>
+      </tr>
+      <tr>
+        <td class="col"><span class="stage stage-rejected">We/They Rejected</span></td>
+        <td class="desc">
+          One side has passed. The candidate didn't fit, or they
+          weren't interested in moving. Marks the candidate as closed
+          but keeps the record so you don't get re-introduced to the
+          same person later.
+        </td>
+      </tr>
+      <tr>
+        <td class="col"><span class="stage stage-no-show">No Show / No Response</span></td>
+        <td class="desc">
+          The candidate ghosted — didn't pick up, didn't reply, didn't
+          show. Use this when you've tried to follow up and got
+          nothing. Different from "rejected" because no real signal
+          either way.
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ==================== 04 — Lead detail view ==================== -->
+
+<section class="chapter">
+  <div class="eyebrow">Section 04</div>
+  <h1 class="section-title"><span class="stamp">4</span>Lead details view</h1>
+  <p class="section-lead">
+    Click any candidate's name (or the chevron next to it) and the row
+    expands open to show <em>everything</em> we know about that
+    person, pulled live from our enrichment system. No popup, no slide
+    panel — the data appears in place, under the row.
+  </p>
+
+  <h2>What you'll see, when we have it</h2>
+  <p>
+    The details panel pulls every field our data provider has captured
+    for that agent. Common ones look like this:
+  </p>
+
+  <div class="field-demo">
+    <div class="field"><div class="lbl">Email</div><div class="val"><a>yourhome.celeste@gmail.com</a></div></div>
+    <div class="field"><div class="lbl">Phone</div><div class="val"><a>(770) 568-2575</a></div></div>
+    <div class="field"><div class="lbl">Company</div><div class="val">RE/MAX Around Atlanta Realty</div></div>
+    <div class="field"><div class="lbl">Title</div><div class="val">Associate Broker</div></div>
+    <div class="field"><div class="lbl">License number</div><div class="val">378045</div></div>
+    <div class="field"><div class="lbl">Brand</div><div class="val">RE/MAX</div></div>
+    <div class="field"><div class="lbl">Market</div><div class="val">Atlanta</div></div>
+    <div class="field"><div class="lbl">State</div><div class="val">Georgia</div></div>
+    <div class="field"><div class="lbl">County</div><div class="val">Fulton</div></div>
+    <div class="field"><div class="lbl">Office ZIP</div><div class="val">30338</div></div>
+    <div class="field"><div class="lbl">Website</div><div class="val"><a>homes.com/real-estate-agents/celeste-christo…</a></div></div>
+    <div class="field"><div class="lbl">Tenure</div><div class="val">8 yrs 2 mos</div></div>
+    <div class="field"><div class="lbl">Closed transactions</div><div class="val">36</div></div>
+    <div class="field"><div class="lbl">Sales volume</div><div class="val">$14,200,000</div></div>
+    <div class="field"><div class="lbl">Approx. GCI</div><div class="val">$324,000</div></div>
+    <div class="field"><div class="lbl">Avg. sales price</div><div class="val">$394,000</div></div>
+  </div>
+
+  <p>
+    Below those primary fields, a divider separates the
+    <strong>Pipeline</strong> block: the exact date of the
+    introduction (e.g. "Wednesday, April 22, 2026") and the
+    Broker Staffer campaign that produced the lead. Below that, if
+    you've added notes, they appear in full, with line breaks
+    preserved.
+  </p>
+
+  <div class="card">
+    <div class="card-title">Every field, automatically</div>
+    <p>
+      We don't pick and choose which fields show up. If our data
+      provider returns a field for an agent — even one we haven't seen
+      before — it appears here, with a clean label, in the same grid.
+      You'll never have to ask us to "expose" a field.
+    </p>
+  </div>
+
+  <h2>Click-to-act on contact details</h2>
+  <p>
+    Emails open your default mail app. Phone numbers dial directly on
+    mobile. Websites and LinkedIn profiles open in a new tab. You
+    don't have to copy / paste — just click.
+  </p>
+
+  <h2>Missing fields</h2>
+  <p>
+    When a field shows a dash (&mdash;) or doesn't appear at all, it's
+    because our data provider didn't have that piece for that
+    particular agent. It's not hidden or filtered — it just doesn't
+    exist for that person yet. Agents are continuously re-enriched as
+    new data arrives.
+  </p>
+</section>
+
+<!-- ==================== 05 — Your Agents ==================== -->
+
+<section class="chapter">
+  <div class="eyebrow">Section 05</div>
+  <h1 class="section-title"><span class="stamp">5</span>Your Agents</h1>
+  <p class="section-lead">
+    A protected list of every real estate agent who works for
+    <em>your</em> brokerage. The moment you add someone here, their
+    email is excluded from every Broker Staffer campaign — so we never
+    accidentally cold-outreach to your own people.
+  </p>
+
+  <h2>Two ways to add agents</h2>
+  <p>
+    Use the <strong>Add agent</strong> button to add a single agent at
+    a time (name, email, phone, license number, market). Or — much
+    faster for a full roster — click <strong>Import CSV</strong>,
+    drop in a spreadsheet, and we'll preview the first 50 rows before
+    you confirm the import. The CSV recogniser accepts the obvious
+    column names plus common synonyms (<code>full_name</code>,
+    <code>email_address</code>, <code>cell</code>, <code>lic</code>,
+    etc.), so you don't need to reshape your data.
+  </p>
+
+  <h2>The Status pill — what it means</h2>
+  <div class="badges">
+    <span class="badge badge-success">Protected</span>
+    <span class="badge badge-neutral">Pending</span>
+    <span class="badge badge-warning">Push failed</span>
+    <span class="badge badge-neutral">No email</span>
+  </div>
+  <ul>
+    <li><strong>Protected</strong> — the agent's email is on our outreach exclusion list. Cold-outreach systems will skip them.</li>
+    <li><strong>Pending</strong> — the exclusion is being pushed (rare and fleeting).</li>
+    <li><strong>Push failed</strong> — one of the outreach systems briefly rejected the push. We retry automatically; if you ever see this stuck, ping us.</li>
+    <li><strong>No email</strong> — the row has no email address, so there's nothing to exclude. The record is still saved.</li>
+  </ul>
+
+  <h2>The summary tiles</h2>
+  <p>
+    Two tiles at the top tell you exactly where you stand:
+    <strong>Protected agents</strong> shows the total count of
+    everyone in the list, and <strong>Added this month</strong>
+    shows how many you've grown it by in the current month.
+  </p>
+
+  <div class="card card-accent">
+    <div class="card-title">When to use Your Agents vs. DNC</div>
+    <p>
+      <strong>Your Agents</strong> is for people who work at your
+      brokerage today. <strong>DNC List</strong> is for outside agents
+      and firms you don't want us approaching at all (former hires,
+      competitors' agents you have a no-poach with, etc.). The
+      effect is the same — they're excluded from campaigns — but the
+      two lists keep your data organised.
+    </p>
+  </div>
+</section>
+
+<!-- ==================== 06 — DNC List ==================== -->
+
+<section class="chapter">
+  <div class="eyebrow">Section 06</div>
+  <h1 class="section-title"><span class="stamp">6</span>DNC List</h1>
+  <p class="section-lead">
+    Your "Do Not Contact" list — for anyone outside your brokerage
+    we should never reach out to. Adding an entry with an email
+    immediately blocks that email across both of our outreach
+    systems.
+  </p>
+
+  <h2>Two kinds of entries</h2>
+  <ul>
+    <li><strong>Agents</strong> — individual real estate agents you don't want approached (former hires, agents who've already passed, agents under no-poach agreements, anyone you have history with).</li>
+    <li><strong>Companies</strong> — entire brokerages to avoid. Useful when you have a relationship with the leadership of another firm and you don't want any of their people contacted.</li>
+  </ul>
+
+  <h2>Adding entries</h2>
+  <p>
+    Use <strong>Add to DNC</strong> for single entries — toggle between
+    Agent / Company, give it a name, and optionally an email, phone,
+    brokerage, and a note explaining why. The email is the key field:
+    if you provide one, it goes onto the outreach exclusion list within
+    seconds.
+  </p>
+  <p>
+    Or use <strong>Import CSV</strong> to bulk-load entries. The
+    importer recognises a <code>kind</code> column (set it to
+    <code>agent</code> or <code>company</code> — anything else
+    defaults to agent) plus the same name / email / phone / brokerage
+    / notes columns the manual form has. You'll see a preview of the
+    first 50 rows before anything is committed.
+  </p>
+
+  <h2>The Status pill</h2>
+  <div class="badges">
+    <span class="badge badge-success">Blocked</span>
+    <span class="badge badge-neutral">Pending</span>
+    <span class="badge badge-warning">Push failed</span>
+    <span class="badge badge-neutral">No email</span>
+  </div>
+  <ul>
+    <li><strong>Blocked</strong> — the email is on at least one outreach exclusion list. Outreach will not happen.</li>
+    <li><strong>Pending / Push failed / No email</strong> — same meanings as on the Your Agents page.</li>
+  </ul>
+
+  <h2>Entries that get added automatically</h2>
+  <p>
+    Some DNC entries are created by our systems without you doing
+    anything:
+  </p>
+  <ul>
+    <li>If a recipient asks to unsubscribe or stop, they're added to your DNC automatically and their email is excluded going forward.</li>
+    <li>If our AI flags a reply as hostile or threatening, the lead is automatically marked DNC and removed from the active funnel.</li>
+  </ul>
+  <p>
+    You don't need to manage these — they're a safety net so a hostile
+    or unsubscribed recipient never gets contacted by us again.
+  </p>
+</section>
+
+<!-- ==================== 07 — Team ==================== -->
+
+<section class="chapter">
+  <div class="eyebrow">Section 07</div>
+  <h1 class="section-title"><span class="stamp">7</span>Team</h1>
+  <p class="section-lead">
+    The internal users at your brokerage — owners, recruiting
+    managers, anyone with a brokerage email address. Adding someone
+    here protects their email the same way Your Agents does, with one
+    extra layer of organisation: this list is for <em>your office</em>,
+    not your active agents.
+  </p>
+
+  <h2>Adding a team member</h2>
+  <p>
+    Use <strong>Add member</strong> and provide three things: their
+    full name, their email, and (optionally) their title (e.g.
+    "Recruiting Manager", "Broker Owner"). That's it — Save, and
+    their email is immediately excluded from outreach.
+  </p>
+
+  <h2>The Status pill</h2>
+  <div class="badges">
+    <span class="badge badge-success">Protected</span>
+    <span class="badge badge-neutral">Pending</span>
+    <span class="badge badge-warning">Push failed</span>
+  </div>
+  <p>
+    Same meaning as on the other two protection lists. Every team
+    member who has been successfully pushed to the exclusion lists
+    shows the green Protected badge.
+  </p>
+
+  <h2>The Active switch</h2>
+  <p>
+    Use the per-row Active switch to deactivate a member without
+    removing them. Useful for "this person used to be on our team but
+    has moved on" — you keep the record but downgrade the row.
+    Removing entirely uses the trash icon.
+  </p>
+
+  <div class="footnote">
+    Broker Staffer · Client Portal Guide<br />
+    Confidential — for client use only.
+  </div>
+</section>
+
+</div>
+
+</body>
+</html>

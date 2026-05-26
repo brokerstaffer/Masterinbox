@@ -157,7 +157,7 @@ export function ClientPortalView({ clientName, leads, metrics, adminPreview }: P
 
         <footer className="mt-12 flex items-center justify-center gap-1.5 pb-4 text-xs text-[#9aa0ab]">
           <PortalLogo className="size-4" />
-          Powered by Corofy
+          Powered by BrokerStaffer
         </footer>
       </main>
     </div>

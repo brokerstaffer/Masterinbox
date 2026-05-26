@@ -13,7 +13,7 @@ import { env } from "@/lib/env";
 // "last intro X days ago" without a second endpoint.
 //
 // Required fields per row:
-//   - client_name : the matching Corofy client display name
+//   - client_name : the matching BrokerStaffer client display name
 //   - assigned_at : ISO 8601 UTC timestamp the label landed on the thread
 //
 // Nice-to-have fields included (consumer can ignore):
@@ -48,7 +48,7 @@ export async function GET(request: Request) {
   let workspaceId: string;
   if (suppliedToken && serviceKey && suppliedToken === serviceKey) {
     workspaceId =
-      url.searchParams.get("workspace") ?? env.COROFY_WORKSPACE_ID ?? "";
+      url.searchParams.get("workspace") ?? env.WORKSPACE_ID ?? "";
     if (!workspaceId) {
       return NextResponse.json(
         { error: "workspace param required when using service-role token" },

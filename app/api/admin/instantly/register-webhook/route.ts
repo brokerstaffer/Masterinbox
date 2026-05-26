@@ -77,7 +77,7 @@ export async function POST(request: Request) {
   for (const ev of RELEVANT_EVENTS) {
     try {
       const c = await instantly.createWebhook({
-        name: `Corofy Master Inbox — ${ev}`,
+        name: `BrokerStaffer Master Inbox — ${ev}`,
         target_hook_url: targetUrl,
         event_type: ev,
       });

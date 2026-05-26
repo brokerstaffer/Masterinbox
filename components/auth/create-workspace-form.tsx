@@ -45,7 +45,7 @@ export function CreateWorkspaceForm() {
         <Input
           id="name"
           autoFocus
-          placeholder="Corofy"
+          placeholder="BrokerStaffer"
           {...form.register("name")}
         />
         {form.formState.errors.name ? (

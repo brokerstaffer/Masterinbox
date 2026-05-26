@@ -6,7 +6,7 @@ import { env } from "@/lib/env";
 
 // GET /api/clients/intro-stats[?label=Introduction]
 //
-// For each Corofy client, returns:
+// For each BrokerStaffer client, returns:
 //   - count: number of threads in that client that have the given label
 //   - last_assigned_at: timestamp of the most recent time the label was
 //     attached to one of that client's threads
@@ -36,13 +36,13 @@ export async function GET(request: Request) {
   // Auth: normal flow uses the user session (RLS-scoped to their workspace).
   // For diagnostic / external use we accept ?token=<SUPABASE_SERVICE_ROLE_KEY>
   // and resolve the workspace from a `?workspace=<uuid>` param (defaults to
-  // the Corofy singleton via COROFY_WORKSPACE_ID).
+  // the BrokerStaffer singleton via WORKSPACE_ID).
   const suppliedToken = url.searchParams.get("token") ?? request.headers.get("x-admin-token");
   const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
   let workspaceId: string;
   if (suppliedToken && serviceKey && suppliedToken === serviceKey) {
     workspaceId =
-      url.searchParams.get("workspace") ?? env.COROFY_WORKSPACE_ID ?? "";
+      url.searchParams.get("workspace") ?? env.WORKSPACE_ID ?? "";
     if (!workspaceId) {
       return NextResponse.json(
         { error: "workspace param required when using service-role token" },

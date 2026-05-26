@@ -52,7 +52,7 @@ export async function POST(request: Request) {
           }
         }
         const created = await eb.createWebhook({
-          name: "Corofy Master Inbox",
+          name: "BrokerStaffer Master Inbox",
           url: ebUrl,
           events: RELEVANT_EVENTS,
         });

@@ -1,4 +1,4 @@
--- Corofy Master Inbox — initial schema
+-- BrokerStaffer Master Inbox — initial schema
 -- Multi-tenant from day one: every business table has workspace_id + RLS.
 -- Provider-mirror fields are prefixed emailbison_* / unipile_*.
 

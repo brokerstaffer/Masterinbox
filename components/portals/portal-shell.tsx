@@ -86,7 +86,7 @@ export function PortalShell({ token, clientName, counts, children }: Props) {
         </nav>
 
         <div className="mt-auto border-t border-[#ebecf0] px-5 py-3 text-[11px] text-[#9aa0ab]">
-          Powered by Corofy
+          Powered by BrokerStaffer
         </div>
       </aside>
 
