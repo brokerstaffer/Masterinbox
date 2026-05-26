@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Bold,
   Italic,
@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TEMPLATE_VARIABLES } from "@/lib/inbox/template-variables";
+import { LinkDialog } from "@/components/inbox/link-dialog";
 
 // Rich text editor for reply templates. Outputs HTML (for body_html)
 // and exposes the plain-text projection (for the legacy `body`
@@ -117,21 +118,49 @@ export function TemplateRichEditor({
 function Toolbar({ editor }: { editor: Editor }) {
   const isActive = (name: string, attrs?: Record<string, unknown>) =>
     editor.isActive(name, attrs);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkInitialText, setLinkInitialText] = useState("");
+  const [linkInitialUrl, setLinkInitialUrl] = useState("");
+  const isEditingLink = isActive("link");
 
-  function setLink() {
-    const prev = editor.getAttributes("link").href as string | undefined;
-    const url = window.prompt("Link URL", prev ?? "https://");
-    if (url === null) return;
-    if (url === "") {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run();
-      return;
+  function openLinkDialog() {
+    const { state } = editor;
+    const { from, to } = state.selection;
+    const selectedText = state.doc.textBetween(from, to);
+    const existingUrl =
+      (editor.getAttributes("link").href as string | undefined) ?? "";
+    setLinkInitialText(selectedText);
+    setLinkInitialUrl(existingUrl);
+    setLinkOpen(true);
+  }
+
+  function handleLinkSubmit({ text, url }: { text: string; url: string }) {
+    const { state } = editor;
+    const { from, to } = state.selection;
+    const selectedText = state.doc.textBetween(from, to);
+    if (isEditingLink || (selectedText && text === selectedText)) {
+      editor
+        .chain()
+        .focus()
+        .extendMarkRange("link")
+        .setLink({ href: url })
+        .run();
+    } else {
+      const safeText = text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      const safeUrl = url.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+      editor
+        .chain()
+        .focus()
+        .insertContent(`<a href="${safeUrl}">${safeText}</a>`)
+        .run();
     }
-    editor
-      .chain()
-      .focus()
-      .extendMarkRange("link")
-      .setLink({ href: url })
-      .run();
+  }
+
+  function handleLinkRemove() {
+    editor.chain().focus().extendMarkRange("link").unsetLink().run();
   }
 
   function insertVariable(token: string) {
@@ -233,11 +262,19 @@ function Toolbar({ editor }: { editor: Editor }) {
       {/* Link */}
       <ToolbarButton
         active={isActive("link")}
-        onClick={setLink}
+        onClick={openLinkDialog}
         title="Add / edit link"
       >
         <LinkIcon className="size-3.5" />
       </ToolbarButton>
+      <LinkDialog
+        open={linkOpen}
+        onOpenChange={setLinkOpen}
+        initialText={linkInitialText}
+        initialUrl={linkInitialUrl}
+        onSubmit={handleLinkSubmit}
+        onRemove={isEditingLink ? handleLinkRemove : undefined}
+      />
     </div>
   );
 }

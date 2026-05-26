@@ -3,6 +3,7 @@
 import {
   forwardRef,
   useImperativeHandle,
+  useState,
 } from "react";
 import {
   Bold,
@@ -19,6 +20,7 @@ import Link from "@tiptap/extension-link";
 import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
 import { cn } from "@/lib/utils";
+import { LinkDialog } from "@/components/inbox/link-dialog";
 
 // Rich-text body editor for the reply / forward composer. Same TipTap
 // engine the template editor uses, but with a composer-tuned toolbar
@@ -129,16 +131,55 @@ export const ComposerBodyEditor = forwardRef<
 
 function Toolbar({ editor }: { editor: Editor }) {
   const isActive = (name: string) => editor.isActive(name);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkInitialText, setLinkInitialText] = useState("");
+  const [linkInitialUrl, setLinkInitialUrl] = useState("");
+  const isEditingLink = isActive("link");
 
-  function setLink() {
-    const prev = editor.getAttributes("link").href as string | undefined;
-    const url = window.prompt("Link URL", prev ?? "https://");
-    if (url === null) return;
-    if (url === "") {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run();
-      return;
+  function openLinkDialog() {
+    const { state } = editor;
+    const { from, to } = state.selection;
+    const selectedText = state.doc.textBetween(from, to);
+    const existingUrl =
+      (editor.getAttributes("link").href as string | undefined) ?? "";
+    setLinkInitialText(selectedText);
+    setLinkInitialUrl(existingUrl);
+    setLinkOpen(true);
+  }
+
+  function handleLinkSubmit({ text, url }: { text: string; url: string }) {
+    const { state } = editor;
+    const { from, to } = state.selection;
+    const selectedText = state.doc.textBetween(from, to);
+    // If we're editing an existing link OR the dialog's text matches
+    // the current selection, keep the existing text and just (re-)set
+    // the link mark. Otherwise replace the selection (or insert at
+    // caret) with the new linked text.
+    if (isEditingLink || (selectedText && text === selectedText)) {
+      editor
+        .chain()
+        .focus()
+        .extendMarkRange("link")
+        .setLink({ href: url })
+        .run();
+    } else {
+      const safeText = text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      const safeUrl = url
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;");
+      editor
+        .chain()
+        .focus()
+        .insertContent(`<a href="${safeUrl}">${safeText}</a>`)
+        .run();
     }
-    editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+  }
+
+  function handleLinkRemove() {
+    editor.chain().focus().extendMarkRange("link").unsetLink().run();
   }
 
   return (
@@ -189,11 +230,19 @@ function Toolbar({ editor }: { editor: Editor }) {
       <Sep />
       <ToolbarButton
         active={isActive("link")}
-        onClick={setLink}
+        onClick={openLinkDialog}
         title="Add / edit link"
       >
         <LinkIcon className="size-3.5" />
       </ToolbarButton>
+      <LinkDialog
+        open={linkOpen}
+        onOpenChange={setLinkOpen}
+        initialText={linkInitialText}
+        initialUrl={linkInitialUrl}
+        onSubmit={handleLinkSubmit}
+        onRemove={isEditingLink ? handleLinkRemove : undefined}
+      />
     </div>
   );
 }
