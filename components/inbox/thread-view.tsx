@@ -256,6 +256,11 @@ export function ThreadView({
           // Forward seeds the body with a quoted block of the source message
           // so the user just types their note above it.
           initialBody={composeState.mode === "forward" ? buildForwardBody(composeState.source, detail) : undefined}
+          // Keep a separate handle on the forward quote so the composer
+          // can re-attach it on send if the user cleared the textarea —
+          // empty forward bodies were producing literally empty emails
+          // before.
+          forwardedBlock={composeState.mode === "forward" ? buildForwardBody(composeState.source, detail) : null}
           fromEmail={
             // Canonical OUR-side address pinned on the thread from the
             // webhook. Falls back to scanning outbound messages only if the

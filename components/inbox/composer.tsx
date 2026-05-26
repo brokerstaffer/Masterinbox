@@ -64,6 +64,7 @@ export function Composer({
   quoted,
   draft,
   initialBody,
+  forwardedBlock = null,
   mode = "reply",
   signatureHtml = null,
   sourceProvider = null,
@@ -113,6 +114,11 @@ export function Composer({
   // Pre-fills the body — used by Forward to seed the quoted block before
   // the user adds their own note above it. Takes priority over draft.
   initialBody?: string;
+  // The raw forwarded-message block (the "---------- Forwarded message …"
+  // quote of the source). When in forward mode this is kept separately
+  // from `initialBody` so that if the user clears the body before
+  // sending, we can guarantee the original message still rides along.
+  forwardedBlock?: string | null;
   // Controls the header label and a few minor UX bits.
   mode?: "reply" | "forward";
   // HTML signature from EmailBison for our sender account. When set + the
@@ -203,16 +209,36 @@ export function Composer({
   }
 
   async function onSend() {
-    if (!body.trim()) {
+    // On replies, force the user to write something — sending an empty
+    // reply is almost always a mistake. On forwards, an empty body is
+    // legitimate (the original message is the payload), and we
+    // re-attach the forwarded block below regardless.
+    const isForward = mode === "forward";
+    if (!isForward && !body.trim()) {
       toast.error("Write something to reply.");
       return;
     }
     setSending(true);
     try {
+      // Forward safety net: guarantee the original message rides along.
+      // If the user cleared the textarea before sending, the prefilled
+      // forward quote would be gone — re-attach it. Same if the user
+      // left their own note but accidentally deleted the quoted block
+      // from the bottom.
+      let effectiveBody = body;
+      const FORWARD_MARKER = "---------- Forwarded message ----------";
+      if (isForward && forwardedBlock) {
+        const hasMarker = effectiveBody.includes(FORWARD_MARKER);
+        if (!hasMarker) {
+          effectiveBody = effectiveBody.trim().length > 0
+            ? `${effectiveBody.trim()}\n\n${forwardedBlock}`
+            : forwardedBlock;
+        }
+      }
       // Plain-text body → HTML using <br> for every newline. Gmail's default
       // <p> styling collapses margins so paragraph wrappers lose the visual
       // blank line between blocks; <br><br> renders the user's intent 1:1.
-      let bodyHtml = escapeHtml(body).replace(/\n/g, "<br>");
+      let bodyHtml = escapeHtml(effectiveBody).replace(/\n/g, "<br>");
       // Append the EmailBison signature when the user opted in. Signature
       // is already HTML — don't escape it.
       if (addSignature && signatureHtml && signatureHtml.trim().length > 0) {
