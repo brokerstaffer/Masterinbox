@@ -22,6 +22,16 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // /portal/<token>/* — the public brokerage portal. Token in the URL is
+  // the credential; no Supabase session involved at all. Bypass the
+  // auth.getUser() round-trip below — it adds latency, can hang under
+  // a flaky connection (which was producing "this page couldn't load"
+  // errors in Chrome on portal navigations), and the result isn't used
+  // for portal pages anyway.
+  if (pathname === "/portal" || pathname.startsWith("/portal/")) {
+    return NextResponse.next();
+  }
+
   // Any /api/* request that carries `?token=<SUPABASE_SERVICE_ROLE_KEY>`
   // (or the equivalent x-admin-token header) is treated as service-role:
   // skip the proxy auth gate and let the route handler verify the token

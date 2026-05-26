@@ -283,11 +283,12 @@ export function AiLabelingForm({
           <div>
             <p className="text-sm font-medium">Candidate labels</p>
             <p className="text-xs text-muted-foreground">
-              The model will pick one of these. Leave empty to use every label in your workspace.
+              The model will only pick one of the labels you turn ON below.
+              Click any chip to toggle it.
             </p>
           </div>
           <span className="text-xs text-muted-foreground">
-            {categorySet.length} / {labels.length} selected
+            {categorySet.length} / {labels.length} on
           </span>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -298,12 +299,32 @@ export function AiLabelingForm({
                 key={l.id}
                 type="button"
                 onClick={() => toggleCategory(l.name)}
-                className={selected ? "" : "opacity-50 hover:opacity-100 transition-opacity"}
+                title={
+                  selected
+                    ? `On — AI may apply "${l.name}"`
+                    : `Off — AI will never apply "${l.name}"`
+                }
+                className={selected ? "" : "opacity-40 hover:opacity-100 transition-opacity"}
               >
                 <LabelChip name={l.name} color={l.color} />
               </button>
             );
           })}
+        </div>
+        <div className="rounded-md border border-dashed bg-muted/30 p-3 text-[12px] text-muted-foreground space-y-1.5">
+          <p>
+            <span className="font-medium text-foreground">Turned off:</span>{" "}
+            A label that is greyed out above will never be applied by the AI
+            to a new reply. Existing assignments stay on the conversations
+            they&apos;re already on.
+          </p>
+          <p>
+            <span className="font-medium text-foreground">No match:</span>{" "}
+            When the AI can&apos;t confidently pick any of the turned-on
+            labels, the conversation stays untagged and surfaces in the{" "}
+            <span className="font-medium">Open Responses</span> view so a
+            reply manager can categorise it manually.
+          </p>
         </div>
       </div>
 
