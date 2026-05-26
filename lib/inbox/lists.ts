@@ -1,12 +1,11 @@
 import { cache } from "react";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { ttlCache } from "@/lib/cache/ttl";
 import type { ListRow } from "./lists-shared";
 
 export type { ListRow } from "./lists-shared";
 
-export const loadLists = cache(async function loadLists(
-  workspaceId: string,
-): Promise<ListRow[]> {
+async function fetchLists(workspaceId: string): Promise<ListRow[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
     .from("lists")
@@ -18,7 +17,10 @@ export const loadLists = cache(async function loadLists(
     return [];
   }
   return (data ?? []) as ListRow[];
-});
+}
+
+// Sidebar lists very rarely change. 60s TTL.
+export const loadLists = cache(ttlCache(fetchLists, { ttlMs: 60_000 }));
 
 export async function loadListCounts(workspaceId: string): Promise<Map<string, number>> {
   const supabase = await createServerSupabase();

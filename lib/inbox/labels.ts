@@ -1,14 +1,11 @@
 import { cache } from "react";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { ttlCache } from "@/lib/cache/ttl";
 import type { LabelRow } from "./labels-shared";
 
 export type { LabelRow } from "./labels-shared";
 
-// React.cache memoizes per request — page-level Promise.all and any
-// downstream caller share the same Supabase round-trip.
-export const loadLabels = cache(async function loadLabels(
-  workspaceId: string,
-): Promise<LabelRow[]> {
+async function fetchLabels(workspaceId: string): Promise<LabelRow[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
     .from("labels")
@@ -23,4 +20,9 @@ export const loadLabels = cache(async function loadLabels(
     return [];
   }
   return (data ?? []) as LabelRow[];
-});
+}
+
+// Two-layer cache: React.cache dedupes within a render, ttlCache dedupes
+// across requests for 30s. Labels rarely change (admin actions only) and
+// every inbox page in the workspace asks for the same set.
+export const loadLabels = cache(ttlCache(fetchLabels, { ttlMs: 30_000 }));

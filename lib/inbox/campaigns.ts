@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { ttlCache } from "@/lib/cache/ttl";
 
 export interface CampaignOption {
   id: string;          // campaign_id text (EB numeric id or Instantly uuid)
@@ -9,12 +10,13 @@ export interface CampaignOption {
 
 // Returns the distinct list of (campaign_id, campaign_name, source_provider)
 // triples present on threads in this workspace, sorted by name. Drives the
-// "Campaigns" picker in the FilterBuilder. Cheap: there are typically tens to
-// low hundreds of campaigns per workspace, and the index on threads
-// (workspace_id, campaign_id) keeps the distinct scan fast.
-export const loadCampaigns = cache(async function loadCampaigns(
-  workspaceId: string,
-): Promise<CampaignOption[]> {
+// "Campaigns" picker in the FilterBuilder.
+//
+// This scans every thread row, which under concurrent load was firing once
+// per inbox page render per user. TTL-caching for 60s keeps the picker
+// fresh enough (new campaigns surface within a minute) and removes the
+// scan from the hot path.
+async function fetchCampaigns(workspaceId: string): Promise<CampaignOption[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
     .from("threads")
@@ -35,4 +37,6 @@ export const loadCampaigns = cache(async function loadCampaigns(
     });
   }
   return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
-});
+}
+
+export const loadCampaigns = cache(ttlCache(fetchCampaigns, { ttlMs: 60_000 }));

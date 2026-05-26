@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { ttlCache } from "@/lib/cache/ttl";
 
 export interface ClientOption {
   id: string;
@@ -9,12 +10,11 @@ export interface ClientOption {
 
 // Returns every client row that has at least one thread in this workspace,
 // sorted by name. Used by the FilterBuilder's "Clients" picker. Cheap —
-// the clients table is a fixed catalog of ~24 rows in Corofy's singleton
-// setup. We still inner-join to threads so the picker only surfaces clients
-// the user can actually filter by (skips inactive seeded rows).
-export const loadClients = cache(async function loadClients(
-  workspaceId: string,
-): Promise<ClientOption[]> {
+// the clients table is a fixed catalog of ~24 rows in the BrokerStaffer
+// singleton setup. We still inner-join to threads so the picker only
+// surfaces clients the user can actually filter by (skips inactive seeded
+// rows).
+async function fetchClients(workspaceId: string): Promise<ClientOption[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
     .from("threads")
@@ -35,4 +35,9 @@ export const loadClients = cache(async function loadClients(
     });
   }
   return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
-});
+}
+
+// 60s TTL — the client roster turns over rarely; the threads scan is
+// expensive enough that re-running it once per render under concurrent
+// load was the bulk of the inbox slowdown.
+export const loadClients = cache(ttlCache(fetchClients, { ttlMs: 60_000 }));

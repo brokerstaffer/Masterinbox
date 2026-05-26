@@ -1,12 +1,11 @@
 import { cache } from "react";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { ttlCache } from "@/lib/cache/ttl";
 import type { ChannelRow } from "./channels-shared";
 
 export type { ChannelRow } from "./channels-shared";
 
-export const loadChannels = cache(async function loadChannels(
-  workspaceId: string,
-): Promise<ChannelRow[]> {
+async function fetchChannels(workspaceId: string): Promise<ChannelRow[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
     .from("channels")
@@ -19,4 +18,8 @@ export const loadChannels = cache(async function loadChannels(
     return [];
   }
   return (data ?? []) as ChannelRow[];
-});
+}
+
+// Channels turn over only when sender accounts are added/removed (rare),
+// so caching for 60s across all concurrent users is safe.
+export const loadChannels = cache(ttlCache(fetchChannels, { ttlMs: 60_000 }));

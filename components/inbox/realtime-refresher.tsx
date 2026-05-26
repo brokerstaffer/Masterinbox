@@ -17,10 +17,15 @@ import { createClient } from "@/lib/supabase/client";
 // Polling fallback: every POLL_MS we also fire a router.refresh() regardless
 // of realtime status. Supabase Realtime has known JWT-timing / reconnection
 // edge cases — the poll guarantees the user never has to hit refresh
-// manually. Cheap: router.refresh() reuses React.cache and the page query
-// is fast. Paused while the tab is hidden so background tabs stay quiet.
+// manually. Paused while the tab is hidden so background tabs stay quiet.
+//
+// 30s is a safety net only. Realtime INSERT events still trigger an
+// immediate refresh; the poll exists purely to recover from a dropped
+// websocket. Halving the cadence (from 15s) cuts baseline server load
+// in half without users noticing — new threads still arrive in seconds
+// via the realtime path.
 
-const POLL_MS = 15_000;
+const POLL_MS = 30_000;
 
 export function RealtimeRefresher({ workspaceId }: { workspaceId: string }) {
   const router = useRouter();
