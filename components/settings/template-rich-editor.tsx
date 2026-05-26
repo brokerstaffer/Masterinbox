@@ -72,7 +72,16 @@ export function TemplateRichEditor({
       },
     },
     onUpdate: ({ editor }) => {
-      onChange({ html: editor.getHTML(), text: editor.getText() });
+      // TipTap separates block nodes with \n\n. An empty paragraph
+      // (which a user can produce by pressing Enter on a blank line)
+      // emits an additional \n\n, so `<p>A</p><p></p><p>B</p>` becomes
+      // `A\n\n\n\nB` — three visible blank lines in the composer
+      // textarea. Collapse runs of 3+ newlines down to exactly 2 so a
+      // single blank line between paragraphs is the most spacing
+      // anyone ever sees.
+      const rawText = editor.getText();
+      const text = rawText.replace(/\n{3,}/g, "\n\n").trim();
+      onChange({ html: editor.getHTML(), text });
     },
   });
 

@@ -40,9 +40,52 @@ export interface SubstitutionContext {
   };
 }
 
+// Extract a first name from a free-form "name" field. Handles two common
+// shapes:
+//   "Nicole Collins"             → "Nicole"        (first whitespace token)
+//   "nicole.c@gohubrealty.com"   → "Nicole"        (local part, first
+//                                                   chunk before . _ -,
+//                                                   title-cased)
+// The email path matters because most Instantly channels store
+// display_name = the mailbox email itself, so without this fallback
+// `{{sender.first_name}}` resolved to the entire address.
 function firstName(full?: string | null): string {
   if (!full) return "";
-  return full.trim().split(/\s+/)[0] ?? "";
+  const trimmed = full.trim();
+  if (!trimmed) return "";
+  // Email-shaped → derive from local part
+  if (/^\S+@\S+\.\S+$/.test(trimmed)) {
+    const local = trimmed.split("@")[0] ?? "";
+    const first = local.split(/[._-]/).find((p) => p.length > 0) ?? local;
+    return capitaliseFirst(first);
+  }
+  // Free-form name → first whitespace token
+  const token = trimmed.split(/\s+/)[0] ?? "";
+  return capitaliseFirst(token);
+}
+
+// "Nicole Collins" → "Nicole Collins" (unchanged)
+// "nicole.c@gohubrealty.com" → "Nicole C" (title-cased local-part parts)
+// Email path matches the firstName() heuristic so both variables stay
+// consistent — sender.name and sender.first_name come from the same root.
+function readableName(full?: string | null): string | null {
+  if (!full) return null;
+  const trimmed = full.trim();
+  if (!trimmed) return null;
+  if (/^\S+@\S+\.\S+$/.test(trimmed)) {
+    const local = trimmed.split("@")[0] ?? "";
+    const parts = local
+      .split(/[._-]/)
+      .filter((p) => p.length > 0)
+      .map(capitaliseFirst);
+    return parts.length > 0 ? parts.join(" ") : trimmed;
+  }
+  return trimmed;
+}
+
+function capitaliseFirst(s: string): string {
+  if (!s) return "";
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
 // Replace every {{key}} occurrence with the matching value from the
@@ -70,7 +113,7 @@ export function substituteVariables(
   const get = (key: string): string | null => {
     switch (key) {
       case "lead.name":
-        return context.lead?.name ?? null;
+        return readableName(context.lead?.name);
       case "lead.first_name":
         return firstName(context.lead?.name);
       case "lead.email":
@@ -82,7 +125,7 @@ export function substituteVariables(
       case "thread.subject":
         return context.thread?.subject ?? null;
       case "sender.name":
-        return context.sender?.name ?? null;
+        return readableName(context.sender?.name);
       case "sender.first_name":
         return firstName(context.sender?.name);
       case "sender.email":

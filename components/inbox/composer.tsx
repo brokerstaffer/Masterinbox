@@ -805,8 +805,14 @@ function TemplatePicker({
   function apply(t: PickerTemplate) {
     const subst = (s: string | null) =>
       s ? substituteVariables(s, substitutionContext) : null;
+    // Normalise whitespace: collapse runs of 3+ newlines down to 2,
+    // strip leading/trailing blanks. Catches existing templates that
+    // were saved before the editor began trimming on save.
+    const cleanBody = substituteVariables(t.body ?? "", substitutionContext)
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
     onApply({
-      body: substituteVariables(t.body ?? "", substitutionContext),
+      body: cleanBody,
       subject: subst(t.subject),
       cc: subst(t.cc),
       bcc: subst(t.bcc),
