@@ -28,6 +28,10 @@ import {
   substituteVariables,
   type SubstitutionContext,
 } from "@/lib/inbox/template-variables";
+import {
+  ComposerBodyEditor,
+  type ComposerBodyHandle,
+} from "@/components/inbox/composer-body-editor";
 
 const PER_FILE_MAX = 25 * 1024 * 1024; // 25 MB
 const COMBINED_MAX = 50 * 1024 * 1024; // 50 MB
@@ -127,7 +131,16 @@ export function Composer({
   onClose: () => void;
 }) {
   const router = useRouter();
-  const [body, setBody] = useState(initialBody ?? draft?.generated_body ?? "");
+  // Body is rich-text (HTML). bodyText is the plain-text projection
+  // TipTap gives us — used for empty-body checks and the forward-marker
+  // safety net (which scans for the "----- Forwarded message -----"
+  // string regardless of formatting).
+  const initialPlain = initialBody ?? draft?.generated_body ?? "";
+  const editorRef = useRef<ComposerBodyHandle | null>(null);
+  const [bodyHtml, setBodyHtml] = useState<string>(() =>
+    initialPlain ? plainTextToHtml(initialPlain) : "",
+  );
+  const [bodyText, setBodyText] = useState<string>(initialPlain);
   const [usingDraft, setUsingDraft] = useState(
     !initialBody && Boolean(draft?.generated_body),
   );
@@ -173,7 +186,12 @@ export function Composer({
         toast.error(json.error ?? "Could not generate a draft.");
         return;
       }
-      setBody(json.body);
+      // AI returns plain text — convert to HTML preserving paragraph
+      // breaks so the rich editor can show it sensibly.
+      const html = plainTextToHtml(json.body);
+      editorRef.current?.setContent(html);
+      setBodyHtml(html);
+      setBodyText(json.body);
       setUsingDraft(true);
       toast.success(`Draft by ${json.agent_name ?? "Reply Agent"}`);
     } catch {
@@ -211,39 +229,35 @@ export function Composer({
   async function onSend() {
     // On replies, force the user to write something — sending an empty
     // reply is almost always a mistake. On forwards, an empty body is
-    // legitimate (the original message is the payload), and we
-    // re-attach the forwarded block below regardless.
+    // legitimate (the original message is the payload), and we re-attach
+    // the forwarded block below regardless.
     const isForward = mode === "forward";
-    if (!isForward && !body.trim()) {
+    if (!isForward && !bodyText.trim()) {
       toast.error("Write something to reply.");
       return;
     }
     setSending(true);
     try {
-      // Forward safety net: guarantee the original message rides along.
-      // If the user cleared the textarea before sending, the prefilled
-      // forward quote would be gone — re-attach it. Same if the user
-      // left their own note but accidentally deleted the quoted block
-      // from the bottom.
-      let effectiveBody = body;
+      // bodyHtml is already real HTML from the rich-text editor. Forward
+      // safety net: if the user cleared the editor (or deleted the
+      // pre-filled quoted block), re-attach the original message so the
+      // forward isn't an empty email. Marker check runs on the plain
+      // text projection so formatting changes don't fool it.
+      let finalHtml = bodyHtml;
       const FORWARD_MARKER = "---------- Forwarded message ----------";
-      if (isForward && forwardedBlock) {
-        const hasMarker = effectiveBody.includes(FORWARD_MARKER);
-        if (!hasMarker) {
-          effectiveBody = effectiveBody.trim().length > 0
-            ? `${effectiveBody.trim()}\n\n${forwardedBlock}`
-            : forwardedBlock;
-        }
+      if (isForward && forwardedBlock && !bodyText.includes(FORWARD_MARKER)) {
+        const quotedHtml = plainTextToHtml(forwardedBlock);
+        finalHtml = finalHtml.trim().length > 0
+          ? `${finalHtml}<br><br>${quotedHtml}`
+          : quotedHtml;
       }
-      // Plain-text body → HTML using <br> for every newline. Gmail's default
-      // <p> styling collapses margins so paragraph wrappers lose the visual
-      // blank line between blocks; <br><br> renders the user's intent 1:1.
-      let bodyHtml = escapeHtml(effectiveBody).replace(/\n/g, "<br>");
-      // Append the EmailBison signature when the user opted in. Signature
-      // is already HTML — don't escape it.
+      // Append the EmailBison signature when the user opted in.
+      // Signature is already HTML — don't escape it.
       if (addSignature && signatureHtml && signatureHtml.trim().length > 0) {
-        bodyHtml += `<br><br>${signatureHtml}`;
+        finalHtml += `<br><br>${signatureHtml}`;
       }
+      // Naming kept to minimise the diff with the existing send path.
+      const bodyHtmlToSend = finalHtml;
       // Parse the TO field the same way CC/BCC are parsed so multiple
       // comma/semicolon-separated addresses work. Single-recipient mode
       // (the common reply case) still produces a one-element array.
@@ -265,7 +279,7 @@ export function Composer({
         // request as multipart/form-data with scalars + JSON-stringified
         // recipients + repeated `attachments` file fields.
         const form = new FormData();
-        form.append("body", bodyHtml);
+        form.append("body", bodyHtmlToSend);
         form.append("content_type", "html");
         if (composerSubject) form.append("subject", composerSubject);
         if (toArr) form.append("to", JSON.stringify(toArr));
@@ -285,7 +299,7 @@ export function Composer({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            body: bodyHtml,
+            body: bodyHtmlToSend,
             content_type: "html",
             subject: composerSubject,
             to: toArr,
@@ -448,26 +462,30 @@ export function Composer({
             <button
               type="button"
               onClick={() => {
-                setBody("");
+                editorRef.current?.setContent("");
+                setBodyHtml("");
+                setBodyText("");
                 setUsingDraft(false);
               }}
               className="text-amber-900 hover:underline font-medium"
             >
-              Clear & write from scratch
+              Clear &amp; write from scratch
             </button>
           </div>
         ) : null}
-        <textarea
-          value={body}
-          onChange={(e) => {
-            setBody(e.target.value);
-            // Once the user edits, drop the "draft" marker (they've taken ownership).
-            if (usingDraft && e.target.value !== draft?.generated_body) setUsingDraft(false);
-          }}
+        <ComposerBodyEditor
+          ref={editorRef}
+          initialHtml={bodyHtml}
           placeholder="Enter your message…"
-          rows={10}
-          className="w-full min-h-[200px] resize-none text-sm bg-transparent outline-none placeholder:text-muted-foreground leading-relaxed"
-          autoFocus
+          onChange={({ html, text }) => {
+            setBodyHtml(html);
+            setBodyText(text);
+            // Once the user types, drop the "draft" marker (they've taken
+            // ownership of the body).
+            if (usingDraft && html !== plainTextToHtml(draft?.generated_body ?? "")) {
+              setUsingDraft(false);
+            }
+          }}
         />
 
         {/* Quoted last message */}
@@ -587,8 +605,12 @@ export function Composer({
               sender: { name: fromName ?? null, email: fromEmail ?? null },
             }}
             onApply={(t) => {
-              if (t.body) {
-                setBody((cur) => (cur.trim() ? `${cur}\n\n${t.body}` : t.body));
+              // Insert the template's HTML at the caret so any existing
+              // text the user typed is preserved. If the editor is
+              // currently empty, insertContent simply places it at the
+              // start.
+              if (t.bodyHtml) {
+                editorRef.current?.insertContent(t.bodyHtml);
               }
               // Subject: apply the template's subject only when the
               // composer doesn't already have one the user has typed/
@@ -714,6 +736,20 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#039;");
 }
 
+// Plain-text → HTML, preserving paragraph + line breaks so the rich
+// editor (and the eventual email recipient) sees the same visual
+// structure the user typed. Single newlines become <br>; blank lines
+// become paragraph breaks. Safe to feed into the editor's
+// initialHtml or insertContent.
+function plainTextToHtml(s: string): string {
+  if (!s) return "";
+  const paragraphs = s.split(/\n{2,}/).map((para) => {
+    const inner = escapeHtml(para).replace(/\n/g, "<br>");
+    return `<p>${inner || "<br>"}</p>`;
+  });
+  return paragraphs.join("");
+}
+
 function stripHtml(html: string): string {
   return html
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
@@ -737,7 +773,10 @@ interface PickerTemplate {
 const UNCATEGORISED_LABEL = "Uncategorised";
 
 interface AppliedTemplate {
-  body: string;
+  // HTML body to insert at the editor's caret. Variables already
+  // substituted. Falls back to plaintextToHtml(t.body) when the
+  // template has no body_html (older rows).
+  bodyHtml: string;
   subject: string | null;
   cc: string | null;
   bcc: string | null;
@@ -805,14 +844,18 @@ function TemplatePicker({
   function apply(t: PickerTemplate) {
     const subst = (s: string | null) =>
       s ? substituteVariables(s, substitutionContext) : null;
-    // Normalise whitespace: collapse runs of 3+ newlines down to 2,
-    // strip leading/trailing blanks. Catches existing templates that
-    // were saved before the editor began trimming on save.
-    const cleanBody = substituteVariables(t.body ?? "", substitutionContext)
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
+    // Prefer the rich HTML body when the template has one. Older rows
+    // only have the plain `body` column — wrap that in basic HTML so
+    // the editor still renders paragraph breaks correctly.
+    const rawHtml =
+      t.body_html && t.body_html.trim().length > 0
+        ? t.body_html
+        : plainTextToHtml(
+            (t.body ?? "").replace(/\n{3,}/g, "\n\n").trim(),
+          );
+    const substitutedHtml = substituteVariables(rawHtml, substitutionContext);
     onApply({
-      body: cleanBody,
+      bodyHtml: substitutedHtml,
       subject: subst(t.subject),
       cc: subst(t.cc),
       bcc: subst(t.bcc),
