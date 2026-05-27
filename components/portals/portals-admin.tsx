@@ -29,24 +29,20 @@ import {
 import { PortalLogo } from "@/components/portals/portal-logo";
 import type { PortalClientRow } from "@/app/(app)/portals/page";
 
-// Pretty "time ago" — coarse buckets are plenty for a "last intro" column.
-function timeAgo(iso: string | null): string {
+// Absolute date for the "last intro" column — client asked for an
+// explicit date instead of "Xh ago / 1mo ago" so it's easier to spot
+// stale clients at a glance. Locale + UTC are fixed so the value is
+// the same in any timezone the operator opens this page from.
+function formatLastIntro(iso: string | null): string {
   if (!iso) return "No intros yet";
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "—";
-  const secs = Math.floor((Date.now() - then) / 1000);
-  if (secs < 60) return "just now";
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  const weeks = Math.floor(days / 7);
-  if (weeks < 5) return `${weeks}w ago`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  return `${Math.floor(days / 365)}y ago`;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 function clientInitials(name: string): string {
@@ -305,7 +301,7 @@ function PortalRow({
       </div>
 
       {/* Last intro */}
-      <div className="text-[13px] text-[#5b6472]">{timeAgo(row.last_intro_at)}</div>
+      <div className="text-[13px] text-[#5b6472]">{formatLastIntro(row.last_intro_at)}</div>
 
       {/* Portal toggle */}
       <div className="flex justify-center">

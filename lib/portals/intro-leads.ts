@@ -223,34 +223,28 @@ function mergeIntros(ours: IntroLead[], external: IntroLead[]): IntroLead[] {
   return merged;
 }
 
-// THE portal payload: our Supabase Introduction leads + the legacy
-// MasterInbox feed, deduped, newest-first. "Total of everything" for one
-// client. Used by both the public portal and the admin drill-down.
+// THE portal payload for one client. Originally merged our Supabase
+// Introduction leads with the legacy MasterInbox feed; the legacy feed
+// was disconnected in 2026-05 per client request, so this now reads
+// ONLY our own data. Kept as a named export so existing callers stay
+// untouched while the legacy loader becomes effectively dead code.
 export async function loadCombinedClientIntroLeads(clientId: string): Promise<IntroLead[]> {
-  const [ourByClient, externalByClient] = await Promise.all([
-    loadOurIntroLeadsByClient(),
-    loadExternalIntrosByClient(),
-  ]);
-  return mergeIntros(ourByClient.get(clientId) ?? [], externalByClient.get(clientId) ?? []);
+  const ourByClient = await loadOurIntroLeadsByClient();
+  return ourByClient.get(clientId) ?? [];
 }
 
-// Combined per-client roll-up for the admin grid — count + most recent,
-// computed from the SAME merged data the portal renders so the admin
-// number always matches the portal total.
+// Combined per-client roll-up for the admin grid — count + most recent.
+// Same legacy-disconnect as above: only counts Introduction-labeled
+// threads from the new MasterInbox.
 export async function loadCombinedIntroSummaryByClient(): Promise<Map<string, IntroSummary>> {
-  const [ourByClient, externalByClient] = await Promise.all([
-    loadOurIntroLeadsByClient(),
-    loadExternalIntrosByClient(),
-  ]);
+  const ourByClient = await loadOurIntroLeadsByClient();
   const out = new Map<string, IntroSummary>();
-  const clientIds = new Set([...ourByClient.keys(), ...externalByClient.keys()]);
-  for (const id of clientIds) {
-    const merged = mergeIntros(ourByClient.get(id) ?? [], externalByClient.get(id) ?? []);
+  for (const [id, leads] of ourByClient) {
     let lastAt: string | null = null;
-    for (const l of merged) {
+    for (const l of leads) {
       if (!lastAt || l.assigned_at > lastAt) lastAt = l.assigned_at;
     }
-    out.set(id, { count: merged.length, lastAt });
+    out.set(id, { count: leads.length, lastAt });
   }
   return out;
 }
