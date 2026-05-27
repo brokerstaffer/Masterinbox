@@ -84,9 +84,29 @@ export async function labelInboundMessage(input: LabelInboundInput): Promise<Lab
     return { status: "errored", error: msg };
   }
 
-  if (!chosen) return { status: "skipped_model_returned_none" };
-  const labelRow = labelRows.find((l) => l.name.toLowerCase() === chosen?.toLowerCase());
-  if (!labelRow) return { status: "skipped_no_match", raw: chosen };
+  // Fallback semantics (May 2026 client decision): if the model
+  // can't classify (returned NONE) or returned a string that doesn't
+  // match any of the workspace's labels, pin the thread to "Unable
+  // to Categorize" instead of leaving it unlabeled. That label
+  // becomes the universal queue for manual triage; the operator
+  // never has to hunt for "untagged" threads. If the workspace
+  // doesn't have an "Unable to Categorize" label, we keep the prior
+  // skipped_* status so the run report still surfaces it.
+  const findFallback = () =>
+    labelRows.find((l) => l.name.toLowerCase() === "unable to categorize") ?? null;
+
+  let labelRow = chosen
+    ? labelRows.find((l) => l.name.toLowerCase() === chosen.toLowerCase()) ?? null
+    : null;
+  if (!labelRow) {
+    const fallback = findFallback();
+    if (!fallback) {
+      return !chosen
+        ? { status: "skipped_model_returned_none" }
+        : { status: "skipped_no_match", raw: chosen };
+    }
+    labelRow = fallback;
+  }
 
   // Re-label semantics: if relabel_ongoing OR force, wipe any existing AI
   // assignment on this thread so we don't accumulate stale labels.
@@ -218,6 +238,9 @@ export async function backfillLabelsForWorkspace(
     ? cfg.category_set
     : labelRows.map((l) => l.name);
   const labelByName = new Map(labelRows.map((l) => [l.name.toLowerCase(), l]));
+  // Fallback label used when the model returns NONE or a name that
+  // doesn't match a candidate — see comment in labelInboundMessage.
+  const fallbackLabel = labelByName.get("unable to categorize") ?? null;
   const systemPrompt =
     cfg.use_custom_prompt && cfg.custom_prompt ? cfg.custom_prompt : DEFAULT_SYSTEM_PROMPT;
 
@@ -316,16 +339,18 @@ export async function backfillLabelsForWorkspace(
       return { kind: "result", threadId: t.id, result: { status: "errored", error: lastErr } };
     }
 
-    if (!chosen) {
-      return { kind: "result", threadId: t.id, result: { status: "skipped_model_returned_none" } };
-    }
-    const labelRow = labelByName.get(chosen.toLowerCase());
+    // Same fallback as the single-thread path: NONE / no-match maps
+    // to "Unable to Categorize" so every backfilled thread ends up
+    // with exactly one chip and operators have a single manual-triage
+    // queue.
+    let labelRow = chosen ? labelByName.get(chosen.toLowerCase()) ?? null : null;
     if (!labelRow) {
-      return {
-        kind: "result",
-        threadId: t.id,
-        result: { status: "skipped_no_match", raw: chosen },
-      };
+      if (!fallbackLabel) {
+        return chosen
+          ? { kind: "result", threadId: t.id, result: { status: "skipped_no_match", raw: chosen } }
+          : { kind: "result", threadId: t.id, result: { status: "skipped_model_returned_none" } };
+      }
+      labelRow = fallbackLabel;
     }
 
     const { error: upsertErr } = await admin.from("label_assignments").upsert(
