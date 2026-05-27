@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth/workspace";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { invalidateViewsCache } from "@/lib/inbox/views";
 
 export const dynamic = "force-dynamic";
 
@@ -59,5 +60,6 @@ export async function POST(request: Request) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
+  invalidateViewsCache(session.activeWorkspace.id);
   return NextResponse.json({ id: data.id });
 }

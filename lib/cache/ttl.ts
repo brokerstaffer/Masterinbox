@@ -24,6 +24,17 @@ type Entry<T> = { data: T; expiresAt: number; promise?: Promise<T> };
 
 const DEFAULT_INFLIGHT_TIMEOUT_MS = 12_000;
 
+// Returned function carries an `.invalidate()` method so mutation
+// endpoints can bust the cache immediately after writing — needed
+// for any list whose order or membership changes via user action
+// (e.g. drag-reorder of views) where the next read MUST reflect
+// the write rather than serve a stale 30s window.
+export interface TtlCachedFn<TArgs extends unknown[], TResult> {
+  (...args: TArgs): Promise<TResult>;
+  /** Drop the cache entry for these args. Pass no args to drop ALL. */
+  invalidate(...args: Partial<TArgs>): void;
+}
+
 export function ttlCache<TArgs extends unknown[], TResult>(
   fn: (...args: TArgs) => Promise<TResult>,
   options: {
@@ -31,7 +42,7 @@ export function ttlCache<TArgs extends unknown[], TResult>(
     inflightTimeoutMs?: number;
     key?: (...args: TArgs) => string;
   } = {},
-): (...args: TArgs) => Promise<TResult> {
+): TtlCachedFn<TArgs, TResult> {
   const {
     ttlMs = 30_000,
     inflightTimeoutMs = DEFAULT_INFLIGHT_TIMEOUT_MS,
@@ -39,7 +50,7 @@ export function ttlCache<TArgs extends unknown[], TResult>(
   } = options;
   const store = new Map<string, Entry<TResult>>();
 
-  return async (...args: TArgs): Promise<TResult> => {
+  const cached = async (...args: TArgs): Promise<TResult> => {
     const k = key(...args);
     const now = Date.now();
     const hit = store.get(k);
@@ -69,4 +80,18 @@ export function ttlCache<TArgs extends unknown[], TResult>(
 
     return promise;
   };
+
+  // Cache-bust API. Mutation endpoints call this after writing so the
+  // next read sees the update instead of waiting for the TTL window.
+  // No args = drop every entry (useful when the cache key has varying
+  // shape and the caller doesn't care which slot to drop).
+  (cached as TtlCachedFn<TArgs, TResult>).invalidate = (...args: Partial<TArgs>) => {
+    if (args.length === 0) {
+      store.clear();
+      return;
+    }
+    store.delete(key(...(args as TArgs)));
+  };
+
+  return cached as TtlCachedFn<TArgs, TResult>;
 }

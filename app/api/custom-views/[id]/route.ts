@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth/workspace";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { invalidateViewsCache } from "@/lib/inbox/views";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,12 @@ export async function PATCH(
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
+  // Bust the views ttlCache for this workspace so the next page load
+  // — triggered by the client's router.refresh() — picks up the new
+  // sort_order / name / filter instead of serving the stale 30s
+  // window. Without this, drag-reorder visibly snapped back after
+  // ~1s as the cached list re-rendered with the old order.
+  invalidateViewsCache(session.activeWorkspace.id);
   return NextResponse.json({ ok: true });
 }
 
@@ -59,5 +66,6 @@ export async function DELETE(
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
+  invalidateViewsCache(session.activeWorkspace.id);
   return NextResponse.json({ ok: true });
 }

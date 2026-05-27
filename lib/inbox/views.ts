@@ -40,7 +40,17 @@ async function fetchViews(workspaceId: string): Promise<CustomView[]> {
   }));
 }
 
-export const loadViews = cache(ttlCache(fetchViews, { ttlMs: 30_000 }));
+// Two-layer cache exposed separately: the inner ttlCache holds the
+// 30s cross-request store + the invalidate() handle that mutations
+// call after writing. The outer React.cache strips that method, so
+// we keep both bindings available — `loadViews` for callers (deduped
+// within one render), `invalidateViewsCache` for mutation endpoints.
+const ttlLoadViews = ttlCache(fetchViews, { ttlMs: 30_000 });
+export const loadViews = cache(ttlLoadViews);
+export function invalidateViewsCache(workspaceId?: string) {
+  if (workspaceId) ttlLoadViews.invalidate(workspaceId);
+  else ttlLoadViews.invalidate();
+}
 
 // Resolve a URL slug to its CustomView. Returns null if the slug doesn't
 // match any view in the workspace. Sidebar items (archive/spam/trash) are
