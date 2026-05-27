@@ -28,6 +28,13 @@ import {
 // email thread that addresses the active members below. The page used
 // to push every team email to Instantly + EmailBison blocklists too;
 // that behavior was removed in 2026-05 per client feedback.
+//
+// Layout mirrors the client's mockup (team-section HTML):
+//   - Gradient blue "How intro delivery works" banner
+//   - Inline collapsible Add-member form (NOT a modal — modal stays
+//     reserved for Edit only, matching the mockup's two-mode pattern)
+//   - Member rows show a colored-initial avatar + small green/gray
+//     status dot bottom-right of the avatar
 
 export function TeamList({
   token,
@@ -40,7 +47,7 @@ export function TeamList({
   const mounted = useMounted();
   const [members, setMembers] = useState(initial);
   useEffect(() => setMembers(initial), [initial]);
-  const [openAdd, setOpenAdd] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
   const [editing, setEditing] = useState<TeamMember | null>(null);
 
   async function patch(id: string, body: Partial<TeamMember>) {
@@ -81,7 +88,7 @@ export function TeamList({
         title="Team"
         subtitle="Who receives intro notifications and how."
         actions={
-          <Button onClick={() => setOpenAdd(true)} className="gap-1.5">
+          <Button onClick={() => setShowAddForm((v) => !v)} className="gap-1.5">
             <Plus className="size-4" />
             Add member
           </Button>
@@ -105,12 +112,26 @@ export function TeamList({
         </div>
       </div>
 
+      {/* Collapsible inline Add-member form — shown when "Add member"
+          is clicked, hidden otherwise. Matches the mockup's pattern of
+          inline form for Add + modal for Edit. */}
+      {showAddForm ? (
+        <AddMemberForm
+          token={token}
+          onCancel={() => setShowAddForm(false)}
+          onAdded={() => {
+            setShowAddForm(false);
+            router.refresh();
+          }}
+        />
+      ) : null}
+
       {members.length === 0 ? (
         <PortalEmpty
           title="No team members yet"
           hint="Add the people who should hear about every introduction."
           action={
-            <Button onClick={() => setOpenAdd(true)} className="gap-1.5">
+            <Button onClick={() => setShowAddForm(true)} className="gap-1.5">
               <Plus className="size-4" />
               Add the first member
             </Button>
@@ -140,7 +161,19 @@ export function TeamList({
                 )}
               >
                 <div className="flex min-w-0 items-center gap-3">
-                  <Avatar name={m.name} />
+                  <div className="relative shrink-0">
+                    <Avatar name={m.name} />
+                    {/* Small status dot bottom-right of avatar —
+                        green when active, grey when paused. Matches
+                        the mockup's at-a-glance status pattern. */}
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-white",
+                        m.active ? "bg-[#10b981]" : "bg-[#d1d5db]",
+                      )}
+                    />
+                  </div>
                   <div className="min-w-0">
                     <div className="truncate text-[13.5px] font-medium">{m.name}</div>
                   </div>
@@ -185,19 +218,8 @@ export function TeamList({
         </div>
       )}
 
-      {openAdd ? (
-        <MemberDialog
-          token={token}
-          member={null}
-          onClose={() => setOpenAdd(false)}
-          onSaved={() => {
-            setOpenAdd(false);
-            router.refresh();
-          }}
-        />
-      ) : null}
       {editing ? (
-        <MemberDialog
+        <EditMemberDialog
           token={token}
           member={editing}
           onClose={() => setEditing(null)}
@@ -211,22 +233,21 @@ export function TeamList({
   );
 }
 
-function MemberDialog({
+// Inline collapsible Add form rendered between the explainer banner and
+// the table. Mirrors the mockup's 3-col-then-1 row layout.
+function AddMemberForm({
   token,
-  member,
-  onClose,
-  onSaved,
+  onCancel,
+  onAdded,
 }: {
   token: string;
-  member: TeamMember | null;
-  onClose: () => void;
-  onSaved: () => void;
+  onCancel: () => void;
+  onAdded: () => void;
 }) {
-  const isEdit = member !== null;
-  const [name, setName] = useState(member?.name ?? "");
-  const [email, setEmail] = useState(member?.email ?? "");
-  const [title, setTitle] = useState(member?.title ?? "");
-  const [phone, setPhone] = useState(member?.phone ?? "");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [title, setTitle] = useState("");
+  const [phone, setPhone] = useState("");
   const [pending, startTransition] = useTransition();
 
   async function save() {
@@ -238,27 +259,130 @@ function MemberDialog({
       toast.error("Email is required");
       return;
     }
-    const payload = {
-      name: name.trim(),
-      email: email.trim(),
-      title: title.trim() || null,
-      phone: phone.trim() || null,
-    };
-    const url = isEdit
-      ? `/api/portal/${token}/team/${member!.id}`
-      : `/api/portal/${token}/team`;
-    const method = isEdit ? "PATCH" : "POST";
-    const res = await fetch(url, {
-      method,
+    const res = await fetch(`/api/portal/${token}/team`, {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        name: name.trim(),
+        email: email.trim(),
+        title: title.trim() || null,
+        phone: phone.trim() || null,
+      }),
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
       toast.error(j.error ?? "Save failed");
       return;
     }
-    toast.success(isEdit ? "Member updated" : "Member added");
+    toast.success("Member added");
+    startTransition(() => onAdded());
+  }
+
+  return (
+    <div className="mb-5 rounded-2xl border border-[#eaecf0] bg-white p-5 shadow-sm">
+      <div className="mb-3.5 text-[13px] font-semibold tracking-tight">
+        Add team member
+      </div>
+      <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-[#c0c7d4]">
+            Full name
+          </label>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Maria Lopez"
+            autoFocus
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-[#c0c7d4]">
+            Title
+          </label>
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="e.g. Recruiting Manager"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-[#c0c7d4]">
+            Email
+          </label>
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="name@brokerage.com"
+          />
+        </div>
+      </div>
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-[#c0c7d4]">
+            Phone
+          </label>
+          <Input
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="(305) 555-0000"
+          />
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button onClick={save} disabled={pending || !name.trim() || !email.trim()}>
+          {pending ? <Loader2 className="size-4 animate-spin" /> : "Add member"}
+        </Button>
+        <Button variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function EditMemberDialog({
+  token,
+  member,
+  onClose,
+  onSaved,
+}: {
+  token: string;
+  member: TeamMember;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(member.name);
+  const [email, setEmail] = useState(member.email);
+  const [title, setTitle] = useState(member.title ?? "");
+  const [phone, setPhone] = useState(member.phone ?? "");
+  const [pending, startTransition] = useTransition();
+
+  async function save() {
+    if (!name.trim()) {
+      toast.error("Add a name");
+      return;
+    }
+    if (!email.trim()) {
+      toast.error("Email is required");
+      return;
+    }
+    const res = await fetch(`/api/portal/${token}/team/${member.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: name.trim(),
+        email: email.trim(),
+        title: title.trim() || null,
+        phone: phone.trim() || null,
+      }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      toast.error(j.error ?? "Save failed");
+      return;
+    }
+    toast.success("Member updated");
     startTransition(() => onSaved());
   }
 
@@ -266,7 +390,7 @@ function MemberDialog({
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit member" : "Add a team member"}</DialogTitle>
+          <DialogTitle>Edit member</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -290,7 +414,6 @@ function MemberDialog({
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@brokerage.com"
               />
             </div>
             <div className="space-y-1.5">
@@ -308,13 +431,7 @@ function MemberDialog({
             Cancel
           </Button>
           <Button onClick={save} disabled={pending || !name.trim() || !email.trim()}>
-            {pending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : isEdit ? (
-              "Save changes"
-            ) : (
-              "Add"
-            )}
+            {pending ? <Loader2 className="size-4 animate-spin" /> : "Save changes"}
           </Button>
         </DialogFooter>
       </DialogContent>
