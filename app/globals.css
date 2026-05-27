@@ -126,11 +126,17 @@
   html {
     @apply font-sans;
   }
-  /* Links inherit colour + decoration — explicit so they can never fall
-     back to the browser's blue-underline default if Preflight is slow to
-     apply (a Turbopack CSS-HMR quirk seen during heavy editing). */
-  a {
-    color: inherit;
-    text-decoration: inherit;
-  }
+}
+
+/* Link reset OUTSIDE @layer base so it can't be overridden by Tailwind
+   Preflight reaching the cascade later in production (we were seeing
+   intermittent "everything blue and underlined" reports where the rule
+   inside @layer base wasn't winning). :link / :visited are spelled out
+   explicitly because the bare `a` selector loses to user-agent
+   :link / :visited rules under some browser engines. */
+a,
+a:link,
+a:visited {
+  color: inherit;
+  text-decoration: inherit;
 }

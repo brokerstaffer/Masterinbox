@@ -27,6 +27,20 @@ export default function RootLayout({
       className={`${inter.variable} h-full antialiased`}
       suppressHydrationWarning
     >
+      <head>
+        {/* Inline link reset — guarantees the rule is present in the
+            initial HTML even if a CSS chunk loads late or fails. We
+            were seeing intermittent "everything blue and underlined"
+            reports where the @layer base rule wasn't winning the
+            cascade in production. Belt-and-braces over the rule in
+            globals.css. */}
+        <style
+          dangerouslySetInnerHTML={{
+            __html:
+              "a,a:link,a:visited{color:inherit;text-decoration:inherit;}",
+          }}
+        />
+      </head>
       <body className="bg-background text-foreground min-h-full flex flex-col">
         <Providers>{children}</Providers>
       </body>

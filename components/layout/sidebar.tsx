@@ -192,16 +192,22 @@ export function Sidebar({
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
           <input
             type="search"
-            // Browsers treat an un-named text input near nothing in
-            // particular as a candidate for email autofill — Chrome was
-            // dropping the user's saved address into this box, which then
-            // filtered out every list. A search type + explicit non-emailish
-            // name + autoComplete off + the password-manager ignore hints
-            // keep autofill out.
-            name="sidebar-list-search"
+            // Chrome's autofill ignores most hints if a saved value
+            // previously matched this slot — clients were getting
+            // admin@outreachify.io dropped here, filtering every list
+            // out. The readOnly-until-focus trick is the only reliable
+            // way to suppress it: the field is non-targetable for the
+            // browser's autofill heuristic at mount time, then becomes
+            // editable the moment the user clicks in.
+            name="sidebar-list-filter"
             autoComplete="off"
+            inputMode="search"
+            aria-autocomplete="none"
             data-1p-ignore
             data-lpignore="true"
+            data-form-type="other"
+            readOnly
+            onFocus={(e) => e.currentTarget.removeAttribute("readonly")}
             value={listSearch}
             onChange={(e) => setListSearch(e.target.value)}
             placeholder="Search lists…"

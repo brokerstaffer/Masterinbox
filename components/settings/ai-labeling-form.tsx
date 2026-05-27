@@ -270,7 +270,21 @@ export function AiLabelingForm({
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <Input
+                // Browser password managers were auto-filling this slot
+                // with the user's login password (because of type=password
+                // + the page being inside the app shell). The readOnly-
+                // until-focus trick is the only reliable way to block
+                // that — the autofill heuristic can't target a readonly
+                // field at mount time.
                 type={showKey ? "text" : "password"}
+                name="ai-provider-key"
+                autoComplete="off"
+                aria-autocomplete="none"
+                data-1p-ignore
+                data-lpignore="true"
+                data-form-type="other"
+                readOnly
+                onFocus={(e) => e.currentTarget.removeAttribute("readonly")}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder={

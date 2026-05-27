@@ -230,6 +230,20 @@ export async function backfillLabelsForWorkspace(
   const list = (threads ?? []) as Array<{ id: string; subject: string | null }>;
   if (list.length === 0) return result;
 
+  // Emit a zero-progress event up-front so the UI shows the total
+  // immediately on click instead of waiting for the first batch to
+  // finish (~2-3s with OpenAI in the loop).
+  onProgress?.({
+    scanned: 0,
+    total: list.length,
+    labeled: 0,
+    no_inbound: 0,
+    skipped_already_labeled: 0,
+    skipped_no_match: 0,
+    skipped_model_returned_none: 0,
+    errors: 0,
+  });
+
   // 2) Bulk-delete every existing AI assignment for these threads in one
   //    request — the per-thread path used to do 500 separate deletes.
   const threadIds = list.map((t) => t.id);
@@ -261,19 +275,31 @@ export async function backfillLabelsForWorkspace(
     if (!msg) return { kind: "no_inbound" };
 
     let chosen: string | null = null;
-    try {
-      chosen = await classifyReply({
-        provider: cfg!.provider,
-        apiKey: cfg!.api_key!,
-        model: cfg!.model,
-        systemPrompt,
-        candidateLabels: candidateNames,
-        subject: (msg.subject as string | null) ?? t.subject,
-        body: (msg.body_text as string | null) ?? stripHtml((msg.body_html as string | null) ?? ""),
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown classify error";
-      return { kind: "result", threadId: t.id, result: { status: "errored", error: message } };
+    let lastErr: string | null = null;
+    // One retry with brief backoff — OpenAI returns transient 429s and
+    // 503s under burst load. The user's last run saw ~4% errors on a
+    // 500-thread backfill from rate limiting; a single retry catches
+    // most of them without lengthening the happy path.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        chosen = await classifyReply({
+          provider: cfg!.provider,
+          apiKey: cfg!.api_key!,
+          model: cfg!.model,
+          systemPrompt,
+          candidateLabels: candidateNames,
+          subject: (msg.subject as string | null) ?? t.subject,
+          body: (msg.body_text as string | null) ?? stripHtml((msg.body_html as string | null) ?? ""),
+        });
+        lastErr = null;
+        break;
+      } catch (err) {
+        lastErr = err instanceof Error ? err.message : "Unknown classify error";
+        if (attempt === 0) await new Promise((r) => setTimeout(r, 800));
+      }
+    }
+    if (lastErr) {
+      return { kind: "result", threadId: t.id, result: { status: "errored", error: lastErr } };
     }
 
     if (!chosen) {
@@ -318,10 +344,12 @@ export async function backfillLabelsForWorkspace(
     };
   }
 
-  // Concurrency 12 — most per-thread time is the OpenAI call; the
-  // workspace's OpenAI tier comfortably handles 12 in-flight chat
-  // completions on gpt-4o-mini without hitting RPM limits.
-  const CONCURRENCY = 12;
+  // Concurrency 8 — most per-thread time is the OpenAI call. A previous
+  // run at 12 saw ~4% rate-limit errors; 8 keeps comfortably inside the
+  // workspace's tier-1 limits while still finishing 500 threads in
+  // ~60-80s. Combined with the one-shot retry inside classifyThread,
+  // transient 429s/503s no longer fail the row.
+  const CONCURRENCY = 8;
   for (let i = 0; i < list.length; i += CONCURRENCY) {
     const batch = await Promise.all(list.slice(i, i + CONCURRENCY).map(classifyThread));
     for (const outcome of batch) {
