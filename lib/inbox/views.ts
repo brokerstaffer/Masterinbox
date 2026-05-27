@@ -1,6 +1,5 @@
 import { cache } from "react";
 import { createServerSupabase } from "@/lib/supabase/server";
-import { ttlCache } from "@/lib/cache/ttl";
 import {
   OPEN_RESPONSES_PRESET,
   isOpenResponse,
@@ -13,9 +12,16 @@ export { slugifyView } from "./views-shared";
 import type { CustomView } from "./views-shared";
 import { slugifyView } from "./views-shared";
 
-// Two-layer cache: React.cache dedupes within one render, ttlCache dedupes
-// across requests for 30s. Custom views change only when an admin tweaks
-// the workspace, so caching is safe.
+// React.cache dedupes within ONE render (when several server components
+// need the views list during the same request, the query runs once).
+//
+// We dropped the 30s cross-request ttlCache because Railway can scale
+// to multiple Node workers and the cache is in-memory per-worker — an
+// invalidate() call after a drag PATCH would only clear the cache on
+// whichever worker handled the PATCH. The next request could land on a
+// different worker still holding the stale 30s window, and the user
+// would see the dragged tab snap back. Views queries are small (~10
+// rows) so the cost of refetching per request is negligible.
 async function fetchViews(workspaceId: string): Promise<CustomView[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
@@ -40,16 +46,14 @@ async function fetchViews(workspaceId: string): Promise<CustomView[]> {
   }));
 }
 
-// Two-layer cache exposed separately: the inner ttlCache holds the
-// 30s cross-request store + the invalidate() handle that mutations
-// call after writing. The outer React.cache strips that method, so
-// we keep both bindings available — `loadViews` for callers (deduped
-// within one render), `invalidateViewsCache` for mutation endpoints.
-const ttlLoadViews = ttlCache(fetchViews, { ttlMs: 30_000 });
-export const loadViews = cache(ttlLoadViews);
-export function invalidateViewsCache(workspaceId?: string) {
-  if (workspaceId) ttlLoadViews.invalidate(workspaceId);
-  else ttlLoadViews.invalidate();
+export const loadViews = cache(fetchViews);
+
+// Kept as a no-op so existing mutation routes can call it without
+// caring whether a TTL cache is in play. If we re-introduce
+// cross-request caching for views later (e.g. via Redis) the
+// implementation re-attaches here without touching every caller.
+export function invalidateViewsCache(_workspaceId?: string) {
+  /* no-op — see fetchViews comment above */
 }
 
 // Resolve a URL slug to its CustomView. Returns null if the slug doesn't

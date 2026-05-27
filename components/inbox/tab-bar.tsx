@@ -83,6 +83,13 @@ export function TabBar({
   // in case a PATCH failed silently and the order never caught up.
   const [orderedViews, setOrderedViews] = useState<CustomView[]>(views);
   const pendingOrderRef = useRef<string | null>(null);
+  // Set during a drag and held briefly past dragEnd. SortableTabItem
+  // reads this on click capture to suppress the navigation that would
+  // otherwise fire when the user releases the pointer over a tab.
+  // Without this, every drop also opens the dragged tab's view —
+  // which then re-renders the strip with the destination route's
+  // stale cache.
+  const dragSuppressClickRef = useRef(false);
   useEffect(() => {
     const propOrder = views.map((v) => v.id).join(",");
     if (pendingOrderRef.current && pendingOrderRef.current !== propOrder) {
@@ -143,7 +150,21 @@ export function TabBar({
   const systemViews = orderedViews.filter((v) => v.is_system);
   const userViews = orderedViews.filter((v) => !v.is_system);
 
+  // Drag started — block the click that will fire on pointerup
+  // (browsers fire click even for sizeable drags as long as the
+  // pointerup target shares an ancestor with the pointerdown one).
+  function handleDragStart() {
+    dragSuppressClickRef.current = true;
+  }
+
   async function handleDragEnd(event: DragEndEvent) {
+    // Hold the suppression flag for a couple frames past dragEnd so
+    // the click event that bubbles after pointerup gets caught by
+    // onClickCapture below. Without this, dropping a tab also
+    // navigates to that tab's URL.
+    setTimeout(() => {
+      dragSuppressClickRef.current = false;
+    }, 250);
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIndex = userViews.findIndex((v) => v.id === active.id);
@@ -217,7 +238,12 @@ export function TabBar({
             draggable={false}
           />
         ))}
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
           <SortableContext
             items={userViews.map((v) => v.id)}
             strategy={horizontalListSortingStrategy}
@@ -235,6 +261,7 @@ export function TabBar({
                 }}
                 onDelete={deleteView}
                 pending={pending}
+                suppressClickRef={dragSuppressClickRef}
               />
             ))}
           </SortableContext>
@@ -365,8 +392,17 @@ function TabItem({
 // Sortable wrapper around the tab content — the whole pill is the drag
 // surface (no separate handle column). The pointer sensor's distance:4
 // activation guard means a normal click still navigates; you have to
-// drag at least 4px to start a reorder.
-function SortableTabItem(props: TabItemProps) {
+// drag at least 4px to start a reorder. After a real drag we still
+// have to manually suppress the `click` event the browser fires on
+// pointerup (the pointerdown / pointerup share an ancestor) — that's
+// what suppressClickRef is for; the parent flips it true on dragStart
+// and clears it ~250ms after dragEnd.
+function SortableTabItem({
+  suppressClickRef,
+  ...props
+}: TabItemProps & {
+  suppressClickRef: React.MutableRefObject<boolean>;
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: props.view.id });
   const style = {
@@ -376,7 +412,18 @@ function SortableTabItem(props: TabItemProps) {
     zIndex: isDragging ? 10 : undefined,
   };
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      onClickCapture={(e) => {
+        if (suppressClickRef.current) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
+      {...attributes}
+      {...listeners}
+    >
       <TabItem {...props} draggable />
     </div>
   );
