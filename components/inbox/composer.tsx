@@ -983,9 +983,23 @@ function SenderPicker({
   const triggerSubLabel = selected ? "" : defaultName ?? "";
 
   const filtered = filter.trim()
-    ? available.filter((c) =>
-        c.display_name.toLowerCase().includes(filter.trim().toLowerCase()),
-      )
+    ? (() => {
+        const needle = filter.trim().toLowerCase();
+        return available.filter((c) => {
+          // display_name covers names + emails-as-names (Instantly stores
+          // the email there too). instantly_account_id is literally the
+          // email for Instantly channels — search that explicitly so
+          // typing the @domain portion of a sender's address matches.
+          if (c.display_name.toLowerCase().includes(needle)) return true;
+          if (
+            c.instantly_account_id &&
+            c.instantly_account_id.toLowerCase().includes(needle)
+          ) {
+            return true;
+          }
+          return false;
+        });
+      })()
     : available;
 
   if (available.length <= 1) {
@@ -1037,6 +1051,14 @@ function SenderPicker({
             type="search"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
+            // base-ui's Menu intercepts every keystroke for ARIA
+            // typeahead (jumping to items starting with the letter),
+            // which is why typing "j" used to send focus to the first
+            // "John" item instead of going into this input. Stopping
+            // propagation on keydown + pointerdown keeps the input
+            // owning its own events.
+            onKeyDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             placeholder={`Search ${available.length} sender${available.length === 1 ? "" : "s"}…`}
             autoFocus
             className="w-full h-8 rounded-md border bg-background px-2 text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/30"

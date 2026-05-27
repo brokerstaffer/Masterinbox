@@ -147,14 +147,23 @@ export function ThreadList({
                 /* sessionStorage can be disabled in private mode */
               }
             };
+            const unread = !isSeen(t);
             return (
               <li key={t.id} className="border-b">
                 <Link
                   href={href}
                   onClick={onLinkClick}
                   className={cn(
-                    "block px-3 py-3 hover:bg-accent/40 transition-colors",
-                    active && "bg-accent",
+                    "block px-3 py-3 transition-colors",
+                    // Gmail-style read/unread contrast: unread rows keep
+                    // the canvas white + bold weight; read rows get a
+                    // subtle gray wash so the eye glides over them.
+                    // Selected (active) wins over both.
+                    active
+                      ? "bg-accent"
+                      : unread
+                        ? "bg-background hover:bg-accent/40"
+                        : "bg-muted/30 hover:bg-accent/40",
                   )}
                 >
                   <div className="flex items-start gap-2">
@@ -239,7 +248,13 @@ export function ThreadList({
           {threads.map((t) => (
             <li
               key={t.id}
-              className="flex items-center gap-3 px-4 h-12 border-b hover:bg-accent/40 transition-colors"
+              className={cn(
+                "flex items-center gap-3 px-4 h-12 border-b transition-colors hover:bg-accent/40",
+                // Read rows get a subtle gray wash; unread stay on the
+                // bright canvas. Same Gmail-style contrast pattern as the
+                // multi-line view above.
+                isSeen(t) ? "bg-muted/30" : "bg-background",
+              )}
             >
               <div className="flex items-center gap-1.5">
                 <UnseenDot seen={isSeen(t)} />

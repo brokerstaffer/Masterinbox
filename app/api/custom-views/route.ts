@@ -5,27 +5,19 @@ import { createServerSupabase } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-const PRESETS = [
-  "needs_reply",
-  "follow_up",
-  "engaged",
-  "meeting_pipeline",
-  "all_email",
-  "dnc",
-  "custom",
-] as const;
-
+// filter_json shape is intentionally open-ended — the filter builder
+// emits richer payloads (preset='custom_filter', `rows: [...]`) that
+// don't fit the original 7-preset enum, and PATCH already accepts any
+// JSON via z.record. Match that here so creating a non-preset view
+// (e.g. a campaign-name filter) doesn't fail at the boundary.
+//
+// Validation of individual fields happens downstream when the view
+// is read back (lib/inbox/views.ts) so it can ignore malformed
+// presets gracefully instead of 400ing on save.
 const createSchema = z.object({
   name: z.string().min(1).max(80),
   icon: z.string().optional(),
-  filter_json: z
-    .object({
-      preset: z.enum(PRESETS).optional(),
-      step: z.number().int().optional(),
-      labels: z.array(z.string()).optional(),
-      channels: z.array(z.string()).optional(),
-    })
-    .passthrough(),
+  filter_json: z.record(z.string(), z.unknown()),
 });
 
 export async function POST(request: Request) {

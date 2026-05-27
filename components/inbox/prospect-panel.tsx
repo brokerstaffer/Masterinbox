@@ -276,11 +276,11 @@ function DetailsTab({
           <Field icon={Users} label="Name" value={lead.full_name} onCopy={onCopy} />
           <Field icon={MailIcon} label="Email" value={lead.email} onCopy={onCopy} />
           <Field icon={Phone} label="Phone" value={phone} onCopy={onCopy} />
-          <Field icon={Building2} label="Company" value={company} />
-          <Field icon={MapPin} label="Location" value={location} />
-          <Field icon={Globe} label="Website" value={website} />
-          <Field icon={Megaphone} label="Campaign" value={detail.campaign_name} />
-          <Field icon={Users} label="Client" value={detail.client_name} />
+          <Field icon={Building2} label="Company" value={company} onCopy={onCopy} />
+          <Field icon={MapPin} label="Location" value={location} onCopy={onCopy} />
+          <Field icon={Globe} label="Website" value={website} onCopy={onCopy} />
+          <Field icon={Megaphone} label="Campaign" value={detail.campaign_name} onCopy={onCopy} />
+          <Field icon={Users} label="Client" value={detail.client_name} onCopy={onCopy} />
           <Field icon={Inbox} label="Source" value={sourceLabel} />
         </div>
 
@@ -302,7 +302,12 @@ function DetailsTab({
         <Card title="Lead details" defaultOpen>
           <dl className="grid grid-cols-[minmax(96px,auto)_1fr] gap-x-3 gap-y-2 text-sm">
             {card2.map((row) => (
-              <FieldPair key={`${row.label}-${row.value}`} label={row.label} value={row.value} />
+              <FieldPair
+                key={`${row.label}-${row.value}`}
+                label={row.label}
+                value={row.value}
+                onCopy={onCopy}
+              />
             ))}
           </dl>
         </Card>
@@ -350,13 +355,36 @@ function Field({
   );
 }
 
-// Compact key/value row for Card 2.
-function FieldPair({ label, value }: { label: string; value: string }) {
+// Compact key/value row for Card 2. The copy button sits inline with
+// the value and only reveals itself on group-hover so the layout stays
+// quiet at rest. `group/row` scopes the hover to this <dd>, not the
+// surrounding card.
+function FieldPair({
+  label,
+  value,
+  onCopy,
+}: {
+  label: string;
+  value: string;
+  onCopy?: (v: string) => void;
+}) {
   return (
     <>
       <dt className="text-xs text-muted-foreground break-words pt-0.5">{label}</dt>
-      <dd className="break-words leading-snug">
-        <LinkValue value={value} />
+      <dd className="group/row flex items-start gap-2 break-words leading-snug">
+        <div className="min-w-0 flex-1">
+          <LinkValue value={value} />
+        </div>
+        {onCopy ? (
+          <button
+            type="button"
+            onClick={() => onCopy(value)}
+            className="mt-0.5 shrink-0 text-muted-foreground/0 transition-colors group-hover/row:text-muted-foreground hover:!text-foreground"
+            aria-label={`Copy ${label}`}
+          >
+            <Copy className="size-3" />
+          </button>
+        ) : null}
       </dd>
     </>
   );
