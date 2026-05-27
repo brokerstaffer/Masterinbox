@@ -147,14 +147,16 @@ export interface BackfillResult {
 
 // Bulk-label every open thread's most recent inbound. Always runs in force
 // mode — the user explicitly clicked Run.
+//
+// Performance note: the per-thread `labelInboundMessage` path re-fetches
+// the workspace config + label list on every call. Multiply by 500
+// threads at concurrency 5 and the route burns ~2500 redundant Supabase
+// round-trips and hits the 300s `maxDuration` cap. This implementation
+// hoists those reads to the start of the run, bulk-deletes existing AI
+// assignments in one query, and updates `last_run_at` once at the end —
+// leaving only the OpenAI call + the per-thread upsert in the hot loop.
 export async function backfillLabelsForWorkspace(workspaceId: string): Promise<BackfillResult> {
   const admin = createAdminSupabase();
-  const { data: threads } = await admin
-    .from("threads")
-    .select("id, subject")
-    .eq("workspace_id", workspaceId)
-    .eq("status", "open")
-    .limit(500);
 
   const result: BackfillResult = {
     scanned: 0,
@@ -172,8 +174,54 @@ export async function backfillLabelsForWorkspace(workspaceId: string): Promise<B
     sample_errors: [],
   };
 
-  // Per-thread classification. Returns either "no_inbound" or the
-  // LabelResult so the caller can tally it.
+  // 1) One-time setup: cfg + labels.
+  const cfg = await loadAiConfigWithKey(workspaceId);
+  if (!cfg) {
+    result.skipped_no_config = 1;
+    return result;
+  }
+  if (!cfg.api_key) {
+    result.skipped_no_key = 1;
+    return result;
+  }
+
+  const { data: labelRows } = await admin
+    .from("labels")
+    .select("id, name")
+    .eq("workspace_id", workspaceId)
+    .order("sort_order", { ascending: true });
+  if (!labelRows || labelRows.length === 0) {
+    result.skipped_no_labels = 1;
+    return result;
+  }
+  const candidateNames = cfg.category_set.length > 0
+    ? cfg.category_set
+    : labelRows.map((l) => l.name);
+  const labelByName = new Map(labelRows.map((l) => [l.name.toLowerCase(), l]));
+  const systemPrompt =
+    cfg.use_custom_prompt && cfg.custom_prompt ? cfg.custom_prompt : DEFAULT_SYSTEM_PROMPT;
+
+  const { data: threads } = await admin
+    .from("threads")
+    .select("id, subject")
+    .eq("workspace_id", workspaceId)
+    .eq("status", "open")
+    .limit(500);
+  const list = (threads ?? []) as Array<{ id: string; subject: string | null }>;
+  if (list.length === 0) return result;
+
+  // 2) Bulk-delete every existing AI assignment for these threads in one
+  //    request — the per-thread path used to do 500 separate deletes.
+  const threadIds = list.map((t) => t.id);
+  await admin
+    .from("label_assignments")
+    .delete()
+    .eq("target_type", "thread")
+    .eq("assigned_by", "ai")
+    .in("target_id", threadIds);
+
+  // 3) Hot loop: pull the latest inbound + classify + upsert, with cfg /
+  //    labels / systemPrompt already in scope.
   type ThreadOutcome =
     | { kind: "no_inbound" }
     | { kind: "result"; threadId: string; result: LabelResult };
@@ -191,22 +239,69 @@ export async function backfillLabelsForWorkspace(workspaceId: string): Promise<B
       .limit(1)
       .maybeSingle();
     if (!msg) return { kind: "no_inbound" };
-    const result = await labelInboundMessage({
-      workspaceId,
+
+    let chosen: string | null = null;
+    try {
+      chosen = await classifyReply({
+        provider: cfg!.provider,
+        apiKey: cfg!.api_key!,
+        model: cfg!.model,
+        systemPrompt,
+        candidateLabels: candidateNames,
+        subject: (msg.subject as string | null) ?? t.subject,
+        body: (msg.body_text as string | null) ?? stripHtml((msg.body_html as string | null) ?? ""),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown classify error";
+      return { kind: "result", threadId: t.id, result: { status: "errored", error: message } };
+    }
+
+    if (!chosen) {
+      return { kind: "result", threadId: t.id, result: { status: "skipped_model_returned_none" } };
+    }
+    const labelRow = labelByName.get(chosen.toLowerCase());
+    if (!labelRow) {
+      return {
+        kind: "result",
+        threadId: t.id,
+        result: { status: "skipped_no_match", raw: chosen },
+      };
+    }
+
+    const { error: upsertErr } = await admin.from("label_assignments").upsert(
+      {
+        workspace_id: workspaceId,
+        label_id: labelRow.id,
+        target_type: "thread",
+        target_id: t.id,
+        assigned_by: "ai",
+      },
+      { onConflict: "label_id,target_type,target_id" },
+    );
+    if (upsertErr) {
+      return {
+        kind: "result",
+        threadId: t.id,
+        result: { status: "errored", error: upsertErr.message },
+      };
+    }
+
+    // Hostile → auto Do-Not-Contact (kept inline; cheap when it doesn't fire).
+    if (isHostileLabel(labelRow.name)) {
+      await markThreadLeadDoNotContact(t.id);
+    }
+
+    return {
+      kind: "result",
       threadId: t.id,
-      messageId: msg.id as string,
-      subject: (msg.subject as string | null) ?? t.subject,
-      bodyText: msg.body_text as string | null,
-      bodyHtml: msg.body_html as string | null,
-      force: true,
-    });
-    return { kind: "result", threadId: t.id, result };
+      result: { status: "labeled", label: labelRow.name },
+    };
   }
 
-  // Run in bounded-concurrency batches — sequential was minutes-long and
-  // timed the request out on a few hundred threads.
-  const list = (threads ?? []) as Array<{ id: string; subject: string | null }>;
-  const CONCURRENCY = 5;
+  // Concurrency 12 — most per-thread time is the OpenAI call; the
+  // workspace's OpenAI tier comfortably handles 12 in-flight chat
+  // completions on gpt-4o-mini without hitting RPM limits.
+  const CONCURRENCY = 12;
   for (let i = 0; i < list.length; i += CONCURRENCY) {
     const batch = await Promise.all(list.slice(i, i + CONCURRENCY).map(classifyThread));
     for (const outcome of batch) {
@@ -260,6 +355,9 @@ export async function backfillLabelsForWorkspace(workspaceId: string): Promise<B
       }
     }
   }
+
+  // 4) Single touch_run at the end instead of one per thread.
+  await admin.rpc("ai_labeling_touch_run", { p_workspace: workspaceId });
 
   return result;
 }
