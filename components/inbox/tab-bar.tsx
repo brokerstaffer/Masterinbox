@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { toast } from "sonner";
 import Link from "next/link";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { MoreHorizontal, Plus, GripVertical } from "lucide-react";
@@ -70,8 +71,28 @@ export function TabBar({
   // Local mirror of the views list so drag operations can update
   // ordering optimistically — the server re-syncs in the background
   // via router.refresh().
+  //
+  // We can NOT blindly reset from the `views` prop on every render:
+  // the server-side loadViews is wrapped in a 30s ttlCache, so after
+  // a drag's PATCH + router.refresh() the page can briefly re-render
+  // with the OLD order and a naive prop-sync useEffect would snap
+  // the tabs back into place. The pendingOrderRef tracks the order
+  // the user just dragged into — we only accept a fresh `views`
+  // prop once it matches that expected order (i.e. the server has
+  // caught up). Cleared automatically; cleared with a 10s fallback
+  // in case a PATCH failed silently and the order never caught up.
   const [orderedViews, setOrderedViews] = useState<CustomView[]>(views);
-  useEffect(() => setOrderedViews(views), [views]);
+  const pendingOrderRef = useRef<string | null>(null);
+  useEffect(() => {
+    const propOrder = views.map((v) => v.id).join(",");
+    if (pendingOrderRef.current && pendingOrderRef.current !== propOrder) {
+      // Server hasn't caught up yet — keep showing the optimistic
+      // post-drag order instead of snapping back.
+      return;
+    }
+    pendingOrderRef.current = null;
+    setOrderedViews(views);
+  }, [views]);
 
   async function deleteView(v: CustomView) {
     if (!confirm(`Delete "${v.name}" view?`)) return;
@@ -134,17 +155,46 @@ export function TabBar({
     // to each moved view in parallel; sort_order values keep system
     // views packed at the front of the global ordering.
     const sysCount = systemViews.length;
-    setOrderedViews([...systemViews, ...reordered]);
+    const previous = orderedViews;
+    const nextOrdered = [...systemViews, ...reordered];
+    // Mark this order as "pending server confirmation" so the
+    // prop-sync useEffect above doesn't snap back to the stale
+    // order during the PATCH window.
+    pendingOrderRef.current = nextOrdered.map((v) => v.id).join(",");
+    setOrderedViews(nextOrdered);
 
-    await Promise.all(
+    // Persist EVERY non-system view's sort_order, not just the moved
+    // pair — gaps in numbering can break ordering invariants on the
+    // read side, and writing all of them is still cheap (<= ~30 PATCHes).
+    const results = await Promise.allSettled(
       reordered.map((v, i) =>
         fetch(`/api/custom-views/${v.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sort_order: sysCount + i }),
+        }).then(async (r) => {
+          if (!r.ok) {
+            const body = await r.text().catch(() => "");
+            throw new Error(`${r.status}: ${body.slice(0, 120)}`);
+          }
+          return r;
         }),
       ),
     );
+    const failures = results.filter((r) => r.status === "rejected");
+    if (failures.length > 0) {
+      // Roll back optimistic order so the user isn't left with a
+      // visible state the server doesn't agree with.
+      console.error("[tab-bar] reorder PATCH failed", failures);
+      toast.error(
+        failures.length === reordered.length
+          ? "Couldn't save the new tab order"
+          : `Saved ${reordered.length - failures.length} of ${reordered.length} tabs`,
+      );
+      pendingOrderRef.current = null;
+      setOrderedViews(previous);
+      return;
+    }
     router.refresh();
   }
 
