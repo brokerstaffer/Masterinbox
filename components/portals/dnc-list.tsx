@@ -559,12 +559,16 @@ function DncDialog({
     const method = isEdit ? "PATCH" : "POST";
     // PATCH route doesn't accept `kind` (locked on edit). For POST the
     // current local state of `kind` is correct.
+    // Company rows are identified by domain only — clearing email/phone
+    // here so the dialog can't smuggle stale state from a switched-from
+    // Agent tab into the company insert payload.
+    const isCompany = kind === "company";
     const payload: Record<string, unknown> = {
       name: name.trim(),
-      email: email.trim() || null,
-      phone: phone.trim() || null,
-      brokerage: kind === "agent" ? (brokerage.trim() || null) : null,
-      domain: kind === "company" ? (domain.trim() || null) : null,
+      email: isCompany ? null : (email.trim() || null),
+      phone: isCompany ? null : (phone.trim() || null),
+      brokerage: isCompany ? null : (brokerage.trim() || null),
+      domain: isCompany ? (domain.trim() || null) : null,
       notes: notes.trim() || null,
     };
     if (!isEdit) payload.kind = kind;
@@ -648,38 +652,37 @@ function DncDialog({
                 We&apos;ll block every email at this domain across providers.
               </p>
             </div>
-          ) : null}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium">
-                {kind === "company" ? "Contact email" : "Email"}
-              </label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="optional"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium">Phone</label>
-              <Input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="optional"
-              />
-            </div>
-          </div>
-          {kind === "agent" ? (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium">Brokerage</label>
-              <Input
-                value={brokerage}
-                onChange={(e) => setBrokerage(e.target.value)}
-                placeholder="optional"
-              />
-            </div>
-          ) : null}
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium">Email</label>
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="optional"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium">Phone</label>
+                  <Input
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="optional"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Brokerage</label>
+                <Input
+                  value={brokerage}
+                  onChange={(e) => setBrokerage(e.target.value)}
+                  placeholder="optional"
+                />
+              </div>
+            </>
+          )}
           <div className="space-y-1.5">
             <label className="text-xs font-medium">Notes</label>
             <Textarea
