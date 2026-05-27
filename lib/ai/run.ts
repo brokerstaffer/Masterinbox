@@ -145,6 +145,20 @@ export interface BackfillResult {
   sample_errors: Array<{ thread_id: string; error: string }>;
 }
 
+// Streaming progress event the route emits between batches. The shape
+// matches the BackfillResult tally fields so the client can render a
+// progress bar + live counters without reinventing the schema.
+export interface BackfillProgress {
+  scanned: number;
+  total: number;
+  labeled: number;
+  no_inbound: number;
+  skipped_already_labeled: number;
+  skipped_no_match: number;
+  skipped_model_returned_none: number;
+  errors: number;
+}
+
 // Bulk-label every open thread's most recent inbound. Always runs in force
 // mode — the user explicitly clicked Run.
 //
@@ -155,7 +169,13 @@ export interface BackfillResult {
 // hoists those reads to the start of the run, bulk-deletes existing AI
 // assignments in one query, and updates `last_run_at` once at the end —
 // leaving only the OpenAI call + the per-thread upsert in the hot loop.
-export async function backfillLabelsForWorkspace(workspaceId: string): Promise<BackfillResult> {
+//
+// `onProgress` (optional) fires once per concurrency batch so a streaming
+// route can flush a JSON line to the browser and drive a progress bar.
+export async function backfillLabelsForWorkspace(
+  workspaceId: string,
+  onProgress?: (p: BackfillProgress) => void,
+): Promise<BackfillResult> {
   const admin = createAdminSupabase();
 
   const result: BackfillResult = {
@@ -354,6 +374,16 @@ export async function backfillLabelsForWorkspace(workspaceId: string): Promise<B
           break;
       }
     }
+    onProgress?.({
+      scanned: result.scanned,
+      total: list.length,
+      labeled: result.labeled,
+      no_inbound: result.no_inbound,
+      skipped_already_labeled: result.skipped_already_labeled,
+      skipped_no_match: result.skipped_no_match,
+      skipped_model_returned_none: result.skipped_model_returned_none,
+      errors: result.errors,
+    });
   }
 
   // 4) Single touch_run at the end instead of one per thread.

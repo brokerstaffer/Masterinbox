@@ -26,6 +26,17 @@ interface BackfillReport {
   sample_errors: Array<{ thread_id: string; error: string }>;
 }
 
+interface BackfillProgress {
+  scanned: number;
+  total: number;
+  labeled: number;
+  no_inbound: number;
+  skipped_already_labeled: number;
+  skipped_no_match: number;
+  skipped_model_returned_none: number;
+  errors: number;
+}
+
 interface ServerConfig {
   enabled: boolean;
   provider: "openai" | "anthropic" | "openrouter" | "vllm";
@@ -101,6 +112,7 @@ export function AiLabelingForm({
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<BackfillProgress | null>(null);
   const [runReport, setRunReport] = useState<BackfillReport | null>(null);
 
   function toggleCategory(name: string) {
@@ -161,16 +173,50 @@ export function AiLabelingForm({
     setError(null);
     setMessage(null);
     setRunReport(null);
+    setProgress(null);
     setRunning(true);
     try {
       const res = await fetch("/api/ai-labeling/run", { method: "POST" });
-      const json = await res.json();
-      if (!res.ok) {
-        setError(json.error ?? "Run failed");
-      } else {
-        setRunReport(json as BackfillReport);
-        startTransition(() => router.refresh());
+      if (!res.ok || !res.body) {
+        const txt = await res.text().catch(() => "");
+        setError(txt || `Run failed (${res.status})`);
+        return;
       }
+      // Stream is newline-delimited JSON, one event per line. Buffer
+      // partial chunks because TCP doesn't promise line-aligned reads.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl = buf.indexOf("\n");
+        while (nl >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          nl = buf.indexOf("\n");
+          if (!line) continue;
+          let event: { type: string; [k: string]: unknown };
+          try {
+            event = JSON.parse(line);
+          } catch {
+            continue;
+          }
+          if (event.type === "progress") {
+            setProgress(event as unknown as BackfillProgress);
+          } else if (event.type === "done") {
+            const { type: _t, ...rest } = event;
+            void _t;
+            setRunReport(rest as unknown as BackfillReport);
+            startTransition(() => router.refresh());
+          } else if (event.type === "error") {
+            setError((event.error as string) ?? "Run failed");
+          }
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Run failed");
     } finally {
       setRunning(false);
     }
@@ -352,6 +398,7 @@ export function AiLabelingForm({
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
       {message ? <p className="text-sm text-emerald-600">{message}</p> : null}
 
+      {running && progress ? <ProgressBar progress={progress} /> : null}
       {runReport ? <RunReportCard report={runReport} /> : null}
 
       <div className="flex items-center justify-between">
@@ -472,6 +519,41 @@ function RunReportCard({ report }: { report: BackfillReport }) {
           </ul>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function ProgressBar({ progress }: { progress: BackfillProgress }) {
+  const { scanned, total, labeled, errors } = progress;
+  const pct = total > 0 ? Math.min(100, Math.round((scanned / total) * 100)) : 0;
+  const remaining = Math.max(0, total - scanned);
+  return (
+    <div className="rounded-lg border bg-card p-4 space-y-2">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-medium">
+          Labeling threads… {scanned} / {total}
+        </span>
+        <span className="text-muted-foreground tabular-nums">{pct}%</span>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full bg-primary transition-[width] duration-200 ease-out"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground tabular-nums">
+        <span>
+          <span className="text-foreground font-medium">{labeled}</span> labeled
+        </span>
+        <span>
+          <span className="text-foreground font-medium">{remaining}</span> remaining
+        </span>
+        {errors > 0 ? (
+          <span className="text-red-600">
+            <span className="font-medium">{errors}</span> errors
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }

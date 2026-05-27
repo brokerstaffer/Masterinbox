@@ -2,22 +2,57 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/workspace";
 import { backfillLabelsForWorkspace } from "@/lib/ai/run";
 
-// Kicks off an AI-labeling pass over historical inbound messages in the
-// current workspace. Runs synchronously — fine for a few hundred threads
-// but should move to a background job once the volume grows.
+// Streams AI-labeling progress as newline-delimited JSON so the UI can
+// render a live progress bar / counters instead of staring at a spinner
+// for several minutes.
+//
+// Wire protocol:
+//   {"type":"progress","scanned":36,"total":500,"labeled":24,...}\n
+//   ...
+//   {"type":"done","scanned":500,"labeled":412,"sample_labels":[...],...}\n
+//
+// On a fatal error before the loop starts we still write one final line:
+//   {"type":"error","error":"..."}\n
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function POST() {
   const session = await requireSession();
-  try {
-    const result = await backfillLabelsForWorkspace(session.activeWorkspace.id);
-    return NextResponse.json(result);
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Backfill failed" },
-      { status: 500 },
-    );
-  }
+  const workspaceId = session.activeWorkspace.id;
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const write = (line: object) => {
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify(line) + "\n"));
+        } catch {
+          // Client disconnected — let the await finish naturally; the
+          // backfill keeps running but its output goes nowhere.
+        }
+      };
+      try {
+        const result = await backfillLabelsForWorkspace(workspaceId, (p) =>
+          write({ type: "progress", ...p }),
+        );
+        write({ type: "done", ...result });
+      } catch (err) {
+        write({
+          type: "error",
+          error: err instanceof Error ? err.message : "Backfill failed",
+        });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new NextResponse(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
