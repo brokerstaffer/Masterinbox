@@ -39,6 +39,9 @@ export interface DncEntry {
   email: string | null;
   phone: string | null;
   brokerage: string | null;
+  // Company rows carry a normalized blocked domain (added in 0032);
+  // agent rows leave this null.
+  domain: string | null;
   notes: string | null;
   added_by: string;
   pushed_to_instantly: boolean;
@@ -64,8 +67,13 @@ export interface TeamMember {
   name: string;
   email: string;
   title: string | null;
+  phone: string | null;
   receives: "intro" | "digest" | "admin";
   active: boolean;
+  // Legacy columns from when Team was a second blocklist. We don't
+  // write them anymore but the rows still exist; kept on the type so
+  // existing data deserialises cleanly. Safe to drop in a future
+  // schema cleanup.
   pushed_to_instantly: boolean;
   pushed_to_emailbison: boolean;
   push_error: string | null;
@@ -121,7 +129,7 @@ export const loadDncEntries = cache(
     const { data, error } = await admin
       .from("client_dnc_entries")
       .select(
-        "id, kind, name, email, phone, brokerage, notes, added_by, pushed_to_instantly, pushed_to_emailbison, push_error, created_at",
+        "id, kind, name, email, phone, brokerage, domain, notes, added_by, pushed_to_instantly, pushed_to_emailbison, push_error, created_at",
       )
       .eq("client_id", clientId)
       .order("created_at", { ascending: false })
@@ -153,7 +161,7 @@ export const loadTeamMembers = cache(
     const { data, error } = await admin
       .from("client_team_members")
       .select(
-        "id, name, email, title, receives, active, pushed_to_instantly, pushed_to_emailbison, push_error, created_at",
+        "id, name, email, title, phone, receives, active, pushed_to_instantly, pushed_to_emailbison, push_error, created_at",
       )
       .eq("client_id", clientId)
       .order("created_at", { ascending: true })

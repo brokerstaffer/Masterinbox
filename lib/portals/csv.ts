@@ -139,6 +139,10 @@ export interface DncRow {
   email: string | null;
   phone: string | null;
   brokerage: string | null;
+  // Company rows can carry a domain — the import pushes that domain
+  // to the providers' wildcard / domain-level blacklists. Falls
+  // back to deriving from email if the CSV only has email.
+  domain: string | null;
   notes: string | null;
 }
 
@@ -198,12 +202,29 @@ export function csvRowToDnc(row: CsvRow): DncRow | null {
             ["brokerage", "company", "firm", "agency"],
           )
         : null,
+    domain:
+      kind === "company"
+        ? pickFuzzy(
+            row,
+            ["domain", "website", "url"],
+            ["domain", "website", "url"],
+          ) ?? deriveDomainFromEmail(pickFuzzy(row, ["email", "email_address"], ["email"]))
+        : null,
     notes: pickFuzzy(
       row,
       ["notes", "reason", "comment"],
       ["notes", "reason", "comment"],
     ),
   };
+}
+
+// Pull the host out of an email — last-resort domain extraction when
+// a company-kind CSV row only includes an email column.
+function deriveDomainFromEmail(email: string | null): string | null {
+  if (!email) return null;
+  const at = email.lastIndexOf("@");
+  if (at < 0 || at === email.length - 1) return null;
+  return email.slice(at + 1).toLowerCase();
 }
 
 // CSV export helpers used by the portal Agents + DNC pages. The rows

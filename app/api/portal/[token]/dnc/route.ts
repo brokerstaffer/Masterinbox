@@ -2,10 +2,19 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
-import { enforceBlocklist } from "@/lib/portals/enforce-blocklist";
+import {
+  enforceBlocklist,
+  enforceDomainBlocklist,
+  normalizeDomain,
+} from "@/lib/portals/enforce-blocklist";
 
-// POST /api/portal/[token]/dnc — add a DNC entry. If an email is
-// supplied, push to Instantly + EmailBison blocklists immediately.
+// POST /api/portal/[token]/dnc — add a DNC entry.
+//
+// kind='agent'   : an email (if supplied) is pushed to per-address
+//                  blocklists on Instantly + EmailBison.
+// kind='company' : a domain (if supplied) is pushed to wildcard /
+//                  domain-level blacklists on both providers. Optional
+//                  email is kept as contact metadata only.
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -16,6 +25,7 @@ const schema = z.object({
   email: z.string().trim().email().nullable().optional(),
   phone: z.string().trim().max(40).nullable().optional(),
   brokerage: z.string().trim().max(160).nullable().optional(),
+  domain: z.string().trim().max(255).nullable().optional(),
   notes: z.string().trim().max(2000).nullable().optional(),
 });
 
@@ -37,16 +47,25 @@ export async function POST(
     );
   }
   const { kind, name, email, phone, brokerage, notes } = parsed.data;
+  // For company rows the domain is the primary blocklist value; normalize
+  // it server-side too in case the client sent a bare hostname.
+  const domain =
+    kind === "company" ? normalizeDomain(parsed.data.domain ?? "") : null;
 
   const admin = createAdminSupabase();
 
-  // Enforce blocklist FIRST (when an email is present) so the row's
-  // push_* flags reflect reality on insert. The provider calls take
-  // ~1-2s each — acceptable for an explicit "Add" click.
+  // Enforce blocklist FIRST so the row's push_* flags reflect reality
+  // on insert. Provider calls take ~1-2s each — acceptable for an
+  // explicit "Add" click.
   let pushedInstantly = false;
   let pushedEmailBison = false;
   let pushError: string | null = null;
-  if (email) {
+  if (kind === "company" && domain) {
+    const result = await enforceDomainBlocklist(domain);
+    pushedInstantly = result.pushedInstantly;
+    pushedEmailBison = result.pushedEmailBison;
+    pushError = result.error;
+  } else if (kind === "agent" && email) {
     const result = await enforceBlocklist(email);
     pushedInstantly = result.pushedInstantly;
     pushedEmailBison = result.pushedEmailBison;
@@ -59,9 +78,11 @@ export async function POST(
       client_id: client.id,
       kind,
       name,
+      // Agent: store email; Company: keep email as contact metadata only.
       email: email ?? null,
       phone: phone ?? null,
-      brokerage: brokerage ?? null,
+      brokerage: kind === "agent" ? (brokerage ?? null) : null,
+      domain,
       notes: notes ?? null,
       added_by: "client",
       pushed_to_instantly: pushedInstantly,

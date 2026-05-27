@@ -52,6 +52,7 @@ export function AgentsList({
   const [openAdd, setOpenAdd] = useState(false);
   const [openCsv, setOpenCsv] = useState(false);
   const [editing, setEditing] = useState<AgentEntry | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const filtered = useMemo(() => {
     if (!search.trim()) return entries;
@@ -76,13 +77,13 @@ export function AgentsList({
     router.refresh();
   }
 
-  function exportCsv() {
-    if (filtered.length === 0) {
+  function exportRows(rows: AgentEntry[], filenameSuffix: string) {
+    if (rows.length === 0) {
       toast.info("Nothing to export");
       return;
     }
     const csv = toCsv(
-      filtered.map((e) => ({
+      rows.map((e) => ({
         name: e.name,
         email: e.email ?? "",
         phone: e.phone ?? "",
@@ -90,7 +91,62 @@ export function AgentsList({
       ["name", "email", "phone"],
     );
     const today = new Date().toISOString().slice(0, 10);
-    downloadCsv(`agents-${today}.csv`, csv);
+    downloadCsv(`agents-${filenameSuffix}-${today}.csv`, csv);
+  }
+
+  function exportCsv() {
+    exportRows(filtered, "all");
+  }
+
+  // Selection helpers — kept self-contained so the same pattern can be
+  // copy-pasted into other list pages. Selection survives across search
+  // changes (ids stay valid), so e.g. tick three rows, change the
+  // search, change it back, and they're still selected.
+  function toggleOne(id: string) {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleAllVisible() {
+    setSelected((cur) => {
+      const visibleIds = filtered.map((e) => e.id);
+      const allSelected = visibleIds.every((id) => cur.has(id));
+      const next = new Set(cur);
+      if (allSelected) {
+        for (const id of visibleIds) next.delete(id);
+      } else {
+        for (const id of visibleIds) next.add(id);
+      }
+      return next;
+    });
+  }
+  function clearSelection() {
+    setSelected(new Set());
+  }
+  async function bulkDelete() {
+    if (selected.size === 0) return;
+    if (!confirm(`Remove ${selected.size} agent(s)?`)) return;
+    const res = await fetch(`/api/portal/${token}/agents/bulk-delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: Array.from(selected) }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      toast.error(j.error ?? "Bulk delete failed");
+      return;
+    }
+    const j = await res.json().catch(() => ({}));
+    toast.success(`Removed ${j.deleted ?? selected.size}`);
+    clearSelection();
+    router.refresh();
+  }
+  function bulkExport() {
+    const rows = entries.filter((e) => selected.has(e.id));
+    exportRows(rows, "selected");
   }
 
   return (
@@ -150,21 +206,52 @@ export function AgentsList({
         />
       ) : (
         <>
-          <div className="mb-4 flex items-center gap-3">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[#9aa0ab]" />
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search agents…"
-                className="h-9 w-64 rounded-lg border border-[#ebecf0] bg-white pl-8 pr-3 text-[13px] placeholder:text-[#9aa0ab] focus:border-[#bcd5f1] focus:outline-none focus:ring-2 focus:ring-[#eaf2fd]"
-              />
+          {selected.size > 0 ? (
+            <div className="mb-4 flex items-center gap-3 rounded-lg border border-[#bcd5f1] bg-[#eaf2fd]/60 px-3 py-2">
+              <span className="text-[13px] font-medium text-[#1565C0]">
+                {selected.size} selected
+              </span>
+              <div className="ml-auto flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={bulkExport}
+                  className="gap-1.5 h-8"
+                >
+                  <Download className="size-3.5" />
+                  Export selected
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={bulkDelete}
+                  className="gap-1.5 h-8 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                >
+                  <Trash2 className="size-3.5" />
+                  Delete selected
+                </Button>
+                <Button variant="ghost" size="sm" onClick={clearSelection} className="h-8">
+                  Cancel
+                </Button>
+              </div>
             </div>
-            <span className="ml-auto text-[12px] text-[#9aa0ab]">
-              {filtered.length} of {entries.length}
-            </span>
-          </div>
+          ) : (
+            <div className="mb-4 flex items-center gap-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[#9aa0ab]" />
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search agents…"
+                  className="h-9 w-64 rounded-lg border border-[#ebecf0] bg-white pl-8 pr-3 text-[13px] placeholder:text-[#9aa0ab] focus:border-[#bcd5f1] focus:outline-none focus:ring-2 focus:ring-[#eaf2fd]"
+                />
+              </div>
+              <span className="ml-auto text-[12px] text-[#9aa0ab]">
+                {filtered.length} of {entries.length}
+              </span>
+            </div>
+          )}
 
           <div
             className={cn(
@@ -172,7 +259,19 @@ export function AgentsList({
               mounted ? "opacity-100" : "opacity-0",
             )}
           >
-            <div className="grid grid-cols-[1.5fr_1.4fr_160px_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+            <div className="grid grid-cols-[36px_1.5fr_1.4fr_160px_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+              <div className="flex items-center justify-center">
+                <input
+                  type="checkbox"
+                  aria-label="Select all visible"
+                  checked={
+                    filtered.length > 0 &&
+                    filtered.every((e) => selected.has(e.id))
+                  }
+                  onChange={toggleAllVisible}
+                  className="size-3.5 cursor-pointer accent-[#1565C0]"
+                />
+              </div>
               <div>Agent</div>
               <div>Email</div>
               <div>Phone</div>
@@ -187,8 +286,20 @@ export function AgentsList({
                 {filtered.map((a) => (
                   <div
                     key={a.id}
-                    className="grid grid-cols-[1.5fr_1.4fr_160px_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]"
+                    className={cn(
+                      "grid grid-cols-[36px_1.5fr_1.4fr_160px_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]",
+                      selected.has(a.id) && "bg-[#eaf2fd]/40 hover:bg-[#eaf2fd]/60",
+                    )}
                   >
+                    <div className="flex items-center justify-center">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${a.name}`}
+                        checked={selected.has(a.id)}
+                        onChange={() => toggleOne(a.id)}
+                        className="size-3.5 cursor-pointer accent-[#1565C0]"
+                      />
+                    </div>
                     <div className="flex min-w-0 items-center gap-3">
                       <Avatar name={a.name} />
                       <div className="min-w-0">

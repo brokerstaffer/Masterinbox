@@ -53,3 +53,58 @@ export async function enforceBlocklist(email: string): Promise<BlocklistResult> 
     error: errors.length > 0 ? errors.join(" · ") : null,
   };
 }
+
+// Lower-case + strip leading `www.`, `@`, or any protocol/path the user
+// might paste. Returns null if nothing useful remains.
+export function normalizeDomain(raw: string): string | null {
+  let v = raw.trim().toLowerCase();
+  if (!v) return null;
+  // Strip a leading protocol (https://example.com → example.com).
+  v = v.replace(/^[a-z][a-z0-9+.-]*:\/\//, "");
+  // Strip a leading `@` if the client typed "@example.com".
+  v = v.replace(/^@/, "");
+  // Strip a leading `www.`.
+  v = v.replace(/^www\./, "");
+  // Drop anything after the first slash — example.com/foo → example.com.
+  v = v.split("/")[0] ?? v;
+  // Must contain a dot to be a plausible domain.
+  if (!/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i.test(v)) return null;
+  return v;
+}
+
+// Domain-level counterpart for company DNC entries — pushes the whole
+// domain to Instantly's wildcard block + EmailBison's domain blacklist
+// in one go. Same best-effort / per-provider tally shape so the caller
+// can mark the row.
+export async function enforceDomainBlocklist(domain: string): Promise<BlocklistResult> {
+  const d = normalizeDomain(domain);
+  if (!d) {
+    return { pushedInstantly: false, pushedEmailBison: false, error: "missing domain" };
+  }
+
+  const errors: string[] = [];
+  let pushedInstantly = false;
+  let pushedEmailBison = false;
+
+  try {
+    const inst = createInstantlyClient();
+    await inst.blockDomain(d);
+    pushedInstantly = true;
+  } catch (err) {
+    errors.push(`instantly: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  try {
+    const eb = createEmailBisonClient();
+    await eb.blacklistDomain(d);
+    pushedEmailBison = true;
+  } catch (err) {
+    errors.push(`emailbison: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  return {
+    pushedInstantly,
+    pushedEmailBison,
+    error: errors.length > 0 ? errors.join(" · ") : null,
+  };
+}

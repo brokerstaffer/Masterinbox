@@ -10,6 +10,9 @@ export const dynamic = "force-dynamic";
 const patchSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   title: z.string().trim().max(120).nullable().optional(),
+  // email kept editable now that the row no longer drives blocklist push.
+  email: z.string().trim().email().max(160).optional(),
+  phone: z.string().trim().max(40).nullable().optional(),
   active: z.boolean().optional(),
 });
 

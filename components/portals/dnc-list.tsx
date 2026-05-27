@@ -55,6 +55,7 @@ export function DncList({
   const [openCsv, setOpenCsv] = useState(false);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<DncEntry | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const agents = useMemo(
     () => entries.filter((e) => e.kind === "agent"),
@@ -86,25 +87,78 @@ export function DncList({
     router.refresh();
   }
 
-  function exportCsv() {
-    const visible = entries.filter(filterFn);
-    if (visible.length === 0) {
+  function exportRows(rows: DncEntry[], filenameSuffix: string) {
+    if (rows.length === 0) {
       toast.info("Nothing to export");
       return;
     }
     const csv = toCsv(
-      visible.map((e) => ({
+      rows.map((e) => ({
         kind: e.kind,
         name: e.name,
         email: e.email ?? "",
         phone: e.phone ?? "",
         brokerage: e.brokerage ?? "",
+        domain: e.domain ?? "",
         notes: e.notes ?? "",
       })),
-      ["kind", "name", "email", "phone", "brokerage", "notes"],
+      ["kind", "name", "email", "phone", "brokerage", "domain", "notes"],
     );
     const today = new Date().toISOString().slice(0, 10);
-    downloadCsv(`dnc-${today}.csv`, csv);
+    downloadCsv(`dnc-${filenameSuffix}-${today}.csv`, csv);
+  }
+
+  function exportCsv() {
+    exportRows(entries.filter(filterFn), "all");
+  }
+
+  // Selection — shared across both Agents and Companies sections. Same
+  // shape as the Your Agents list so the bulk action bar JSX can be
+  // copy-pasted without diverging.
+  function toggleOne(id: string) {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleAllVisibleIn(rows: DncEntry[]) {
+    setSelected((cur) => {
+      const ids = rows.map((e) => e.id);
+      const allSelected = ids.every((id) => cur.has(id));
+      const next = new Set(cur);
+      if (allSelected) for (const id of ids) next.delete(id);
+      else for (const id of ids) next.add(id);
+      return next;
+    });
+  }
+  function clearSelection() {
+    setSelected(new Set());
+  }
+  async function bulkDelete() {
+    if (selected.size === 0) return;
+    if (!confirm(`Remove ${selected.size} entry(ies) from DNC?`)) return;
+    const res = await fetch(`/api/portal/${token}/dnc/bulk-delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: Array.from(selected) }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      toast.error(j.error ?? "Bulk delete failed");
+      return;
+    }
+    const j = await res.json().catch(() => ({}));
+    toast.success(`Removed ${j.deleted ?? selected.size}`);
+    clearSelection();
+    router.refresh();
+  }
+  function bulkExport() {
+    exportRows(
+      entries.filter((e) => selected.has(e.id)),
+      "selected",
+    );
   }
 
   return (
@@ -178,18 +232,49 @@ export function DncList({
         />
       ) : (
         <>
-          <div className="mb-4 flex items-center gap-3">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[#9aa0ab]" />
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search agents or companies…"
-                className="h-9 w-64 rounded-lg border border-[#ebecf0] bg-white pl-8 pr-3 text-[13px] placeholder:text-[#9aa0ab] focus:border-[#bcd5f1] focus:outline-none focus:ring-2 focus:ring-[#eaf2fd]"
-              />
+          {selected.size > 0 ? (
+            <div className="mb-4 flex items-center gap-3 rounded-lg border border-[#bcd5f1] bg-[#eaf2fd]/60 px-3 py-2">
+              <span className="text-[13px] font-medium text-[#1565C0]">
+                {selected.size} selected
+              </span>
+              <div className="ml-auto flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={bulkExport}
+                  className="gap-1.5 h-8"
+                >
+                  <Download className="size-3.5" />
+                  Export selected
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={bulkDelete}
+                  className="gap-1.5 h-8 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                >
+                  <Trash2 className="size-3.5" />
+                  Delete selected
+                </Button>
+                <Button variant="ghost" size="sm" onClick={clearSelection} className="h-8">
+                  Cancel
+                </Button>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="mb-4 flex items-center gap-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[#9aa0ab]" />
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search agents or companies…"
+                  className="h-9 w-64 rounded-lg border border-[#ebecf0] bg-white pl-8 pr-3 text-[13px] placeholder:text-[#9aa0ab] focus:border-[#bcd5f1] focus:outline-none focus:ring-2 focus:ring-[#eaf2fd]"
+                />
+              </div>
+            </div>
+          )}
 
           <DncSection
             title="Agents"
@@ -198,6 +283,9 @@ export function DncList({
             mounted={mounted}
             onRemove={remove}
             onEdit={setEditing}
+            selected={selected}
+            onToggleOne={toggleOne}
+            onToggleAllVisible={toggleAllVisibleIn}
           />
 
           {companies.length > 0 || agents.length === 0 ? (
@@ -209,6 +297,9 @@ export function DncList({
                 mounted={mounted}
                 onRemove={remove}
                 onEdit={setEditing}
+                selected={selected}
+                onToggleOne={toggleOne}
+                onToggleAllVisible={toggleAllVisibleIn}
                 companyStyle
               />
             </div>
@@ -305,6 +396,9 @@ function DncSection({
   mounted,
   onRemove,
   onEdit,
+  selected,
+  onToggleOne,
+  onToggleAllVisible,
   companyStyle,
 }: {
   title: string;
@@ -313,6 +407,9 @@ function DncSection({
   mounted: boolean;
   onRemove: (id: string) => void;
   onEdit: (entry: DncEntry) => void;
+  selected: Set<string>;
+  onToggleOne: (id: string) => void;
+  onToggleAllVisible: (rows: DncEntry[]) => void;
   companyStyle?: boolean;
 }) {
   return (
@@ -327,7 +424,18 @@ function DncSection({
           mounted ? "opacity-100" : "opacity-0",
         )}
       >
-        <div className="grid grid-cols-[1.5fr_1.2fr_1.6fr_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+        <div className="grid grid-cols-[36px_1.5fr_1.2fr_1.6fr_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+          <div className="flex items-center justify-center">
+            <input
+              type="checkbox"
+              aria-label={`Select all ${title}`}
+              checked={
+                entries.length > 0 && entries.every((e) => selected.has(e.id))
+              }
+              onChange={() => onToggleAllVisible(entries)}
+              className="size-3.5 cursor-pointer accent-[#1565C0]"
+            />
+          </div>
           <div>{companyStyle ? "Company" : "Agent"}</div>
           <div>{companyStyle ? "" : "Brokerage"}</div>
           <div>Email / phone</div>
@@ -342,8 +450,20 @@ function DncSection({
             {entries.map((e) => (
               <div
                 key={e.id}
-                className="grid grid-cols-[1.5fr_1.2fr_1.6fr_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]"
+                className={cn(
+                  "grid grid-cols-[36px_1.5fr_1.2fr_1.6fr_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]",
+                  selected.has(e.id) && "bg-[#eaf2fd]/40 hover:bg-[#eaf2fd]/60",
+                )}
               >
+                <div className="flex items-center justify-center">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${e.name}`}
+                    checked={selected.has(e.id)}
+                    onChange={() => onToggleOne(e.id)}
+                    className="size-3.5 cursor-pointer accent-[#1565C0]"
+                  />
+                </div>
                 <div className="flex min-w-0 items-center gap-3">
                   {companyStyle ? (
                     <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-[#fee2e2] text-[#b91c1c]">
@@ -363,13 +483,18 @@ function DncSection({
                   {companyStyle ? "" : (e.brokerage ?? "—")}
                 </div>
                 <div className="min-w-0 text-[12.5px] text-[#5b6472]">
+                  {companyStyle && e.domain ? (
+                    <div className="truncate font-medium">{e.domain}</div>
+                  ) : null}
                   {e.email ? (
                     <div className="truncate">{e.email}</div>
                   ) : null}
                   {e.phone ? (
                     <div className="truncate text-[#9aa0ab]">{e.phone}</div>
                   ) : null}
-                  {!e.email && !e.phone ? "—" : null}
+                  {!e.email && !e.phone && !(companyStyle && e.domain)
+                    ? "—"
+                    : null}
                 </div>
                 <div className="flex justify-end gap-1">
                   <button
@@ -419,6 +544,7 @@ function DncDialog({
   const [email, setEmail] = useState(entry?.email ?? "");
   const [phone, setPhone] = useState(entry?.phone ?? "");
   const [brokerage, setBrokerage] = useState(entry?.brokerage ?? "");
+  const [domain, setDomain] = useState(entry?.domain ?? "");
   const [notes, setNotes] = useState(entry?.notes ?? "");
   const [pending, startTransition] = useTransition();
 
@@ -438,6 +564,7 @@ function DncDialog({
       email: email.trim() || null,
       phone: phone.trim() || null,
       brokerage: kind === "agent" ? (brokerage.trim() || null) : null,
+      domain: kind === "company" ? (domain.trim() || null) : null,
       notes: notes.trim() || null,
     };
     if (!isEdit) payload.kind = kind;
@@ -508,9 +635,25 @@ function DncDialog({
               autoFocus
             />
           </div>
+          {kind === "company" ? (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Domain</label>
+              <Input
+                value={domain}
+                onChange={(e) => setDomain(e.target.value)}
+                placeholder="e.g. kellerwilliams.com"
+                autoComplete="off"
+              />
+              <p className="text-[11px] text-[#9aa0ab]">
+                We&apos;ll block every email at this domain across providers.
+              </p>
+            </div>
+          ) : null}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">Email</label>
+              <label className="text-xs font-medium">
+                {kind === "company" ? "Contact email" : "Email"}
+              </label>
               <Input
                 type="email"
                 value={email}
@@ -641,15 +784,15 @@ function CsvImportDialog({
               </div>
               <div className="text-[12px] text-[#9aa0ab]">
                 Columns we recognise: <code>name</code>, <code>email</code>,{" "}
-                <code>phone</code>, <code>brokerage</code>, <code>kind</code>
-                {" "}(<code>agent</code> or <code>company</code>),{" "}
+                <code>phone</code>, <code>brokerage</code>, <code>domain</code>,{" "}
+                <code>kind</code> (<code>agent</code> or <code>company</code>),
                 <code>notes</code>
                 <br />
                 Headers don&apos;t need to match exactly — e.g.{" "}
                 <code>Full Name</code>, <code>Email Address</code>,{" "}
-                <code>Current Brokerage</code> all work. Anything not marked
-                <code>company</code> in the <code>kind</code> column is
-                treated as an agent.
+                <code>Current Brokerage</code> all work. For company rows the
+                <code>domain</code> is blocked at every provider; if a row
+                only has an email we extract the domain from it.
               </div>
             </div>
             <input
@@ -685,7 +828,7 @@ function CsvImportDialog({
                 <div>Kind</div>
                 <div>Name</div>
                 <div>Email</div>
-                <div>Brokerage</div>
+                <div>Brokerage / Domain</div>
                 <div>Phone</div>
               </div>
               {rows.slice(0, 50).map((r, i) => (
@@ -699,7 +842,9 @@ function CsvImportDialog({
                   <div className="truncate font-medium">{r.name}</div>
                   <div className="truncate text-[#5b6472]">{r.email ?? "—"}</div>
                   <div className="truncate text-[#5b6472]">
-                    {r.brokerage ?? "—"}
+                    {r.kind === "company"
+                      ? (r.domain ?? "—")
+                      : (r.brokerage ?? "—")}
                   </div>
                   <div className="truncate text-[#5b6472]">{r.phone ?? "—"}</div>
                 </div>

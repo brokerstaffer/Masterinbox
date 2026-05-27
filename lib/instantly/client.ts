@@ -188,6 +188,14 @@ export function createInstantlyClient(opts: ClientOpts = {}) {
     blockEmail: (email: string) =>
       request<{ id?: string }>("POST", "/block-lists-entries", { bl_value: email }),
 
+    // Domain block. Instantly accepts `*@<domain>` as a wildcard
+    // pattern in bl_value; this blocks every address at the domain.
+    // Matches the portal's company DNC flow.
+    blockDomain: (domain: string) =>
+      request<{ id?: string }>("POST", "/block-lists-entries", {
+        bl_value: `*@${domain}`,
+      }),
+
     // Webhooks
     listWebhooks: () => request<ListResponse<InstantlyWebhook>>("GET", "/webhooks"),
     listWebhookEventTypes: () =>

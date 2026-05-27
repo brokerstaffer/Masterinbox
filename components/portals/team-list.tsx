@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Loader2, Shield } from "lucide-react";
+import { Plus, Trash2, Loader2, Pencil, Mail } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -19,19 +19,15 @@ import type { TeamMember } from "@/lib/portals/portal-data";
 import {
   PortalPageHeader,
   PortalEmpty,
-  Pill,
   Avatar,
   useMounted,
 } from "@/components/portals/portal-ui";
 
-function TeamStatusPill({ member }: { member: TeamMember }) {
-  if (!member.email) return <Pill tone="neutral">No email</Pill>;
-  if (member.push_error) return <Pill tone="warning">Push failed</Pill>;
-  if (member.pushed_to_instantly || member.pushed_to_emailbison) {
-    return <Pill tone="success">Protected</Pill>;
-  }
-  return <Pill tone="neutral">Pending</Pill>;
-}
+// Team is the intro-notification roster — NOT a blocklist (that's
+// DNC + Your Agents). When a warm introduction is ready, we create an
+// email thread that addresses the active members below. The page used
+// to push every team email to Instantly + EmailBison blocklists too;
+// that behavior was removed in 2026-05 per client feedback.
 
 export function TeamList({
   token,
@@ -45,6 +41,7 @@ export function TeamList({
   const [members, setMembers] = useState(initial);
   useEffect(() => setMembers(initial), [initial]);
   const [openAdd, setOpenAdd] = useState(false);
+  const [editing, setEditing] = useState<TeamMember | null>(null);
 
   async function patch(id: string, body: Partial<TeamMember>) {
     const res = await fetch(`/api/portal/${token}/team/${id}`, {
@@ -82,7 +79,7 @@ export function TeamList({
     <div className="mx-auto max-w-5xl px-6 py-8">
       <PortalPageHeader
         title="Team"
-        subtitle="Your brokerage's internal roster — auto-excluded from outreach."
+        subtitle="Who receives intro notifications and how."
         actions={
           <Button onClick={() => setOpenAdd(true)} className="gap-1.5">
             <Plus className="size-4" />
@@ -91,22 +88,20 @@ export function TeamList({
         }
       />
 
-      <div className="mb-6 rounded-2xl border border-[#d4e4f8] bg-[#eaf2fd]/60 p-4">
-        <div className="flex gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#1565C0] text-white">
-            <Shield className="size-4" />
+      {/* How intro delivery works — gradient banner, matches mockup */}
+      <div className="mb-6 flex items-start gap-4 rounded-2xl border border-[#c7d2fe] bg-gradient-to-br from-[#eef3ff] to-[#e8ecff] px-5 py-4">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[#1a5cf8] text-white">
+          <Mail className="size-4" />
+        </div>
+        <div className="min-w-0">
+          <div className="text-[14px] font-semibold text-[#1e3a8a]">
+            How intro delivery works
           </div>
-          <div>
-            <div className="text-[13px] font-semibold text-[#0f1320]">
-              Team emails are auto-protected from outreach
-            </div>
-            <p className="mt-1 max-w-2xl text-[12.5px] leading-relaxed text-[#5b6472]">
-              When you add a team member their email is immediately pushed to
-              the Instantly and EmailBison blocklists — the same protection
-              Your Agents gets, so no one on your team accidentally ends up
-              in a cold-outreach campaign.
-            </p>
-          </div>
+          <p className="mt-1 text-[13px] leading-relaxed text-[#3730a3]">
+            When a warm introduction is ready, BrokerStaffer creates an
+            email thread and introduces the agent directly to the active
+            recipients below.
+          </p>
         </div>
       </div>
 
@@ -128,11 +123,10 @@ export function TeamList({
             mounted ? "opacity-100" : "opacity-0",
           )}
         >
-          <div className="grid grid-cols-[1.4fr_1.1fr_1.4fr_110px_72px_44px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+          <div className="grid grid-cols-[1.4fr_1.1fr_1.6fr_72px_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
             <div>Member</div>
             <div>Title</div>
-            <div>Email</div>
-            <div>Status</div>
+            <div>Email / Phone</div>
             <div className="text-center">Active</div>
             <div></div>
           </div>
@@ -141,7 +135,7 @@ export function TeamList({
               <div
                 key={m.id}
                 className={cn(
-                  "grid grid-cols-[1.4fr_1.1fr_1.4fr_110px_72px_44px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]",
+                  "grid grid-cols-[1.4fr_1.1fr_1.6fr_72px_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]",
                   !m.active && "opacity-60",
                 )}
               >
@@ -149,17 +143,16 @@ export function TeamList({
                   <Avatar name={m.name} />
                   <div className="min-w-0">
                     <div className="truncate text-[13.5px] font-medium">{m.name}</div>
-                    <div className="text-[11px] text-[#9aa0ab]">
-                      Added {fmtDate(m.created_at)}
-                    </div>
                   </div>
                 </div>
                 <div className="truncate text-[13px] text-[#5b6472]">
                   {m.title ?? "—"}
                 </div>
-                <div className="truncate text-[12.5px] text-[#5b6472]">{m.email}</div>
-                <div>
-                  <TeamStatusPill member={m} />
+                <div className="min-w-0 text-[12.5px] text-[#5b6472]">
+                  <div className="truncate">{m.email}</div>
+                  {m.phone ? (
+                    <div className="truncate text-[#9aa0ab]">{m.phone}</div>
+                  ) : null}
                 </div>
                 <div className="flex justify-center">
                   <Switch
@@ -168,7 +161,15 @@ export function TeamList({
                     aria-label="Active"
                   />
                 </div>
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setEditing(m)}
+                    aria-label="Edit"
+                    className="inline-flex size-8 items-center justify-center rounded-md text-[#9aa0ab] transition-colors hover:bg-[#eaf2fd] hover:text-[#1565C0]"
+                  >
+                    <Pencil className="size-4" />
+                  </button>
                   <button
                     type="button"
                     onClick={() => remove(m.id, m.name)}
@@ -185,11 +186,23 @@ export function TeamList({
       )}
 
       {openAdd ? (
-        <AddMemberDialog
+        <MemberDialog
           token={token}
+          member={null}
           onClose={() => setOpenAdd(false)}
-          onAdded={() => {
+          onSaved={() => {
             setOpenAdd(false);
+            router.refresh();
+          }}
+        />
+      ) : null}
+      {editing ? (
+        <MemberDialog
+          token={token}
+          member={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
             router.refresh();
           }}
         />
@@ -198,18 +211,22 @@ export function TeamList({
   );
 }
 
-function AddMemberDialog({
+function MemberDialog({
   token,
+  member,
   onClose,
-  onAdded,
+  onSaved,
 }: {
   token: string;
+  member: TeamMember | null;
   onClose: () => void;
-  onAdded: () => void;
+  onSaved: () => void;
 }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [title, setTitle] = useState("");
+  const isEdit = member !== null;
+  const [name, setName] = useState(member?.name ?? "");
+  const [email, setEmail] = useState(member?.email ?? "");
+  const [title, setTitle] = useState(member?.title ?? "");
+  const [phone, setPhone] = useState(member?.phone ?? "");
   const [pending, startTransition] = useTransition();
 
   async function save() {
@@ -221,51 +238,69 @@ function AddMemberDialog({
       toast.error("Email is required");
       return;
     }
-    const res = await fetch(`/api/portal/${token}/team`, {
-      method: "POST",
+    const payload = {
+      name: name.trim(),
+      email: email.trim(),
+      title: title.trim() || null,
+      phone: phone.trim() || null,
+    };
+    const url = isEdit
+      ? `/api/portal/${token}/team/${member!.id}`
+      : `/api/portal/${token}/team`;
+    const method = isEdit ? "PATCH" : "POST";
+    const res = await fetch(url, {
+      method,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: name.trim(),
-        email: email.trim(),
-        title: title.trim() || null,
-      }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
       toast.error(j.error ?? "Save failed");
       return;
     }
-    toast.success("Member added");
-    startTransition(() => onAdded());
+    toast.success(isEdit ? "Member updated" : "Member added");
+    startTransition(() => onSaved());
   }
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add a team member</DialogTitle>
+          <DialogTitle>{isEdit ? "Edit member" : "Add a team member"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium">Full name</label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Full name</label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Title</label>
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. Recruiting Manager"
+              />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium">Email</label>
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@brokerage.com"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium">Title</label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Recruiting Manager"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Email</label>
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@brokerage.com"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Phone</label>
+              <Input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="(305) 555-0000"
+              />
+            </div>
           </div>
         </div>
         <DialogFooter>
@@ -273,16 +308,16 @@ function AddMemberDialog({
             Cancel
           </Button>
           <Button onClick={save} disabled={pending || !name.trim() || !email.trim()}>
-            {pending ? <Loader2 className="size-4 animate-spin" /> : "Add"}
+            {pending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : isEdit ? (
+              "Save changes"
+            ) : (
+              "Add"
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
-}
-
-function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }

@@ -292,6 +292,13 @@ export function createEmailBisonClient(opts: ClientOpts = {}) {
     blacklistEmail: (email: string) =>
       request<{ data?: unknown }>("POST", "/blacklisted-emails", { email }),
 
+    // Domain-level blacklist. POST /api/blacklisted-domains — every
+    // address at the given domain is blocked from current + future
+    // campaigns in the active team. Used by the portal's company DNC
+    // flow (one domain instead of N emails).
+    blacklistDomain: (domain: string) =>
+      request<{ data?: unknown }>("POST", "/blacklisted-domains", { domain }),
+
     // Leads
     getLead: (leadId: number) => request<{ data: unknown }>("GET", `/leads/${leadId}`),
     // EmailBison returns scheduled emails with a NESTED sender_email object
