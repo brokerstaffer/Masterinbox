@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { MoreHorizontal, Plus } from "lucide-react";
+import { MoreHorizontal, Plus, GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CustomView } from "@/lib/inbox/views-shared";
 import type { LabelRow } from "@/lib/inbox/labels-shared";
@@ -23,6 +23,23 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { NewViewDialog } from "@/components/inbox/new-view-dialog";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  horizontalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 export function TabBar({
   views,
@@ -50,6 +67,11 @@ export function TabBar({
   const [renaming, setRenaming] = useState<CustomView | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [pending, startTransition] = useTransition();
+  // Local mirror of the views list so drag operations can update
+  // ordering optimistically — the server re-syncs in the background
+  // via router.refresh().
+  const [orderedViews, setOrderedViews] = useState<CustomView[]>(views);
+  useEffect(() => setOrderedViews(views), [views]);
 
   async function deleteView(v: CustomView) {
     if (!confirm(`Delete "${v.name}" view?`)) return;
@@ -83,70 +105,90 @@ export function TabBar({
     startTransition(() => router.refresh());
   }
 
+  // Sensors: pointer drag with a tiny activation distance so a normal
+  // click on a tab still navigates (only a real drag-by-X-px starts a
+  // reorder). Keyboard support too — Tab to a view, Space to grab,
+  // arrows to move, Space to drop.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  // System / preset views (is_system=true: All Email, Open Responses,
+  // etc.) stay pinned to the left and are NOT draggable. Only the
+  // user-created custom views can be reordered.
+  const systemViews = orderedViews.filter((v) => v.is_system);
+  const userViews = orderedViews.filter((v) => !v.is_system);
+
+  async function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = userViews.findIndex((v) => v.id === active.id);
+    const newIndex = userViews.findIndex((v) => v.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+
+    const reordered = arrayMove(userViews, oldIndex, newIndex);
+    // Optimistic UI: update local order immediately. Persist sort_order
+    // to each moved view in parallel; sort_order values keep system
+    // views packed at the front of the global ordering.
+    const sysCount = systemViews.length;
+    setOrderedViews([...systemViews, ...reordered]);
+
+    await Promise.all(
+      reordered.map((v, i) =>
+        fetch(`/api/custom-views/${v.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sort_order: sysCount + i }),
+        }),
+      ),
+    );
+    router.refresh();
+  }
+
   return (
     <div className="h-12 shrink-0 border-b bg-background flex items-center pl-4 pr-2">
       <div className="flex items-stretch gap-0 overflow-x-auto no-scrollbar -mb-px">
-        {views.map((view) => {
-          const isActive = view.slug === activeSlug;
-          return (
-            <div key={view.id} className="relative flex items-stretch">
-              <Link
-                href={buildHref(view.slug)}
-                className={cn(
-                  "group flex items-center gap-1.5 px-3 h-12 text-[13.5px] font-medium text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap",
-                  isActive && "text-foreground",
-                )}
-              >
-                <span>{view.name}</span>
-                <CountPill
-                  n={viewCounts[view.id]?.unseen ?? 0}
-                  pct={viewCounts[view.id]?.pct ?? null}
-                />
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <button
-                        type="button"
-                        aria-label="View actions"
-                        className={cn(
-                          "size-4 rounded-sm flex items-center justify-center text-muted-foreground/60 hover:bg-accent",
-                          !isActive && "opacity-0 group-hover:opacity-100 transition-opacity",
-                        )}
-                        onClick={(e) => e.preventDefault()}
-                      >
-                        <MoreHorizontal className="size-3.5" />
-                      </button>
-                    }
-                  />
-                  <DropdownMenuContent align="start" className="text-sm">
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setRenaming(view);
-                        setRenameValue(view.name);
-                      }}
-                    >
-                      Rename
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={(e) => {
-                        e.preventDefault();
-                        deleteView(view);
-                      }}
-                      disabled={pending}
-                      className="text-red-600 focus:text-red-600"
-                    >
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                {isActive ? (
-                  <span className="absolute bottom-0 left-2 right-2 h-[2px] bg-foreground rounded-t" />
-                ) : null}
-              </Link>
-            </div>
-          );
-        })}
+        {systemViews.map((view) => (
+          <TabItem
+            key={view.id}
+            view={view}
+            isActive={view.slug === activeSlug}
+            buildHref={buildHref}
+            viewCounts={viewCounts}
+            onRename={(v) => {
+              setRenaming(v);
+              setRenameValue(v.name);
+            }}
+            onDelete={deleteView}
+            pending={pending}
+            draggable={false}
+          />
+        ))}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext
+            items={userViews.map((v) => v.id)}
+            strategy={horizontalListSortingStrategy}
+          >
+            {userViews.map((view) => (
+              <SortableTabItem
+                key={view.id}
+                view={view}
+                isActive={view.slug === activeSlug}
+                buildHref={buildHref}
+                viewCounts={viewCounts}
+                onRename={(v) => {
+                  setRenaming(v);
+                  setRenameValue(v.name);
+                }}
+                onDelete={deleteView}
+                pending={pending}
+              />
+            ))}
+          </SortableContext>
+        </DndContext>
         <button
           type="button"
           onClick={() => setNewViewOpen(true)}
@@ -178,6 +220,114 @@ export function TabBar({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+interface TabItemProps {
+  view: CustomView;
+  isActive: boolean;
+  buildHref: (slug: string) => string;
+  viewCounts: Record<string, { unseen: number; pct: number | null }>;
+  onRename: (v: CustomView) => void;
+  onDelete: (v: CustomView) => void;
+  pending: boolean;
+}
+
+// Non-sortable tab — used for system / preset views that stay pinned
+// to the left of the strip. Identical content to SortableTabItem,
+// just without the drag handle wiring.
+function TabItem({
+  view,
+  isActive,
+  buildHref,
+  viewCounts,
+  onRename,
+  onDelete,
+  pending,
+  draggable,
+}: TabItemProps & { draggable: boolean }) {
+  return (
+    <div className="relative flex items-stretch">
+      <Link
+        href={buildHref(view.slug)}
+        className={cn(
+          "group flex items-center gap-1.5 px-3 h-12 text-[13.5px] font-medium text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap",
+          isActive && "text-foreground",
+        )}
+      >
+        {draggable ? (
+          <GripVertical
+            className="size-3 text-muted-foreground/40 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+            aria-hidden="true"
+          />
+        ) : null}
+        <span>{view.name}</span>
+        <CountPill
+          n={viewCounts[view.id]?.unseen ?? 0}
+          pct={viewCounts[view.id]?.pct ?? null}
+        />
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                aria-label="View actions"
+                className={cn(
+                  "size-4 rounded-sm flex items-center justify-center text-muted-foreground/60 hover:bg-accent",
+                  !isActive && "opacity-0 group-hover:opacity-100 transition-opacity",
+                )}
+                onClick={(e) => e.preventDefault()}
+              >
+                <MoreHorizontal className="size-3.5" />
+              </button>
+            }
+          />
+          <DropdownMenuContent align="start" className="text-sm">
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.preventDefault();
+                onRename(view);
+              }}
+            >
+              Rename
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.preventDefault();
+                onDelete(view);
+              }}
+              disabled={pending}
+              className="text-red-600 focus:text-red-600"
+            >
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {isActive ? (
+          <span className="absolute bottom-0 left-2 right-2 h-[2px] bg-foreground rounded-t" />
+        ) : null}
+      </Link>
+    </div>
+  );
+}
+
+// Sortable wrapper around the tab content — the whole pill is the drag
+// surface (no separate handle column). The pointer sensor's distance:4
+// activation guard means a normal click still navigates; you have to
+// drag at least 4px to start a reorder.
+function SortableTabItem(props: TabItemProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: props.view.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <TabItem {...props} draggable />
     </div>
   );
 }

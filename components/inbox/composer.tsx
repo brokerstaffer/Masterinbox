@@ -337,7 +337,12 @@ export function Composer({
       : `Reply to "${replyTitle || "..."}"`;
 
   return (
-    <div className="fixed inset-y-0 right-0 z-30 w-[640px] max-w-[100vw] bg-background border-l shadow-xl flex flex-col">
+    // At lg+ the composer is a flex child sitting next to the messages
+    // column so the prospect panel on the page's right stays visible
+    // while drafting. Below lg there isn't room — fall back to the
+    // original full-height fixed overlay so phones / narrow viewports
+    // still work.
+    <div className="fixed inset-y-0 right-0 z-30 w-[640px] max-w-[100vw] shadow-xl lg:static lg:inset-auto lg:z-auto lg:w-[480px] lg:max-w-none lg:shadow-none bg-background border-l flex flex-col shrink-0">
       {/* Header */}
       <div className="h-12 border-b flex items-center px-4 justify-between shrink-0">
         <h3 className="text-sm font-semibold truncate">{headerLabel}</h3>

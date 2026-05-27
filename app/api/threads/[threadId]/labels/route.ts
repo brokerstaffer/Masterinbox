@@ -22,6 +22,24 @@ export async function POST(
   }
 
   const supabase = await createServerSupabase();
+
+  // Single-label-per-thread semantics (May 2026 client decision):
+  // applying any label wipes every existing label on the thread first,
+  // including AI-assigned guesses. The chip in the inbox row always
+  // reflects the latest classification. Done as a delete-then-upsert
+  // pair — Supabase REST has no transaction primitive, so we accept a
+  // brief window where the thread has zero labels; failure of the
+  // upsert below leaves the thread unlabeled rather than double-tagged.
+  const deleteOthers = await supabase
+    .from("label_assignments")
+    .delete()
+    .eq("target_type", "thread")
+    .eq("target_id", threadId)
+    .neq("label_id", parsed.data.label_id);
+  if (deleteOthers.error) {
+    return NextResponse.json({ error: deleteOthers.error.message }, { status: 400 });
+  }
+
   const { error } = await supabase.from("label_assignments").upsert(
     {
       workspace_id: session.activeWorkspace.id,

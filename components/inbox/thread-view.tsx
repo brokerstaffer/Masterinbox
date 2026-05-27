@@ -119,7 +119,14 @@ export function ThreadView({
   }
 
   return (
-    <section className="flex-1 min-w-0 flex flex-col bg-background relative">
+    // Top-level layout switched from column→row so the composer can
+    // sit as a flex sibling of the messages column instead of
+    // overlaying everything (which used to hide the prospect panel
+    // on the right whenever a reply was open). Below `lg` the
+    // composer falls back to the old fixed overlay — see the wrapper
+    // class on the composer container.
+    <section className="flex-1 min-w-0 flex bg-background relative">
+      <div className="flex-1 min-w-0 flex flex-col">
       {/* Toolbar */}
       <div className="h-10 border-b flex items-center px-3 gap-1">
         <ToolbarIconButton icon={ChevronLeft} label="Back" href={backHref} />
@@ -202,6 +209,7 @@ export function ThreadView({
         <ReplyIcon className="size-4" />
         Reply
       </Button>
+      </div>
 
       {composeState ? (
         <Composer

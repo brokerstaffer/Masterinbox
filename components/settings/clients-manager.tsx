@@ -31,11 +31,33 @@ export function ClientsManager({ initial }: { initial: ClientRow[] }) {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<ClientRow | null>(null);
 
-  async function refresh() {
-    const res = await fetch("/api/clients", { cache: "no-store" });
-    const j = await res.json();
-    if (j.ok) setRows(j.clients);
+  // Fire-and-forget background sync. We update local rows
+  // optimistically in the handlers below, then this fills in any
+  // fields the optimistic path couldn't predict (thread_count, etc).
+  // Detached from the user's mutation so the UI never waits on it.
+  function backgroundResync() {
+    fetch("/api/clients", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.ok) setRows(j.clients);
+      })
+      .catch(() => {
+        /* sync failures don't matter — page refresh below catches them */
+      });
     router.refresh();
+  }
+
+  function applyCreate(row: ClientRow) {
+    setRows((cur) => [...cur, row].sort((a, b) => a.name.localeCompare(b.name)));
+    backgroundResync();
+  }
+  function applyUpdate(row: ClientRow) {
+    setRows((cur) => cur.map((r) => (r.id === row.id ? { ...r, ...row } : r)));
+    backgroundResync();
+  }
+  function applyDelete(id: string) {
+    setRows((cur) => cur.filter((r) => r.id !== id));
+    backgroundResync();
   }
 
   return (
@@ -59,7 +81,7 @@ export function ClientsManager({ initial }: { initial: ClientRow[] }) {
             key={c.id}
             row={c}
             onEdit={() => setEditing(c)}
-            onDeleted={refresh}
+            onDeleted={() => applyDelete(c.id)}
           />
         ))}
       </div>
@@ -68,9 +90,9 @@ export function ClientsManager({ initial }: { initial: ClientRow[] }) {
         <ClientFormDialog
           mode="create"
           onClose={() => setAddOpen(false)}
-          onSaved={() => {
+          onSaved={(row) => {
+            applyCreate(row);
             setAddOpen(false);
-            refresh();
           }}
         />
       ) : null}
@@ -80,9 +102,9 @@ export function ClientsManager({ initial }: { initial: ClientRow[] }) {
           mode="edit"
           initial={editing}
           onClose={() => setEditing(null)}
-          onSaved={() => {
+          onSaved={(row) => {
+            applyUpdate(row);
             setEditing(null);
-            refresh();
           }}
         />
       ) : null}
@@ -183,7 +205,9 @@ function ClientFormDialog({
   mode: "create" | "edit";
   initial?: ClientRow;
   onClose: () => void;
-  onSaved: () => void;
+  // Caller updates local rows from this payload so the row appears /
+  // updates instantly without waiting for /api/clients to re-list.
+  onSaved: (row: ClientRow) => void;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [aliases, setAliases] = useState<string[]>(initial?.aliases ?? []);
@@ -214,13 +238,29 @@ function ClientFormDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), aliases }),
       });
-      const j = await res.json().catch(() => ({}));
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        client?: { id: string; name: string; slug: string; aliases: string[] };
+      };
       if (!res.ok) {
         toast.error(j.error ?? "Save failed");
         return;
       }
       toast.success(mode === "create" ? `Added ${name}` : `Updated ${name}`);
-      onSaved();
+      // Caller wants a ClientRow; thread_count and is_system aren't
+      // returned by the create/update endpoints so we fill them in
+      // optimistically. backgroundResync() corrects thread_count
+      // shortly after.
+      const saved = j.client;
+      const row: ClientRow = {
+        id: saved?.id ?? initial?.id ?? "",
+        name: saved?.name ?? name.trim(),
+        slug: saved?.slug ?? initial?.slug ?? "",
+        aliases: saved?.aliases ?? aliases,
+        thread_count: initial?.thread_count ?? 0,
+        is_system: initial?.is_system ?? false,
+      };
+      onSaved(row);
     } finally {
       setSaving(false);
     }

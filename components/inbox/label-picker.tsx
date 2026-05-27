@@ -25,11 +25,18 @@ export function LabelPickerButton({
   const [assigned, setAssigned] = useState<Set<string>>(new Set(assignedLabelIds));
   const [pending, startTransition] = useTransition();
 
+  // Single-label-per-thread (May 2026 client decision). Clicking a
+  // label:
+  //   - currently applied  → DELETE that one (thread becomes unlabeled)
+  //   - any other          → POST it; the server clears every other
+  //                          label on the thread (incl. AI guesses)
+  //                          before inserting this one, so optimistic
+  //                          state mirrors that by replacing the
+  //                          local set with a single id.
   async function toggle(labelId: string) {
     const isOn = assigned.has(labelId);
-    const next = new Set(assigned);
-    if (isOn) next.delete(labelId);
-    else next.add(labelId);
+    const previous = new Set(assigned);
+    const next = isOn ? new Set<string>() : new Set<string>([labelId]);
     setAssigned(next);
 
     const res = await fetch(`/api/threads/${threadId}/labels`, {
@@ -39,7 +46,7 @@ export function LabelPickerButton({
     });
     if (!res.ok) {
       // Roll back optimistic state on failure.
-      setAssigned(new Set(assigned));
+      setAssigned(previous);
       return;
     }
     startTransition(() => router.refresh());

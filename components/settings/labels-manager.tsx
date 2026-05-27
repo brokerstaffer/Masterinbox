@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Pencil, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -49,14 +49,25 @@ const EMPTY_FORM: FormState = {
   mirror_to_emailbison: false,
 };
 
-export function LabelsManager({ labels }: { labels: LabelRow[] }) {
+export function LabelsManager({ labels: initial }: { labels: LabelRow[] }) {
   const router = useRouter();
+  // Mirror the server-rendered list into local state so create / edit /
+  // delete mutations can update the UI optimistically without waiting
+  // for the next router refresh round-trip. The server is still the
+  // source of truth — we re-sync from the `labels` prop whenever the
+  // page re-renders (e.g. after the background refresh completes).
+  const [labels, setLabels] = useState<LabelRow[]>(initial);
+  useEffect(() => setLabels(initial), [initial]);
   const [filter, setFilter] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<LabelRow | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  // `pending` flips while a network call is in flight so we can dim the
+  // dialog buttons. We dropped the previous startTransition wrapping
+  // (it was making the close feel synchronous with router.refresh())
+  // but kept the local flag so the UI still indicates work in progress.
+  const [pending, setPending] = useState(false);
 
   function openCreate() {
     setEditing(null);
@@ -81,6 +92,7 @@ export function LabelsManager({ labels }: { labels: LabelRow[] }) {
 
   async function handleSubmit() {
     setError(null);
+    setPending(true);
     const url = editing ? `/api/labels/${editing.id}` : "/api/labels";
     const method = editing ? "PATCH" : "POST";
     const res = await fetch(url, {
@@ -88,24 +100,69 @@ export function LabelsManager({ labels }: { labels: LabelRow[] }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
     });
+    setPending(false);
     if (!res.ok) {
       const json = await res.json().catch(() => ({}));
       setError(json.error ?? "Save failed");
       return;
     }
+    const json = (await res.json().catch(() => ({}))) as { id?: string };
+    // Optimistic local update — close the dialog immediately rather
+    // than blocking on a router.refresh() round-trip. The background
+    // refresh below will reconcile with the server later, but the
+    // user sees their change land instantly.
+    if (editing) {
+      setLabels((cur) =>
+        cur.map((l) =>
+          l.id === editing.id
+            ? {
+                ...l,
+                name: form.name,
+                color: form.color,
+                sentiment: form.sentiment,
+                platform: form.platform,
+                obligation: form.obligation,
+                mirror_to_emailbison: form.mirror_to_emailbison,
+              }
+            : l,
+        ),
+      );
+    } else if (json.id) {
+      // POST returns just { id } today — construct the rest of the
+      // row from the form so we can drop it straight into local
+      // state without a follow-up GET.
+      const newLabel: LabelRow = {
+        id: json.id,
+        name: form.name,
+        color: form.color,
+        sentiment: form.sentiment,
+        platform: form.platform,
+        obligation: form.obligation,
+        mirror_to_emailbison: form.mirror_to_emailbison,
+        sort_order: labels.length,
+        is_system: false,
+      };
+      setLabels((cur) => [...cur, newLabel]);
+    }
     setOpen(false);
-    startTransition(() => router.refresh());
+    // Fire-and-forget background refresh — no startTransition wrapper,
+    // no await. Local state is already correct.
+    router.refresh();
   }
 
   async function handleDelete(l: LabelRow) {
     if (!confirm(`Delete label "${l.name}"?`)) return;
+    const previous = labels;
+    // Optimistic remove first.
+    setLabels((cur) => cur.filter((x) => x.id !== l.id));
     const res = await fetch(`/api/labels/${l.id}`, { method: "DELETE" });
     if (!res.ok) {
       const json = await res.json().catch(() => ({}));
       alert(json.error ?? "Delete failed");
+      setLabels(previous);
       return;
     }
-    startTransition(() => router.refresh());
+    router.refresh();
   }
 
   const visible = labels.filter((l) =>

@@ -48,25 +48,37 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Tag each client with how many threads currently point at it. Cheap:
-  // one extra grouped query, used by the UI to show "X threads" per row.
-  const { data: counts } = await admin
-    .from("threads")
-    .select("client_id")
-    .not("client_id", "is", null);
-  const byId = new Map<string, number>();
-  for (const r of counts ?? []) {
-    const k = r.client_id as string;
-    byId.set(k, (byId.get(k) ?? 0) + 1);
-  }
+  // Tag each client with how many threads currently point at it. The
+  // previous implementation pulled every `threads.client_id` row (a
+  // 10k-row table scan that was the worst offender behind the
+  // "settings feels laggy" report); replaced with N parallel HEAD
+  // counts. For ~25 clients that's ~25 lightweight requests in
+  // parallel — orders of magnitude less wire traffic + faster than
+  // the scan.
+  const clientList = (data ?? []) as Array<{
+    id: string;
+    name: string;
+    slug: string;
+    aliases: string[] | null;
+  }>;
+  const counts = await Promise.all(
+    clientList.map(async (c) => {
+      const { count } = await admin
+        .from("threads")
+        .select("id", { count: "exact", head: true })
+        .eq("client_id", c.id);
+      return [c.id, count ?? 0] as const;
+    }),
+  );
+  const byId = new Map<string, number>(counts);
 
-  const rows = (data ?? []).map((c) => ({
-    id: c.id as string,
-    name: c.name as string,
-    slug: c.slug as string,
-    aliases: (c.aliases as string[] | null) ?? [],
-    thread_count: byId.get(c.id as string) ?? 0,
-    is_system: (c.slug as string) === "unknown",
+  const rows = clientList.map((c) => ({
+    id: c.id,
+    name: c.name,
+    slug: c.slug,
+    aliases: c.aliases ?? [],
+    thread_count: byId.get(c.id) ?? 0,
+    is_system: c.slug === "unknown",
   }));
   return NextResponse.json({ ok: true, clients: rows });
 }

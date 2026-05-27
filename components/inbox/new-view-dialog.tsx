@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +27,7 @@ export function NewViewDialog({
   const router = useRouter();
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const [pending, setPending] = useState(false);
 
   function reset() {
     setName("");
@@ -36,6 +36,7 @@ export function NewViewDialog({
 
   async function submit() {
     setError(null);
+    setPending(true);
     const res = await fetch("/api/custom-views", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -44,6 +45,7 @@ export function NewViewDialog({
         filter_json: { preset: "all_email", rows: [] },
       }),
     });
+    setPending(false);
     if (!res.ok) {
       const json = await res.json().catch(() => ({}));
       setError(json.error ?? "Create failed");
@@ -52,10 +54,12 @@ export function NewViewDialog({
     const slug = slugifyView(name);
     reset();
     onOpenChange(false);
-    startTransition(() => {
-      router.refresh();
-      router.push(`/inbox/${slug}`);
-    });
+    // Navigate immediately — the destination loader reads the freshly
+    // created view from Supabase, so it's already there by the time the
+    // page renders. Skip the prior startTransition wrap, which made the
+    // dialog close feel synchronous with the server-component refresh.
+    router.push(`/inbox/${slug}`);
+    router.refresh();
   }
 
   return (
