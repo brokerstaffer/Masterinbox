@@ -315,6 +315,26 @@ export function createEmailBisonClient(opts: ClientOpts = {}) {
         }>;
       }>("GET", `/leads/${leadId}/sent-emails`),
 
+    // /leads/{id}/scheduled-emails — upcoming queued sends for the lead.
+    // Used to detect whether a lead is CURRENTLY enrolled in any
+    // reply_followup campaign (sent-emails alone tells us "ever was";
+    // scheduled-emails tells us "still is"). We only need the slim set
+    // of fields below — the full payload includes a nested lead +
+    // sender_email block we don't read.
+    getLeadScheduledEmails: (leadId: number | string) =>
+      request<{
+        data: Array<{
+          id: number;
+          campaign_id: number;
+          lead_id?: number;
+          status?: string;
+          scheduled_date?: string | null;
+          sent_at?: string | null;
+        }>;
+        meta?: { current_page?: number; last_page?: number };
+        links?: { next?: string | null };
+      }>("GET", `/leads/${leadId}/scheduled-emails`),
+
     // Raw escape hatch for ad-hoc calls
     raw: request,
   };

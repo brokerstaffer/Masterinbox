@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { createEmailBisonClient, EmailBisonError } from "@/lib/emailbison/client";
+import { syncThreadFollowup } from "@/lib/inbox/followup-sync";
 
 // POST /api/threads/[threadId]/followup-campaigns/push
 // Body: { campaign_id: number }
@@ -123,6 +124,10 @@ export async function POST(
         force_add_reply: parsed.data.force_add_reply,
       },
     );
+    // Refresh the thread's cached followup state in the background so the
+    // picker disables itself on the next render without waiting for the
+    // 2h stale window.
+    void syncThreadFollowup(threadId).catch(() => {});
     return NextResponse.json({
       ok: true,
       success: res.data?.success ?? false,
