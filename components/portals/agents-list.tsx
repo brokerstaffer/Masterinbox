@@ -34,7 +34,6 @@ import {
 import {
   PortalPageHeader,
   PortalEmpty,
-  Pill,
   Avatar,
   useMounted,
 } from "@/components/portals/portal-ui";
@@ -58,21 +57,14 @@ export function AgentsList({
     if (!search.trim()) return entries;
     const q = search.trim().toLowerCase();
     return entries.filter((e) =>
-      [e.name, e.email, e.license]
+      [e.name, e.email]
         .filter(Boolean)
         .some((v) => v!.toLowerCase().includes(q)),
     );
   }, [entries, search]);
 
-  const addedThisMonth = useMemo(() => {
-    const cutoff = new Date();
-    cutoff.setUTCDate(1);
-    cutoff.setUTCHours(0, 0, 0, 0);
-    return entries.filter((e) => new Date(e.created_at) >= cutoff).length;
-  }, [entries]);
-
   async function remove(id: string) {
-    if (!confirm("Remove this agent from the protected list?")) return;
+    if (!confirm("Remove this agent from your roster?")) return;
     const res = await fetch(`/api/portal/${token}/agents/${id}`, {
       method: "DELETE",
     });
@@ -94,9 +86,8 @@ export function AgentsList({
         name: e.name,
         email: e.email ?? "",
         phone: e.phone ?? "",
-        license: e.license ?? "",
       })),
-      ["name", "email", "phone", "license"],
+      ["name", "email", "phone"],
     );
     const today = new Date().toISOString().slice(0, 10);
     downloadCsv(`agents-${today}.csv`, csv);
@@ -106,7 +97,7 @@ export function AgentsList({
     <div className="mx-auto max-w-5xl px-6 py-8">
       <PortalPageHeader
         title="Your Agents"
-        subtitle="Your brokerage's own agents — always excluded from outreach. Emails listed here are pushed to Instantly and EmailBison blocklists."
+        subtitle="Your brokerage's own agents — we never reach out to anyone on this list."
         actions={
           <>
             <Button
@@ -130,19 +121,13 @@ export function AgentsList({
         }
       />
 
-      <div className="mb-6 grid grid-cols-2 gap-3">
+      <div className="mb-6">
         <StatCard
           icon={Shield}
-          label="Protected agents"
+          label="Your agents"
           value={entries.length}
-          hint="excluded from every campaign"
+          hint="We never reach out to these agents."
           accent
-        />
-        <StatCard
-          icon={Plus}
-          label="Added this month"
-          value={addedThisMonth}
-          hint={`${entries.length === 0 ? "Start adding your team" : "List is current"}`}
         />
       </div>
 
@@ -187,12 +172,10 @@ export function AgentsList({
               mounted ? "opacity-100" : "opacity-0",
             )}
           >
-            <div className="grid grid-cols-[1.5fr_1.2fr_140px_140px_110px_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+            <div className="grid grid-cols-[1.5fr_1.4fr_160px_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
               <div>Agent</div>
               <div>Email</div>
-              <div>License</div>
               <div>Phone</div>
-              <div>Status</div>
               <div></div>
             </div>
             {filtered.length === 0 ? (
@@ -204,26 +187,17 @@ export function AgentsList({
                 {filtered.map((a) => (
                   <div
                     key={a.id}
-                    className="grid grid-cols-[1.5fr_1.2fr_140px_140px_110px_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]"
+                    className="grid grid-cols-[1.5fr_1.4fr_160px_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]"
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <Avatar name={a.name} />
                       <div className="min-w-0">
                         <div className="truncate text-[13.5px] font-medium">{a.name}</div>
-                        <div className="text-[11px] text-[#9aa0ab]">
-                          Added {fmtDate(a.created_at)}
-                        </div>
                       </div>
                     </div>
                     <div className="truncate text-[12.5px] text-[#5b6472]">{a.email ?? "—"}</div>
                     <div className="truncate text-[12.5px] tabular-nums text-[#5b6472]">
-                      {a.license ?? "—"}
-                    </div>
-                    <div className="truncate text-[12.5px] tabular-nums text-[#5b6472]">
                       {a.phone ?? "—"}
-                    </div>
-                    <div>
-                      <StatusPill entry={a} />
                     </div>
                     <div className="flex justify-end gap-1">
                       <button
@@ -333,15 +307,6 @@ function StatCard({
   );
 }
 
-function StatusPill({ entry }: { entry: AgentEntry }) {
-  if (!entry.email) return <Pill tone="neutral">No email</Pill>;
-  if (entry.push_error) return <Pill tone="warning">Push failed</Pill>;
-  if (entry.pushed_to_instantly || entry.pushed_to_emailbison) {
-    return <Pill tone="success">Protected</Pill>;
-  }
-  return <Pill tone="neutral">Pending</Pill>;
-}
-
 // One dialog for both Add and Edit. When `entry` is non-null the form
 // prefills + saves via PATCH; when null it's a fresh insert via POST.
 function AgentDialog({
@@ -359,7 +324,6 @@ function AgentDialog({
   const [name, setName] = useState(entry?.name ?? "");
   const [email, setEmail] = useState(entry?.email ?? "");
   const [phone, setPhone] = useState(entry?.phone ?? "");
-  const [license, setLicense] = useState(entry?.license ?? "");
   const [pending, startTransition] = useTransition();
 
   async function save() {
@@ -371,7 +335,6 @@ function AgentDialog({
       name: name.trim(),
       email: email.trim() || null,
       phone: phone.trim() || null,
-      license: license.trim() || null,
     };
     const url = isEdit
       ? `/api/portal/${token}/agents/${entry!.id}`
@@ -412,16 +375,9 @@ function AgentDialog({
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
             </div>
           </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium">License #</label>
-            <Input value={license} onChange={(e) => setLicense(e.target.value)} />
-          </div>
-          {isEdit && entry!.email && email.trim() && email.trim() !== entry!.email ? (
-            <p className="text-[11px] leading-relaxed text-[#9aa0ab]">
-              The new email will be pushed to provider blocklists. The
-              previous address stays blocked there too.
-            </p>
-          ) : null}
+          <p className="text-[11px] leading-relaxed text-[#9aa0ab]">
+            Your agents you add are excluded from outreach.
+          </p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
@@ -509,11 +465,11 @@ function CsvImportDialog({
               <div className="text-sm font-medium">Click to choose a CSV file</div>
               <div className="text-[12px] text-[#9aa0ab]">
                 Columns we recognise: <code>name</code>, <code>email</code>,{" "}
-                <code>phone</code>, <code>license</code>
+                <code>phone</code>
                 <br />
                 Headers don&apos;t need to match exactly — e.g.{" "}
                 <code>Full Name</code>, <code>Email Address</code>,{" "}
-                <code>License Number</code> all work.
+                <code>Phone Number</code> all work.
               </div>
             </div>
             <input
@@ -543,20 +499,18 @@ function CsvImportDialog({
               </button>
             </div>
             <div className="max-h-72 overflow-y-auto rounded-lg border border-[#ebecf0]">
-              <div className="grid grid-cols-[1.4fr_1.2fr_120px_120px] border-b border-[#ebecf0] bg-[#fafbfc] px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+              <div className="grid grid-cols-[1.4fr_1.4fr_140px] border-b border-[#ebecf0] bg-[#fafbfc] px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
                 <div>Name</div>
                 <div>Email</div>
-                <div>License</div>
                 <div>Phone</div>
               </div>
               {rows.slice(0, 50).map((r, i) => (
                 <div
                   key={i}
-                  className="grid grid-cols-[1.4fr_1.2fr_120px_120px] gap-2 border-b border-[#f0f1f4] px-3 py-1.5 text-[12.5px] last:border-0"
+                  className="grid grid-cols-[1.4fr_1.4fr_140px] gap-2 border-b border-[#f0f1f4] px-3 py-1.5 text-[12.5px] last:border-0"
                 >
                   <div className="truncate font-medium">{r.name}</div>
                   <div className="truncate text-[#5b6472]">{r.email ?? "—"}</div>
-                  <div className="truncate text-[#5b6472]">{r.license ?? "—"}</div>
                   <div className="truncate text-[#5b6472]">{r.phone ?? "—"}</div>
                 </div>
               ))}
@@ -568,12 +522,11 @@ function CsvImportDialog({
             </div>
             {importedCount !== null ? (
               <p className="mt-3 rounded-md bg-[#e9f7ef] px-3 py-2 text-[12px] text-[#0c8a4e]">
-                Imported {importedCount} agents. Blocklist push runs in the background.
+                Imported {importedCount} agents.
               </p>
             ) : (
               <p className="mt-3 text-[11.5px] leading-relaxed text-[#9aa0ab]">
-                Agents with an email are pushed to Instantly and EmailBison
-                blocklists after import. Large batches may take a moment.
+                Your agents you add are excluded from outreach.
               </p>
             )}
           </div>
@@ -597,8 +550,3 @@ function CsvImportDialog({
   );
 }
 
-function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}

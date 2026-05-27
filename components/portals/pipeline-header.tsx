@@ -19,7 +19,7 @@ const TILES: Array<{
     field: "total",
     hint: (s) =>
       s.lastIntroAt
-        ? `Most recent ${formatRelative(s.lastIntroAt)}`
+        ? `Most recent ${formatAbsolute(s.lastIntroAt)}`
         : "Waiting on the first intro",
     accent: true,
   },
@@ -116,14 +116,17 @@ export function PipelineHeader({
   );
 }
 
-function formatRelative(iso: string): string {
+// Server-side only formatter (the whole PipelineHeader is server-rendered),
+// so a fixed locale + UTC produces deterministic output and the page stays
+// hydration-safe — no relative "X days ago" drift between SSR and the
+// browser. Client asked for an absolute date instead of relative.
+function formatAbsolute(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  const diffMs = Date.now() - d.getTime();
-  const day = 24 * 60 * 60 * 1000;
-  if (diffMs < day) return "today";
-  if (diffMs < 2 * day) return "yesterday";
-  if (diffMs < 7 * day) return `${Math.floor(diffMs / day)} days ago`;
-  if (diffMs < 30 * day) return `${Math.floor(diffMs / (7 * day))} weeks ago`;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }

@@ -12,6 +12,8 @@ import {
   FileText,
   Pencil,
   Download,
+  Users,
+  Building2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -36,7 +38,6 @@ import {
 import {
   PortalPageHeader,
   PortalEmpty,
-  Pill,
   Avatar,
   useMounted,
 } from "@/components/portals/portal-ui";
@@ -110,7 +111,7 @@ export function DncList({
     <div className="mx-auto max-w-5xl px-6 py-8">
       <PortalPageHeader
         title="Do Not Contact"
-        subtitle="Agents and companies we should never reach out to. Adding an email here immediately blocks it on Instantly and EmailBison."
+        subtitle="Agents and companies we should never reach out to."
         actions={
           <>
             <Button
@@ -137,6 +138,22 @@ export function DncList({
           </>
         }
       />
+
+      <div className="mb-6 grid grid-cols-2 gap-3">
+        <DncStatCard
+          icon={Users}
+          label="DNC Agents"
+          value={agents.length}
+          hint="never contacted across campaigns"
+          accent
+        />
+        <DncStatCard
+          icon={Building2}
+          label="DNC Companies"
+          value={companies.length}
+          hint="entire firms excluded from outreach"
+        />
+      </div>
 
       {entries.length === 0 ? (
         <PortalEmpty
@@ -168,13 +185,10 @@ export function DncList({
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search blocklist…"
+                placeholder="Search agents or companies…"
                 className="h-9 w-64 rounded-lg border border-[#ebecf0] bg-white pl-8 pr-3 text-[13px] placeholder:text-[#9aa0ab] focus:border-[#bcd5f1] focus:outline-none focus:ring-2 focus:ring-[#eaf2fd]"
               />
             </div>
-            <span className="ml-auto text-[12px] text-[#9aa0ab]">
-              {entries.length} blocked
-            </span>
           </div>
 
           <DncSection
@@ -238,6 +252,52 @@ export function DncList({
   );
 }
 
+function DncStatCard({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  accent,
+}: {
+  icon: typeof Users;
+  label: string;
+  value: number;
+  hint: string;
+  accent?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-2xl border bg-white p-5 shadow-sm",
+        accent ? "border-[#d4e4f8]" : "border-[#ebecf0]",
+      )}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+          {label}
+        </span>
+        <span
+          className={cn(
+            "flex size-8 items-center justify-center rounded-lg",
+            accent ? "bg-[#eaf2fd] text-[#1565C0]" : "bg-[#f6f7f9] text-[#aab0ba]",
+          )}
+        >
+          <Icon className="size-4" />
+        </span>
+      </div>
+      <div
+        className={cn(
+          "mt-3 text-3xl font-semibold leading-none tracking-tight tabular-nums",
+          accent ? "text-[#1565C0]" : "text-[#0f1320]",
+        )}
+      >
+        {value}
+      </div>
+      <div className="mt-1.5 text-[11.5px] text-[#9aa0ab]">{hint}</div>
+    </div>
+  );
+}
+
 function DncSection({
   title,
   count,
@@ -267,11 +327,10 @@ function DncSection({
           mounted ? "opacity-100" : "opacity-0",
         )}
       >
-        <div className="grid grid-cols-[1.5fr_1.2fr_1.4fr_120px_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+        <div className="grid grid-cols-[1.5fr_1.2fr_1.6fr_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
           <div>{companyStyle ? "Company" : "Agent"}</div>
           <div>{companyStyle ? "" : "Brokerage"}</div>
           <div>Email / phone</div>
-          <div>Status</div>
           <div></div>
         </div>
         {entries.length === 0 ? (
@@ -283,7 +342,7 @@ function DncSection({
             {entries.map((e) => (
               <div
                 key={e.id}
-                className="grid grid-cols-[1.5fr_1.2fr_1.4fr_120px_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]"
+                className="grid grid-cols-[1.5fr_1.2fr_1.6fr_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]"
               >
                 <div className="flex min-w-0 items-center gap-3">
                   {companyStyle ? (
@@ -312,9 +371,6 @@ function DncSection({
                   ) : null}
                   {!e.email && !e.phone ? "—" : null}
                 </div>
-                <div>
-                  <StatusPill entry={e} />
-                </div>
                 <div className="flex justify-end gap-1">
                   <button
                     type="button"
@@ -340,23 +396,6 @@ function DncSection({
       </div>
     </>
   );
-}
-
-function StatusPill({ entry }: { entry: DncEntry }) {
-  if (!entry.email) {
-    return <Pill tone="neutral">No email</Pill>;
-  }
-  if (entry.push_error) {
-    return (
-      <Pill tone="warning" className="cursor-help" >
-        <span title={entry.push_error}>Push failed</span>
-      </Pill>
-    );
-  }
-  if (entry.pushed_to_instantly || entry.pushed_to_emailbison) {
-    return <Pill tone="success">Blocked</Pill>;
-  }
-  return <Pill tone="neutral">Pending</Pill>;
 }
 
 // One dialog for both Add and Edit. When `entry` is non-null the form
@@ -507,17 +546,10 @@ function DncDialog({
               rows={2}
             />
           </div>
-          {isEdit && entry!.email && email.trim() && email.trim() !== entry!.email ? (
-            <p className="text-[11px] leading-relaxed text-[#9aa0ab]">
-              The new email will be pushed to provider blocklists. The
-              previous address stays blocked there too.
-            </p>
-          ) : (
-            <p className="text-[11px] leading-relaxed text-[#9aa0ab]">
-              If you supply an email, it&apos;s pushed to Instantly and EmailBison
-              blocklists immediately — the sequencer stops emailing them.
-            </p>
-          )}
+          <p className="text-[11px] leading-relaxed text-[#9aa0ab]">
+            When you add an agent or company, we will exclude them and
+            their agents from outreach.
+          </p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
@@ -680,13 +712,12 @@ function CsvImportDialog({
             </div>
             {importedCount !== null ? (
               <p className="mt-3 rounded-md bg-[#e9f7ef] px-3 py-2 text-[12px] text-[#0c8a4e]">
-                Added {importedCount} to DNC. Provider blocklist push runs in
-                the background.
+                Added {importedCount} to DNC.
               </p>
             ) : (
               <p className="mt-3 text-[11.5px] leading-relaxed text-[#9aa0ab]">
-                Rows with an email get pushed to Instantly and EmailBison
-                blocklists after import — outreach stops immediately.
+                When you add an agent or company, we will exclude them
+                and their agents from outreach.
               </p>
             )}
           </div>
