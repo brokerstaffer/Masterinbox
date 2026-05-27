@@ -221,13 +221,37 @@ export async function backfillLabelsForWorkspace(
   const systemPrompt =
     cfg.use_custom_prompt && cfg.custom_prompt ? cfg.custom_prompt : DEFAULT_SYSTEM_PROMPT;
 
-  const { data: threads } = await admin
+  // Pull all open threads + the set of thread_ids that already have an
+  // AI label. We then process only the UNLABELED slice. This fixes two
+  // bugs the client hit:
+  //   1. "500 remaining" appeared on every Run because the previous
+  //      implementation wiped the existing AI labels at the start of
+  //      each run and re-classified from scratch — net progress
+  //      stayed flat.
+  //   2. The 500 cap was applied BEFORE filtering, so the same 500
+  //      most-recent threads were processed each time and any threads
+  //      outside that window never got labeled.
+  // The cap now applies AFTER the unlabeled filter, so 500 represents
+  // genuine remaining work per run.
+  const { data: openRows } = await admin
     .from("threads")
     .select("id, subject")
     .eq("workspace_id", workspaceId)
-    .eq("status", "open")
-    .limit(500);
-  const list = (threads ?? []) as Array<{ id: string; subject: string | null }>;
+    .eq("status", "open");
+  const openThreads = (openRows ?? []) as Array<{ id: string; subject: string | null }>;
+
+  const { data: existingRows } = await admin
+    .from("label_assignments")
+    .select("target_id")
+    .eq("workspace_id", workspaceId)
+    .eq("target_type", "thread")
+    .eq("assigned_by", "ai");
+  const alreadyLabeled = new Set(
+    ((existingRows ?? []) as Array<{ target_id: string }>).map((r) => r.target_id),
+  );
+
+  const list = openThreads.filter((t) => !alreadyLabeled.has(t.id)).slice(0, 1000);
+  result.skipped_already_labeled = openThreads.length - list.length;
   if (list.length === 0) return result;
 
   // Emit a zero-progress event up-front so the UI shows the total
@@ -238,21 +262,11 @@ export async function backfillLabelsForWorkspace(
     total: list.length,
     labeled: 0,
     no_inbound: 0,
-    skipped_already_labeled: 0,
+    skipped_already_labeled: result.skipped_already_labeled,
     skipped_no_match: 0,
     skipped_model_returned_none: 0,
     errors: 0,
   });
-
-  // 2) Bulk-delete every existing AI assignment for these threads in one
-  //    request — the per-thread path used to do 500 separate deletes.
-  const threadIds = list.map((t) => t.id);
-  await admin
-    .from("label_assignments")
-    .delete()
-    .eq("target_type", "thread")
-    .eq("assigned_by", "ai")
-    .in("target_id", threadIds);
 
   // 3) Hot loop: pull the latest inbound + classify + upsert, with cfg /
   //    labels / systemPrompt already in scope.

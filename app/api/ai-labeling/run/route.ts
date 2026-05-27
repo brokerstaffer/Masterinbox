@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/workspace";
 import { backfillLabelsForWorkspace } from "@/lib/ai/run";
+import { env } from "@/lib/env";
 
 // Streams AI-labeling progress as newline-delimited JSON so the UI can
 // render a live progress bar / counters instead of staring at a spinner
@@ -13,13 +14,33 @@ import { backfillLabelsForWorkspace } from "@/lib/ai/run";
 //
 // On a fatal error before the loop starts we still write one final line:
 //   {"type":"error","error":"..."}\n
+//
+// Auth: normal user session OR `x-admin-token: <SUPABASE_SERVICE_ROLE_KEY>`
+// (matches the same pattern as /api/clients/intros). The admin-token path
+// requires `?workspace=<uuid>` because there's no session to resolve it
+// from; without it we'd default to WORKSPACE_ID.
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-export async function POST() {
-  const session = await requireSession();
-  const workspaceId = session.activeWorkspace.id;
+export async function POST(request: Request) {
+  const url = new URL(request.url);
+  const adminToken = request.headers.get("x-admin-token") ?? url.searchParams.get("token");
+  const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
+
+  let workspaceId: string;
+  if (adminToken && serviceKey && adminToken === serviceKey) {
+    workspaceId = url.searchParams.get("workspace") ?? env.WORKSPACE_ID ?? "";
+    if (!workspaceId) {
+      return NextResponse.json(
+        { error: "workspace param required when using service-role token" },
+        { status: 400 },
+      );
+    }
+  } else {
+    const session = await requireSession();
+    workspaceId = session.activeWorkspace.id;
+  }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
