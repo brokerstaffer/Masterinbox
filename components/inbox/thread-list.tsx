@@ -185,14 +185,32 @@ export function ThreadList({
                     <div className="flex-1 min-w-0 flex flex-col gap-1 text-[13px]">
                       <div className="flex items-center gap-2">
                         <ChannelIcon provider={t.channel_provider} />
-                        <span className={cn("truncate flex-1", !isSeen(t) ? "font-semibold" : "font-medium")}>
+                        {/* Gmail-style typography: unread rows are
+                            bold (sender + subject), read rows are
+                            normal-weight. Combined with the
+                            zinc-200/90 background on read rows this
+                            gives the same at-a-glance contrast Gmail
+                            uses. */}
+                        <span
+                          className={cn(
+                            "truncate flex-1",
+                            unread ? "font-bold text-foreground" : "font-normal text-foreground/80",
+                          )}
+                        >
                           {t.lead_full_name || t.lead_email || "Unknown"}
                         </span>
                         <span className="text-[11px] text-muted-foreground tabular-nums">
                           <RelativeTime iso={t.last_message_at} />
                         </span>
                       </div>
-                      <div className="truncate font-medium">{t.subject || "(no subject)"}</div>
+                      <div
+                        className={cn(
+                          "truncate",
+                          unread ? "font-bold text-foreground" : "font-normal text-foreground/80",
+                        )}
+                      >
+                        {t.subject || "(no subject)"}
+                      </div>
                       <div className="truncate text-muted-foreground">
                         {t.last_message_preview}
                       </div>
@@ -276,7 +294,12 @@ export function ThreadList({
                 className="flex items-center gap-3 flex-1 min-w-0"
               >
                 <ChannelIcon provider={t.channel_provider} />
-                <div className={cn("w-40 shrink-0 truncate text-[13px]", !isSeen(t) ? "font-semibold" : "font-medium")}>
+                <div
+                  className={cn(
+                    "w-40 shrink-0 truncate text-[13px]",
+                    !isSeen(t) ? "font-bold text-foreground" : "font-normal text-foreground/80",
+                  )}
+                >
                   {t.lead_full_name || t.lead_email || "Unknown"}
                 </div>
                 {(t.source_provider || t.client_name || t.campaign_name || t.labels.length > 0) ? (
@@ -290,7 +313,12 @@ export function ThreadList({
                   </div>
                 ) : null}
                 <Paperclip className="size-3.5 text-muted-foreground shrink-0 opacity-0" />
-                <div className={cn("text-[13px] shrink-0 max-w-[28%] truncate", !isSeen(t) ? "font-semibold" : "font-medium")}>
+                <div
+                  className={cn(
+                    "text-[13px] shrink-0 max-w-[28%] truncate",
+                    !isSeen(t) ? "font-bold text-foreground" : "font-normal text-foreground/80",
+                  )}
+                >
                   {t.subject || "(no subject)"}
                 </div>
                 <div className="min-w-0 flex-1 text-[13px] text-muted-foreground truncate">

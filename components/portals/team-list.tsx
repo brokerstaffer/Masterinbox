@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import type { TeamMember } from "@/lib/portals/portal-data";
+import { formatPhoneDisplay } from "@/lib/portals/phone";
 import {
   PortalPageHeader,
   PortalEmpty,
@@ -184,7 +185,7 @@ export function TeamList({
                 <div className="min-w-0 text-[12.5px] text-[#5b6472]">
                   <div className="truncate">{m.email}</div>
                   {m.phone ? (
-                    <div className="truncate text-[#9aa0ab]">{m.phone}</div>
+                    <div className="truncate text-[#9aa0ab]">{formatPhoneDisplay(m.phone)}</div>
                   ) : null}
                 </div>
                 <div className="flex justify-center">

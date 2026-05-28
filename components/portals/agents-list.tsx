@@ -31,6 +31,7 @@ import {
   downloadCsv,
   type AgentRow,
 } from "@/lib/portals/csv";
+import { formatPhoneDisplay } from "@/lib/portals/phone";
 import {
   PortalPageHeader,
   PortalEmpty,
@@ -308,7 +309,7 @@ export function AgentsList({
                     </div>
                     <div className="truncate text-[12.5px] text-[#5b6472]">{a.email ?? "—"}</div>
                     <div className="truncate text-[12.5px] tabular-nums text-[#5b6472]">
-                      {a.phone ?? "—"}
+                      {formatPhoneDisplay(a.phone)}
                     </div>
                     <div className="flex justify-end gap-1">
                       <button
@@ -622,7 +623,7 @@ function CsvImportDialog({
                 >
                   <div className="truncate font-medium">{r.name}</div>
                   <div className="truncate text-[#5b6472]">{r.email ?? "—"}</div>
-                  <div className="truncate text-[#5b6472]">{r.phone ?? "—"}</div>
+                  <div className="truncate text-[#5b6472]">{formatPhoneDisplay(r.phone)}</div>
                 </div>
               ))}
               {rows.length > 50 ? (

@@ -35,6 +35,7 @@ import {
   downloadCsv,
   type DncRow,
 } from "@/lib/portals/csv";
+import { formatPhoneDisplay } from "@/lib/portals/phone";
 import {
   PortalPageHeader,
   PortalEmpty,
@@ -438,7 +439,7 @@ function DncSection({
           </div>
           <div>{companyStyle ? "Company" : "Agent"}</div>
           <div>{companyStyle ? "" : "Brokerage"}</div>
-          <div>Email / phone</div>
+          <div>{companyStyle ? "Domain" : "Email / phone"}</div>
           <div></div>
         </div>
         {entries.length === 0 ? (
@@ -490,7 +491,7 @@ function DncSection({
                     <div className="truncate">{e.email}</div>
                   ) : null}
                   {e.phone ? (
-                    <div className="truncate text-[#9aa0ab]">{e.phone}</div>
+                    <div className="truncate text-[#9aa0ab]">{formatPhoneDisplay(e.phone)}</div>
                   ) : null}
                   {!e.email && !e.phone && !(companyStyle && e.domain)
                     ? "—"
@@ -849,7 +850,7 @@ function CsvImportDialog({
                       ? (r.domain ?? "—")
                       : (r.brokerage ?? "—")}
                   </div>
-                  <div className="truncate text-[#5b6472]">{r.phone ?? "—"}</div>
+                  <div className="truncate text-[#5b6472]">{formatPhoneDisplay(r.phone)}</div>
                 </div>
               ))}
               {rows.length > 50 ? (
