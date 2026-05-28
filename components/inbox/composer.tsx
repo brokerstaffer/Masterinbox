@@ -74,6 +74,7 @@ export function Composer({
   sourceProvider = null,
   subjectLocked = false,
   ccInitial = "",
+  bccInitial = "",
   sourceMessageId = null,
   onClose,
 }: {
@@ -109,6 +110,11 @@ export function Composer({
   // participant (Reply all). When non-empty, the CC row auto-opens so the
   // user can see who's getting looped in before sending.
   ccInitial?: string;
+  // Comma-separated BCC addresses to pre-fill. Caller (thread-view)
+  // populates this with the source message's BCC (Reply) or every
+  // thread participant's BCCs (Reply all). Non-empty value auto-opens
+  // the BCC row so the user sees who's getting looped in.
+  bccInitial?: string;
   // messages.id of the message the user clicked Reply on (per-message
   // icon). Sent to the /reply API so it uses THAT message's provider id
   // as the reply target — required for recipient-side threading when
@@ -147,7 +153,7 @@ export function Composer({
   const [composerSubject, setComposerSubject] = useState(subject || "");
   const [to, setTo] = useState(toEmail);
   const [cc, setCc] = useState(ccInitial);
-  const [bcc, setBcc] = useState("");
+  const [bcc, setBcc] = useState(bccInitial);
   // Pre-select the channel whose display_name / instantly_account_id
   // matches the thread's pinned sender. Falls back to null (use the
   // thread's default) when no match — typically because the channel
@@ -166,7 +172,7 @@ export function Composer({
   // Auto-open the CC row when we pre-filled it — otherwise the user has no
   // visual signal that anyone's being looped in.
   const [showCc, setShowCc] = useState(ccInitial.trim().length > 0);
-  const [showBcc, setShowBcc] = useState(false);
+  const [showBcc, setShowBcc] = useState(bccInitial.trim().length > 0);
   const [addSignature, setAddSignature] = useState(false);
   const [sending, setSending] = useState(false);
   const [files, setFiles] = useState<File[]>([]);

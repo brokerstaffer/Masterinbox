@@ -255,17 +255,20 @@ export function ThreadView({
           // recipient, so subject is intentionally fresh).
           subjectLocked={composeState.mode === "reply"}
           {...(() => {
-            // Pre-fill TO + CC based on mode. Reply / Reply All read
-            // off the SOURCE message so e.g. replying to Marissa goes
-            // back to Marissa, not back to the original campaign lead.
+            // Pre-fill TO + CC + BCC based on mode. Reply / Reply All
+            // read off the SOURCE message so e.g. replying to Marissa
+            // goes back to Marissa, not back to the original campaign
+            // lead, and they carry the conversation's CC/BCC forward
+            // per the customer's spec.
             if (composeState.mode === "forward") {
-              return { toEmail: "", toName: null, ccInitial: "" };
+              return { toEmail: "", toName: null, ccInitial: "", bccInitial: "" };
             }
             const r = buildReplyRecipients(composeState, detail);
             return {
               toEmail: r.to.email,
               toName: r.to.name,
               ccInitial: r.cc.join(", "),
+              bccInitial: r.bcc.join(", "),
             };
           })()}
           sourceMessageId={
@@ -381,13 +384,17 @@ function buildForwardBody(source: MessageRow, detail: ThreadDetail): string {
   ].join("\n");
 }
 
-// Extracts the CC list off a stored message's recipients jsonb. The sync
-// code on EmailBison/Instantly normalises this to { to, cc, bcc } where cc
-// is usually a string[] but can be null or a comma-joined string depending
-// on which provider/handler wrote the row.
 function ccsFromMessage(m: MessageRow): string[] {
-  const r = (m.recipients ?? {}) as { cc?: unknown };
-  const raw = r.cc;
+  return recipientField(m, "cc");
+}
+
+// Generic recipient-list extractor — used for `to`, `cc`, and `bcc`.
+// EmailBison + Instantly normalise these to arrays of strings on most
+// rows; older rows may have a comma/semicolon-joined string or be
+// missing entirely. Tolerates all three.
+function recipientField(m: MessageRow, field: "to" | "cc" | "bcc"): string[] {
+  const r = (m.recipients ?? {}) as Record<string, unknown>;
+  const raw = r[field];
   if (!raw) return [];
   if (Array.isArray(raw)) {
     return raw.filter((x): x is string => typeof x === "string" && x.includes("@"));
@@ -401,39 +408,35 @@ function ccsFromMessage(m: MessageRow): string[] {
   return [];
 }
 
-// Extracts the TO list off a stored message's recipients jsonb. Same
-// shape variability as ccsFromMessage — array, comma string, or null.
 function toAddrsFromMessage(m: MessageRow): string[] {
-  const r = (m.recipients ?? {}) as { to?: unknown };
-  const raw = r.to;
-  if (!raw) return [];
-  if (Array.isArray(raw)) {
-    return raw.filter((x): x is string => typeof x === "string" && x.includes("@"));
-  }
-  if (typeof raw === "string") {
-    return raw
-      .split(/[,;]/)
-      .map((s) => s.trim())
-      .filter((s) => s.includes("@"));
-  }
-  return [];
+  return recipientField(m, "to");
 }
 
-// Resolves the TO + CC the composer should pre-fill for a Reply or
-// Reply All against the source message.
+function bccsFromMessage(m: MessageRow): string[] {
+  return recipientField(m, "bcc");
+}
+
+// Resolves the TO + CC + BCC the composer should pre-fill for a
+// Reply or Reply All against the source message.
 //
 // Reply (replyAll=false):
-//   - TO = the source message's sender (for inbound) or its first
-//     non-us recipient (for outbound), so a Reply on Marissa's
-//     direct message goes back to Marissa — NOT to the original
-//     lead the campaign targeted.
-//   - CC = empty. Matches Gmail's Reply default — operators add
-//     extra recipients manually if they want to loop someone in.
+//   - TO  = source's sender (for inbound) or first non-us recipient
+//           (for outbound), so a Reply on Marissa's direct message
+//           goes back to Marissa, not to the original campaign lead.
+//   - CC  = the source's own CC list (minus us, minus TO). Operators
+//           explicitly asked to keep the existing CCs in the loop on
+//           a plain Reply — different from Gmail's default empty.
+//   - BCC = the source's own BCC list (minus us, minus TO). Inbound
+//           BCC is almost always empty in practice; outbound BCC
+//           round-trips through here.
 //
 // Reply All (replyAll=true):
-//   - TO = same as Reply
-//   - CC = every other recipient on the source (its To + Cc) minus
-//     us + minus the TO address.
+//   - TO  = same as Reply
+//   - CC  = union of every message's CC across the entire thread
+//           (minus us, minus TO). Per the customer's spec: "all the
+//           cc and bcc email address of the conversation".
+//   - BCC = union of every message's BCC across the entire thread
+//           (minus us, minus TO).
 //
 // Both fall back to the latest inbound message (or the lead itself
 // as last resort) when state.source is null — that's the bottom
@@ -441,6 +444,7 @@ function toAddrsFromMessage(m: MessageRow): string[] {
 interface ReplyRecipients {
   to: { email: string; name: string | null };
   cc: string[];
+  bcc: string[];
 }
 function buildReplyRecipients(
   state: { mode: "reply"; source: MessageRow | null; replyAll: boolean },
@@ -449,18 +453,13 @@ function buildReplyRecipients(
   const lower = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
   const ourAddr = lower(detail.outbound_sender_email);
 
-  // Pick the message we're replying to. Fall back to the most-recent
-  // inbound when the user hit the bottom Reply shortcut (no per-
-  // message source).
   const source =
     state.source ??
     [...detail.messages].reverse().find((m) => m.direction === "inbound") ??
     null;
 
-  // Resolve the TO address. For inbound sources it's the sender; for
-  // outbound sources we reply to the first non-us recipient (we don't
-  // want to email ourselves). If we can't figure anything out, fall
-  // back to the lead — the previous behavior.
+  // TO resolution. Inbound → sender. Outbound → first non-us recipient.
+  // Fall back to the lead when neither yields anything.
   let toEmail: string;
   let toName: string | null = null;
   if (source) {
@@ -472,9 +471,6 @@ function buildReplyRecipients(
       );
       toEmail = firstNonUs ?? detail.lead.email ?? "";
     }
-    // We don't carry a display name through `messages.sender`; use the
-    // lead's name only when it matches the resolved address (otherwise
-    // leave null and the composer renders just the email).
     if (lower(toEmail) === lower(detail.lead.email)) {
       toName = detail.lead.full_name ?? null;
     }
@@ -485,28 +481,36 @@ function buildReplyRecipients(
 
   const toLower = lower(toEmail);
   const exclude = new Set([toLower, ourAddr].filter(Boolean));
-  const cc: string[] = [];
 
-  if (state.replyAll && source) {
-    const collected = new Set<string>(exclude);
-    const add = (addr: string | null | undefined) => {
-      const l = lower(addr);
-      if (!l || !l.includes("@")) return;
-      if (collected.has(l)) return;
-      collected.add(l);
-      cc.push((addr ?? "").trim());
-    };
-    // Outbound source: we sent it to To+Cc. Loop those in (minus us
-    // and minus the resolved TO).
-    // Inbound source: the original recipients are us + any folks the
-    // sender also CC'd. We CC those.
-    for (const addr of toAddrsFromMessage(source)) add(addr);
-    for (const addr of ccsFromMessage(source)) add(addr);
-    // For inbound, also include the sender's own CCs — covered by the
-    // ccsFromMessage call above.
+  // Collector that preserves first-seen order, drops duplicates, and
+  // excludes anyone already in the exclude set (us + TO).
+  const buildList = (sources: Array<string[]>): string[] => {
+    const seen = new Set<string>(exclude);
+    const out: string[] = [];
+    for (const list of sources) {
+      for (const addr of list) {
+        const l = lower(addr);
+        if (!l || !l.includes("@") || seen.has(l)) continue;
+        seen.add(l);
+        out.push((addr ?? "").trim());
+      }
+    }
+    return out;
+  };
+
+  let cc: string[] = [];
+  let bcc: string[] = [];
+  if (state.replyAll) {
+    // Walk every message in the thread.
+    cc = buildList(detail.messages.map((m) => ccsFromMessage(m)));
+    bcc = buildList(detail.messages.map((m) => bccsFromMessage(m)));
+  } else if (source) {
+    // Plain Reply — carry the source's own CC + BCC forward.
+    cc = buildList([ccsFromMessage(source)]);
+    bcc = buildList([bccsFromMessage(source)]);
   }
 
-  return { to: { email: toEmail, name: toName }, cc };
+  return { to: { email: toEmail, name: toName }, cc, bcc };
 }
 
 function ToolbarIconButton({
