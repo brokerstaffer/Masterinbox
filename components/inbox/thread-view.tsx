@@ -254,13 +254,20 @@ export function ThreadView({
           // user edit it (they're starting a new thread with a new
           // recipient, so subject is intentionally fresh).
           subjectLocked={composeState.mode === "reply"}
-          toEmail={composeState.mode === "forward" ? "" : detail.lead.email ?? ""}
-          toName={composeState.mode === "forward" ? null : detail.lead.full_name ?? null}
-          ccInitial={
-            composeState.mode === "reply"
-              ? buildReplyCcList(composeState, detail).join(", ")
-              : ""
-          }
+          {...(() => {
+            // Pre-fill TO + CC based on mode. Reply / Reply All read
+            // off the SOURCE message so e.g. replying to Marissa goes
+            // back to Marissa, not back to the original campaign lead.
+            if (composeState.mode === "forward") {
+              return { toEmail: "", toName: null, ccInitial: "" };
+            }
+            const r = buildReplyRecipients(composeState, detail);
+            return {
+              toEmail: r.to.email,
+              toName: r.to.name,
+              ccInitial: r.cc.join(", "),
+            };
+          })()}
           sourceMessageId={
             // Per-message Reply / Reply all → that specific message.
             // Bottom Reply button (source: null) → undefined; the API
@@ -394,51 +401,112 @@ function ccsFromMessage(m: MessageRow): string[] {
   return [];
 }
 
-// Builds the CC list for a Reply or Reply All composer pre-fill.
+// Extracts the TO list off a stored message's recipients jsonb. Same
+// shape variability as ccsFromMessage — array, comma string, or null.
+function toAddrsFromMessage(m: MessageRow): string[] {
+  const r = (m.recipients ?? {}) as { to?: unknown };
+  const raw = r.to;
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw.filter((x): x is string => typeof x === "string" && x.includes("@"));
+  }
+  if (typeof raw === "string") {
+    return raw
+      .split(/[,;]/)
+      .map((s) => s.trim())
+      .filter((s) => s.includes("@"));
+  }
+  return [];
+}
+
+// Resolves the TO + CC the composer should pre-fill for a Reply or
+// Reply All against the source message.
 //
-// Reply (replyAll=false): CC = sender + ccs of the SOURCE message (or the
-//   latest inbound if source is null — that's the bottom Reply button case).
-// Reply all (replyAll=true): CC = every unique non-us, non-lead participant
-//   that has ever appeared as sender or in a cc field across the thread.
+// Reply (replyAll=false):
+//   - TO = the source message's sender (for inbound) or its first
+//     non-us recipient (for outbound), so a Reply on Marissa's
+//     direct message goes back to Marissa — NOT to the original
+//     lead the campaign targeted.
+//   - CC = empty. Matches Gmail's Reply default — operators add
+//     extra recipients manually if they want to loop someone in.
 //
-// In both cases we exclude the lead's address (it's the TO) and our own
-// sending mailbox (don't email ourselves).
-function buildReplyCcList(
+// Reply All (replyAll=true):
+//   - TO = same as Reply
+//   - CC = every other recipient on the source (its To + Cc) minus
+//     us + minus the TO address.
+//
+// Both fall back to the latest inbound message (or the lead itself
+// as last resort) when state.source is null — that's the bottom
+// Reply shortcut button case.
+interface ReplyRecipients {
+  to: { email: string; name: string | null };
+  cc: string[];
+}
+function buildReplyRecipients(
   state: { mode: "reply"; source: MessageRow | null; replyAll: boolean },
   detail: ThreadDetail,
-): string[] {
+): ReplyRecipients {
   const lower = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
-  const leadAddr = lower(detail.lead.email);
   const ourAddr = lower(detail.outbound_sender_email);
-  const exclude = new Set([leadAddr, ourAddr].filter(Boolean));
 
-  const collected = new Set<string>();
-  const order: string[] = []; // preserve insertion order for predictable UI
-  const add = (addr: string | null | undefined) => {
-    const l = lower(addr);
-    if (!l || !l.includes("@")) return;
-    if (exclude.has(l)) return;
-    if (collected.has(l)) return;
-    collected.add(l);
-    order.push((addr ?? "").trim());
-  };
+  // Pick the message we're replying to. Fall back to the most-recent
+  // inbound when the user hit the bottom Reply shortcut (no per-
+  // message source).
+  const source =
+    state.source ??
+    [...detail.messages].reverse().find((m) => m.direction === "inbound") ??
+    null;
 
-  if (state.replyAll) {
-    for (const m of detail.messages) {
-      add(m.sender);
-      for (const cc of ccsFromMessage(m)) add(cc);
+  // Resolve the TO address. For inbound sources it's the sender; for
+  // outbound sources we reply to the first non-us recipient (we don't
+  // want to email ourselves). If we can't figure anything out, fall
+  // back to the lead — the previous behavior.
+  let toEmail: string;
+  let toName: string | null = null;
+  if (source) {
+    if (source.direction === "inbound") {
+      toEmail = source.sender ?? detail.lead.email ?? "";
+    } else {
+      const firstNonUs = toAddrsFromMessage(source).find(
+        (a) => lower(a) !== ourAddr,
+      );
+      toEmail = firstNonUs ?? detail.lead.email ?? "";
+    }
+    // We don't carry a display name through `messages.sender`; use the
+    // lead's name only when it matches the resolved address (otherwise
+    // leave null and the composer renders just the email).
+    if (lower(toEmail) === lower(detail.lead.email)) {
+      toName = detail.lead.full_name ?? null;
     }
   } else {
-    const source =
-      state.source ??
-      [...detail.messages].reverse().find((m) => m.direction === "inbound") ??
-      null;
-    if (source) {
-      add(source.sender);
-      for (const cc of ccsFromMessage(source)) add(cc);
-    }
+    toEmail = detail.lead.email ?? "";
+    toName = detail.lead.full_name ?? null;
   }
-  return order;
+
+  const toLower = lower(toEmail);
+  const exclude = new Set([toLower, ourAddr].filter(Boolean));
+  const cc: string[] = [];
+
+  if (state.replyAll && source) {
+    const collected = new Set<string>(exclude);
+    const add = (addr: string | null | undefined) => {
+      const l = lower(addr);
+      if (!l || !l.includes("@")) return;
+      if (collected.has(l)) return;
+      collected.add(l);
+      cc.push((addr ?? "").trim());
+    };
+    // Outbound source: we sent it to To+Cc. Loop those in (minus us
+    // and minus the resolved TO).
+    // Inbound source: the original recipients are us + any folks the
+    // sender also CC'd. We CC those.
+    for (const addr of toAddrsFromMessage(source)) add(addr);
+    for (const addr of ccsFromMessage(source)) add(addr);
+    // For inbound, also include the sender's own CCs — covered by the
+    // ccsFromMessage call above.
+  }
+
+  return { to: { email: toEmail, name: toName }, cc };
 }
 
 function ToolbarIconButton({
@@ -570,6 +638,18 @@ function MessageBlock({
           </div>
         </div>
 
+        {/* Email-style header — From / To / Cc — so operators can see
+            every recipient on a message without having to open Reply
+            All to inspect them. Hidden when no recipient data is
+            available (e.g. older messages synced before recipients
+            were captured). */}
+        <MessageHeaders
+          message={message}
+          senderLabel={senderLabel}
+          senderEmail={senderEmail}
+          outbound={outbound}
+        />
+
         {/* Body with collapse/expand */}
         <div className="relative">
           <div
@@ -581,7 +661,7 @@ function MessageBlock({
             {message.body_html ? (
               <div
                 className="prose prose-sm max-w-none [&_a]:text-blue-600 [&_a]:underline [&_img]:max-w-full"
-                dangerouslySetInnerHTML={{ __html: message.body_html }}
+                dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(message.body_html) }}
               />
             ) : (
               <pre className="whitespace-pre-wrap font-sans">{message.body_text ?? ""}</pre>
@@ -633,6 +713,85 @@ function CardIcon({
       <Icon className="size-3.5" strokeWidth={2} />
     </button>
   );
+}
+
+function MessageHeaders({
+  message,
+  senderLabel,
+  senderEmail,
+  outbound,
+}: {
+  message: MessageRow;
+  senderLabel: string;
+  senderEmail: string | null;
+  outbound: boolean;
+}) {
+  const toAddrs = toAddrsFromMessage(message);
+  const ccAddrs = ccsFromMessage(message);
+  // Nothing useful → render nothing rather than an empty row.
+  if (!senderEmail && toAddrs.length === 0 && ccAddrs.length === 0) return null;
+  return (
+    <div
+      className={cn(
+        "px-4 py-2 text-[11.5px] text-muted-foreground space-y-0.5 border-b",
+        !outbound && "border-emerald-200/60",
+      )}
+    >
+      {senderEmail ? (
+        <div className="flex items-baseline gap-1.5">
+          <span className="font-semibold uppercase tracking-wide text-[10px] text-muted-foreground/80 w-7 shrink-0">
+            From
+          </span>
+          <span className="break-all">
+            {senderLabel}
+            {senderEmail ? ` <${senderEmail}>` : ""}
+          </span>
+        </div>
+      ) : null}
+      {toAddrs.length > 0 ? (
+        <div className="flex items-baseline gap-1.5">
+          <span className="font-semibold uppercase tracking-wide text-[10px] text-muted-foreground/80 w-7 shrink-0">
+            To
+          </span>
+          <span className="break-all">{toAddrs.join(", ")}</span>
+        </div>
+      ) : null}
+      {ccAddrs.length > 0 ? (
+        <div className="flex items-baseline gap-1.5">
+          <span className="font-semibold uppercase tracking-wide text-[10px] text-muted-foreground/80 w-7 shrink-0">
+            Cc
+          </span>
+          <span className="break-all">{ccAddrs.join(", ")}</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// Strip <style>, <script>, and <link rel="stylesheet"> from inbound
+// email HTML before we inject it via dangerouslySetInnerHTML.
+//
+// Marketing emails routinely ship a `<style>` block that targets the
+// `a` selector unscoped — when that gets dropped into the document
+// it applies to EVERY anchor on the page, including our sidebar
+// links. (The customer's "everything blue and underlined" report
+// turned out to be exactly this — opening a thread whose body
+// contained `<style>a { color: blue; text-decoration: underline; }
+// </style>` re-styled the whole UI.) Stripping these tags keeps the
+// content readable while preventing email styles from leaking into
+// our app's chrome. Script tags don't execute via dangerouslySet-
+// InnerHTML but we strip them too as belt-and-braces.
+//
+// We're NOT trying to fully sanitize email HTML here — the body
+// still ships inline styles, classnames, etc. that affect ONLY the
+// content within the prose container. The point is to scope the
+// styles to the message, which `<style>` blocks fundamentally
+// can't be.
+function sanitizeEmailHtml(html: string): string {
+  return html
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<link\b[^>]*rel\s*=\s*["']?stylesheet["']?[^>]*\/?>/gi, "");
 }
 
 function Avatar({ initials, className }: { initials: string; className?: string }) {

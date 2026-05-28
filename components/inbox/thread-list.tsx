@@ -159,11 +159,15 @@ export function ThreadList({
                     // the canvas white + bold weight; read rows get a
                     // subtle gray wash so the eye glides over them.
                     // Selected (active) wins over both.
+                    // Read rows wash to a noticeably darker gray
+                    // (zinc-100 in light mode) — the previous
+                    // bg-muted/30 was too subtle for the customer to
+                    // distinguish read vs unread at a glance.
                     active
                       ? "bg-accent"
                       : unread
                         ? "bg-background hover:bg-accent/40"
-                        : "bg-muted/30 hover:bg-accent/40",
+                        : "bg-zinc-100/80 hover:bg-accent/40 dark:bg-zinc-900/40",
                   )}
                 >
                   <div className="flex items-start gap-2">
@@ -253,7 +257,9 @@ export function ThreadList({
                 // Read rows get a subtle gray wash; unread stay on the
                 // bright canvas. Same Gmail-style contrast pattern as the
                 // multi-line view above.
-                isSeen(t) ? "bg-muted/30" : "bg-background",
+                isSeen(t)
+                  ? "bg-zinc-100/80 dark:bg-zinc-900/40"
+                  : "bg-background",
               )}
             >
               <div className="flex items-center gap-1.5">

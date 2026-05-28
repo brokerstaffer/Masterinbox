@@ -100,6 +100,24 @@ export async function POST(request: Request) {
     }
     case "labels": {
       if (data.op === "add") {
+        // Single-label-per-thread semantics (matches the single-thread
+        // POST /api/threads/[id]/labels path) — wipe every existing
+        // label assignment on the selected threads first, then upsert
+        // the ones we're applying. Without this, bulk labeling
+        // accumulated chips on top of whatever was already there and
+        // operators reported the action as broken.
+        //
+        // The brief window where threads have zero labels is the same
+        // trade-off the single-thread path makes — Supabase REST
+        // doesn't support cross-statement transactions.
+        const wipe = await supabase
+          .from("label_assignments")
+          .delete()
+          .eq("target_type", "thread")
+          .in("target_id", data.thread_ids);
+        if (wipe.error) {
+          return NextResponse.json({ error: wipe.error.message }, { status: 400 });
+        }
         // Build a cross-product (thread × label) and upsert with the unique
         // constraint on (label_id, target_type, target_id).
         const rows = data.thread_ids.flatMap((tid) =>
