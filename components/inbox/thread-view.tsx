@@ -201,14 +201,21 @@ export function ThreadView({
         </div>
       </div>
 
-      {/* Floating Reply */}
-      <Button
-        onClick={() => setComposeState({ mode: "reply", source: null, replyAll: false })}
-        className="absolute bottom-4 right-4 gap-1.5 shadow-lg z-10"
-      >
-        <ReplyIcon className="size-4" />
-        Reply
-      </Button>
+      {/* Floating Reply — shortcut for opening the composer. Hidden
+          while the composer is open so it doesn't overlap (and
+          intercept clicks on) the composer's own Send button: the
+          composer became a flex sibling at lg+ in 2026-05, which put
+          this absolute-positioned button right on top of the
+          composer footer. */}
+      {!composeState ? (
+        <Button
+          onClick={() => setComposeState({ mode: "reply", source: null, replyAll: false })}
+          className="absolute bottom-4 right-4 gap-1.5 shadow-lg z-10"
+        >
+          <ReplyIcon className="size-4" />
+          Reply
+        </Button>
+      ) : null}
       </div>
 
       {composeState ? (
