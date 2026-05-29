@@ -516,7 +516,7 @@ export function PipelineBoard({
               mounted ? "opacity-100" : "opacity-0",
             )}
           >
-            <div className="grid grid-cols-[36px_1.4fr_1fr_130px_130px_160px_150px_60px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+            <div className="grid grid-cols-[36px_1.4fr_1fr_130px_130px_200px_150px_60px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
               <div>
                 <input
                   type="checkbox"
@@ -713,7 +713,7 @@ function PipelineRow({
   return (
     <div
       className={cn(
-        "grid grid-cols-[36px_1.4fr_1fr_130px_130px_160px_150px_60px] items-start gap-3 px-4 py-3 transition-colors",
+        "grid grid-cols-[36px_1.4fr_1fr_130px_130px_200px_150px_60px] items-start gap-3 px-4 py-3 transition-colors",
         expanded ? "bg-[#fafbfc]" : "hover:bg-[#fafbfc]",
         selected ? "bg-[#eaf2fd] hover:bg-[#eaf2fd]" : "",
       )}
@@ -802,10 +802,11 @@ function PipelineRow({
         <button
           type="button"
           onClick={onEdit}
-          className="inline-flex size-7 items-center justify-center rounded-md border border-[#ebecf0] bg-white text-[#9aa0ab] hover:bg-[#f6f7f9]"
-          title="Edit lead"
+          className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-[#d4e4f8] bg-white px-2 text-[11.5px] font-medium text-[#1565C0] hover:bg-[#eaf2fd]"
+          title="Edit name, company, phone, website, intro date"
         >
           <Pencil className="size-3" />
+          Edit
         </button>
       </div>
       <div className="min-w-0">
@@ -926,10 +927,11 @@ function PipelineMobileCard({
           <button
             type="button"
             onClick={onEdit}
-            className="inline-flex size-8 items-center justify-center rounded-md border border-[#ebecf0] bg-white text-[#5b6472]"
-            title="Edit lead"
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-[#d4e4f8] bg-white px-2 text-[12px] font-medium text-[#1565C0]"
+            title="Edit name, company, phone, website, intro date"
           >
             <Pencil className="size-3.5" />
+            Edit
           </button>
           <button
             type="button"
