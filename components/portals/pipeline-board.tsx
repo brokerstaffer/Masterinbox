@@ -16,6 +16,7 @@ import {
   Globe,
   TrendingUp,
   Trophy,
+  UserPlus,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -64,12 +65,19 @@ const STAGE_STYLE: Record<PipelineStage, { bg: string; text: string }> = {
 
 type EditTarget = { mode: "create" } | { mode: "edit"; entry: PipelineEntry };
 
+export interface AgentOption {
+  id: string;
+  name: string;
+}
+
 export function PipelineBoard({
   token,
   entries: initial,
+  agents,
 }: {
   token: string;
   entries: PipelineEntry[];
+  agents: AgentOption[];
 }) {
   const router = useRouter();
   const mounted = useMounted();
@@ -147,6 +155,21 @@ export function PipelineBoard({
     void patch(id, { stage });
   }
 
+  function assignAgent(id: string, agent: AgentOption | null) {
+    setEntries((cur) =>
+      cur.map((e) =>
+        e.id === id
+          ? {
+              ...e,
+              assigned_agent_id: agent?.id ?? null,
+              assigned_agent_name: agent?.name ?? null,
+            }
+          : e,
+      ),
+    );
+    void patch(id, { assigned_agent_id: agent?.id ?? null });
+  }
+
   function applyEntryEdit(id: string, patchEdits: Partial<PipelineEntry>) {
     setEntries((cur) => cur.map((e) => (e.id === id ? { ...e, ...patchEdits } : e)));
   }
@@ -184,6 +207,45 @@ export function PipelineBoard({
       return;
     }
     toast.success(`${ids.length} candidate${ids.length === 1 ? "" : "s"} removed`);
+  }
+
+  async function bulkAssign(agent: AgentOption | null) {
+    if (selected.size === 0) return;
+    setBulkBusy(true);
+    const ids = Array.from(selected);
+    setEntries((cur) =>
+      cur.map((e) =>
+        selected.has(e.id)
+          ? {
+              ...e,
+              assigned_agent_id: agent?.id ?? null,
+              assigned_agent_name: agent?.name ?? null,
+            }
+          : e,
+      ),
+    );
+    setSelected(new Set());
+    const res = await fetch(`/api/portal/${token}/pipeline`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "assign",
+        ids,
+        assigned_agent_id: agent?.id ?? null,
+      }),
+    });
+    setBulkBusy(false);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      toast.error(j.error ?? "Bulk assign failed");
+      router.refresh();
+      return;
+    }
+    toast.success(
+      agent
+        ? `Assigned ${ids.length} to ${agent.name}`
+        : `Cleared assignment on ${ids.length}`,
+    );
   }
 
   async function bulkStage(stage: PipelineStage) {
@@ -374,6 +436,41 @@ export function PipelineBoard({
                       variant="outline"
                       disabled={bulkBusy || selected.size === 0}
                     >
+                      <UserPlus className="mr-1 size-3.5" />
+                      Assign to… <ChevronDown className="ml-1 size-3.5" />
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end" className="max-h-72 w-56 overflow-y-auto">
+                  {agents.length === 0 ? (
+                    <div className="px-2 py-2 text-[12px] text-[#9aa0ab]">
+                      Add agents on the Your Agents page first.
+                    </div>
+                  ) : (
+                    <>
+                      {agents.map((a) => (
+                        <DropdownMenuItem key={a.id} onClick={() => bulkAssign(a)}>
+                          {a.name}
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuItem
+                        onClick={() => bulkAssign(null)}
+                        className="border-t border-[#ebecf0] text-[#9aa0ab]"
+                      >
+                        Clear assignment
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={bulkBusy || selected.size === 0}
+                    >
                       Move to… <ChevronDown className="ml-1 size-3.5" />
                     </Button>
                   }
@@ -419,7 +516,7 @@ export function PipelineBoard({
               mounted ? "opacity-100" : "opacity-0",
             )}
           >
-            <div className="grid grid-cols-[36px_1.5fr_1.1fr_140px_140px_170px_60px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+            <div className="grid grid-cols-[36px_1.4fr_1fr_130px_130px_160px_150px_60px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
               <div>
                 <input
                   type="checkbox"
@@ -434,6 +531,7 @@ export function PipelineBoard({
               <div>Phone</div>
               <div>Introduced</div>
               <div>Stage</div>
+              <div>Assigned</div>
               <div className="text-right">Notes</div>
             </div>
             {filtered.length === 0 ? (
@@ -450,8 +548,10 @@ export function PipelineBoard({
                         entry={e}
                         expanded={expanded}
                         selected={selected.has(e.id)}
+                        agents={agents}
                         onToggleSelect={() => toggleSelect(e.id)}
                         onStage={(s) => changeStage(e.id, s)}
+                        onAssign={(a) => assignAgent(e.id, a)}
                         onOpenNotes={() => setOpenNotes(e)}
                         onEdit={() => setEditTarget({ mode: "edit", entry: e })}
                         onToggleExpand={() =>
@@ -487,8 +587,10 @@ export function PipelineBoard({
                   entry={e}
                   expanded={expandedId === e.id}
                   selected={selected.has(e.id)}
+                  agents={agents}
                   onToggleSelect={() => toggleSelect(e.id)}
                   onStage={(s) => changeStage(e.id, s)}
+                  onAssign={(a) => assignAgent(e.id, a)}
                   onOpenNotes={() => setOpenNotes(e)}
                   onEdit={() => setEditTarget({ mode: "edit", entry: e })}
                   onToggleExpand={() =>
@@ -588,8 +690,10 @@ function PipelineRow({
   entry,
   expanded,
   selected,
+  agents,
   onToggleSelect,
   onStage,
+  onAssign,
   onOpenNotes,
   onEdit,
   onToggleExpand,
@@ -597,8 +701,10 @@ function PipelineRow({
   entry: PipelineEntry;
   expanded: boolean;
   selected: boolean;
+  agents: AgentOption[];
   onToggleSelect: () => void;
   onStage: (s: PipelineStage) => void;
+  onAssign: (agent: AgentOption | null) => void;
   onOpenNotes: () => void;
   onEdit: () => void;
   onToggleExpand: () => void;
@@ -607,7 +713,7 @@ function PipelineRow({
   return (
     <div
       className={cn(
-        "grid grid-cols-[36px_1.5fr_1.1fr_140px_140px_170px_60px] items-start gap-3 px-4 py-3 transition-colors",
+        "grid grid-cols-[36px_1.4fr_1fr_130px_130px_160px_150px_60px] items-start gap-3 px-4 py-3 transition-colors",
         expanded ? "bg-[#fafbfc]" : "hover:bg-[#fafbfc]",
         selected ? "bg-[#eaf2fd] hover:bg-[#eaf2fd]" : "",
       )}
@@ -702,6 +808,14 @@ function PipelineRow({
           <Pencil className="size-3" />
         </button>
       </div>
+      <div className="min-w-0">
+        <AgentPicker
+          agents={agents}
+          value={entry.assigned_agent_id}
+          valueName={entry.assigned_agent_name}
+          onChange={onAssign}
+        />
+      </div>
       <div className="flex justify-end">
         <button
           type="button"
@@ -726,8 +840,10 @@ function PipelineMobileCard({
   entry,
   expanded,
   selected,
+  agents,
   onToggleSelect,
   onStage,
+  onAssign,
   onOpenNotes,
   onEdit,
   onToggleExpand,
@@ -737,8 +853,10 @@ function PipelineMobileCard({
   entry: PipelineEntry;
   expanded: boolean;
   selected: boolean;
+  agents: AgentOption[];
   onToggleSelect: () => void;
   onStage: (s: PipelineStage) => void;
+  onAssign: (agent: AgentOption | null) => void;
   onOpenNotes: () => void;
   onEdit: () => void;
   onToggleExpand: () => void;
@@ -786,6 +904,12 @@ function PipelineMobileCard({
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <StageSelector value={entry.stage} onChange={onStage} />
+        <AgentPicker
+          agents={agents}
+          value={entry.assigned_agent_id}
+          valueName={entry.assigned_agent_name}
+          onChange={onAssign}
+        />
         {phone ? (
           <a
             href={`tel:${phone.replace(/[^+\d]/g, "")}`}
@@ -840,6 +964,70 @@ function PipelineMobileCard({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function AgentPicker({
+  agents,
+  value,
+  valueName,
+  onChange,
+}: {
+  agents: AgentOption[];
+  value: string | null;
+  valueName: string | null;
+  onChange: (agent: AgentOption | null) => void;
+}) {
+  const current = value && valueName ? { id: value, name: valueName } : null;
+  const label = current ? current.name : "Unassigned";
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            className={cn(
+              "inline-flex h-7 w-full max-w-[160px] items-center justify-between gap-1.5 rounded-md border px-2 text-[12px] transition-colors",
+              current
+                ? "border-[#d4e4f8] bg-[#eaf2fd] text-[#1565C0] hover:bg-[#dbe9fa]"
+                : "border-[#ebecf0] bg-white text-[#5b6472] hover:bg-[#f6f7f9]",
+            )}
+            title={current ? `Assigned to ${current.name}` : "Assign an agent"}
+          >
+            <span className="truncate">{label}</span>
+            <ChevronDown className="size-3 shrink-0 opacity-70" />
+          </button>
+        }
+      />
+      <DropdownMenuContent align="start" className="max-h-72 w-56 overflow-y-auto">
+        {agents.length === 0 ? (
+          <div className="px-2 py-2 text-[12px] text-[#9aa0ab]">
+            Add agents on the Your Agents page first.
+          </div>
+        ) : (
+          <>
+            {agents.map((a) => (
+              <DropdownMenuItem
+                key={a.id}
+                onClick={() => onChange(a)}
+                className="flex items-center justify-between gap-2"
+              >
+                <span className="truncate text-[13px]">{a.name}</span>
+                {a.id === value ? <Check className="size-3.5 text-[#1565C0]" /> : null}
+              </DropdownMenuItem>
+            ))}
+            {value ? (
+              <DropdownMenuItem
+                onClick={() => onChange(null)}
+                className="border-t border-[#ebecf0] text-[#9aa0ab]"
+              >
+                Clear assignment
+              </DropdownMenuItem>
+            ) : null}
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -1128,6 +1316,8 @@ function EditLeadDialog({
         agent_profile_url: body.agent_profile_url,
         lead_location: null,
         introduced_at: body.introduced_at,
+        assigned_agent_id: null,
+        assigned_agent_name: null,
         lead_detail: null,
         campaign_name: null,
         notes_log: [],

@@ -31,9 +31,12 @@ const createSchema = z.object({
 });
 
 const bulkSchema = z.object({
-  action: z.enum(["delete", "stage"]),
+  action: z.enum(["delete", "stage", "assign"]),
   ids: z.array(z.string().uuid()).min(1).max(500),
   stage: z.enum(STAGES).optional(),
+  // assigned_agent_id is required when action="assign"; null clears
+  // every selected lead's assignment.
+  assigned_agent_id: z.string().uuid().nullable().optional(),
 });
 
 export async function POST(
@@ -112,6 +115,17 @@ export async function PATCH(
     const { error } = await admin
       .from("client_pipeline_entries")
       .update({ stage: parsed.data.stage, updated_at: new Date().toISOString() })
+      .eq("client_id", client.id)
+      .in("id", parsed.data.ids);
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ ok: true });
+  }
+  if (parsed.data.action === "assign") {
+    // null is intentional — clears the assignment in bulk.
+    const agentId = parsed.data.assigned_agent_id ?? null;
+    const { error } = await admin
+      .from("client_pipeline_entries")
+      .update({ assigned_agent_id: agentId, updated_at: new Date().toISOString() })
       .eq("client_id", client.id)
       .in("id", parsed.data.ids);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });

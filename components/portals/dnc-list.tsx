@@ -233,49 +233,71 @@ export function DncList({
         />
       ) : (
         <>
-          {selected.size > 0 ? (
-            <div className="mb-4 flex items-center gap-3 rounded-lg border border-[#bcd5f1] bg-[#eaf2fd]/60 px-3 py-2">
-              <span className="text-[13px] font-medium text-[#1565C0]">
-                {selected.size} selected
-              </span>
-              <div className="ml-auto flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={bulkExport}
-                  className="gap-1.5 h-8"
-                >
-                  <Download className="size-3.5" />
-                  Export selected
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={bulkDelete}
-                  className="gap-1.5 h-8 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
-                >
-                  <Trash2 className="size-3.5" />
-                  Delete selected
-                </Button>
+          <div className="mb-4 flex items-center gap-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[#9aa0ab]" />
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search agents or companies…"
+                className="h-9 w-64 rounded-lg border border-[#ebecf0] bg-white pl-8 pr-3 text-[13px] placeholder:text-[#9aa0ab] focus:border-[#bcd5f1] focus:outline-none focus:ring-2 focus:ring-[#eaf2fd]"
+              />
+            </div>
+          </div>
+
+          {/* Always-visible bulk-action bar — same pattern as the
+              Recruiting Pipeline + Your Agents pages so users can see
+              the affordance without ticking a row first. */}
+          <div
+            className={cn(
+              "mb-4 flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2",
+              selected.size > 0 ? "border-[#bcd5f1] bg-[#eaf2fd]/60" : "border-[#ebecf0] bg-white",
+            )}
+          >
+            <span
+              className={cn(
+                "text-[13px] font-medium",
+                selected.size > 0 ? "text-[#1565C0]" : "text-[#5b6472]",
+              )}
+            >
+              {selected.size > 0
+                ? `${selected.size} selected`
+                : "Bulk actions — tick rows below to enable"}
+            </span>
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={bulkExport}
+                disabled={selected.size === 0}
+                className="gap-1.5 h-8"
+              >
+                <Download className="size-3.5" />
+                Export selected
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={bulkDelete}
+                disabled={selected.size === 0}
+                className={cn(
+                  "gap-1.5 h-8",
+                  selected.size > 0
+                    ? "border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                    : "",
+                )}
+              >
+                <Trash2 className="size-3.5" />
+                Delete selected
+              </Button>
+              {selected.size > 0 ? (
                 <Button variant="ghost" size="sm" onClick={clearSelection} className="h-8">
                   Cancel
                 </Button>
-              </div>
+              ) : null}
             </div>
-          ) : (
-            <div className="mb-4 flex items-center gap-3">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[#9aa0ab]" />
-                <input
-                  type="search"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search agents or companies…"
-                  className="h-9 w-64 rounded-lg border border-[#ebecf0] bg-white pl-8 pr-3 text-[13px] placeholder:text-[#9aa0ab] focus:border-[#bcd5f1] focus:outline-none focus:ring-2 focus:ring-[#eaf2fd]"
-                />
-              </div>
-            </div>
-          )}
+          </div>
 
           <DncSection
             title="Agents"

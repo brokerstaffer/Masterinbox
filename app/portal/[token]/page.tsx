@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { resolvePortalClient } from "@/lib/portals/token";
-import { loadPipelineEntries } from "@/lib/portals/portal-data";
+import { loadAgentEntries, loadPipelineEntries } from "@/lib/portals/portal-data";
 import { PipelineHeader } from "@/components/portals/pipeline-header";
 import { PipelineBoard } from "@/components/portals/pipeline-board";
 import { PortalLogo } from "@/components/portals/portal-logo";
@@ -34,12 +34,16 @@ export default async function PortalRoot(props: {
   const client = await resolvePortalClient(token);
   if (!client) return <PortalNotFound />;
 
-  const entries = await loadPipelineEntries(client.id);
+  const [entries, agents] = await Promise.all([
+    loadPipelineEntries(client.id),
+    loadAgentEntries(client.id),
+  ]);
+  const agentOptions = agents.map((a) => ({ id: a.id, name: a.name }));
 
   return (
     <>
       <PipelineHeader clientName={client.name} />
-      <PipelineBoard token={token} entries={entries} />
+      <PipelineBoard token={token} entries={entries} agents={agentOptions} />
     </>
   );
 }
