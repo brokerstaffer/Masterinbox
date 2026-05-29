@@ -42,10 +42,22 @@ export function computePipelineSummary(entries: PipelineEntry[]): PipelineSummar
   for (const e of entries) {
     if (e.stage === "hired") hired += 1;
     if (!INACTIVE_STAGES.has(e.stage)) inActive += 1;
+
+    // "This week" counts leads whose most-recent reply landed in the
+    // current ISO week — that matches how the reply managers tally
+    // their workload. Falling back to `introduced_at` keeps entries
+    // with no inbound (legacy / no-thread rows) from silently dropping
+    // off the older tiles. See lib/portals/portal-data.ts last_reply_at.
+    if (e.last_reply_at) {
+      const reply = new Date(e.last_reply_at);
+      if (!Number.isNaN(reply.getTime()) && mondayOf(reply).getTime() === thisMonday.getTime()) {
+        thisWeek += 1;
+      }
+    }
+
     if (!e.introduced_at) continue;
     const d = new Date(e.introduced_at);
     if (Number.isNaN(d.getTime())) continue;
-    if (mondayOf(d).getTime() === thisMonday.getTime()) thisWeek += 1;
     if (d.getUTCFullYear() === thisMonthY && d.getUTCMonth() === thisMonthM) {
       thisMonth += 1;
     }
