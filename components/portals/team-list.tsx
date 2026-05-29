@@ -141,11 +141,11 @@ export function TeamList({
       ) : (
         <div
           className={cn(
-            "overflow-hidden rounded-2xl border border-[#ebecf0] bg-white shadow-sm transition-opacity duration-500",
+            "overflow-x-auto rounded-2xl border border-[#ebecf0] bg-white shadow-sm transition-opacity duration-500",
             mounted ? "opacity-100" : "opacity-0",
           )}
         >
-          <div className="grid grid-cols-[1.4fr_1.1fr_1.6fr_72px_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+          <div className="grid min-w-[680px] grid-cols-[1.4fr_1.1fr_1.6fr_72px_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
             <div>Member</div>
             <div>Title</div>
             <div>Email / Phone</div>
@@ -157,7 +157,7 @@ export function TeamList({
               <div
                 key={m.id}
                 className={cn(
-                  "grid grid-cols-[1.4fr_1.1fr_1.6fr_72px_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]",
+                  "grid min-w-[680px] grid-cols-[1.4fr_1.1fr_1.6fr_72px_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]",
                   !m.active && "opacity-60",
                 )}
               >

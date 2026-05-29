@@ -421,11 +421,11 @@ function DncSection({
       </div>
       <div
         className={cn(
-          "overflow-hidden rounded-2xl border border-[#ebecf0] bg-white shadow-sm transition-opacity duration-500",
+          "overflow-x-auto rounded-2xl border border-[#ebecf0] bg-white shadow-sm transition-opacity duration-500",
           mounted ? "opacity-100" : "opacity-0",
         )}
       >
-        <div className="grid grid-cols-[36px_1.5fr_1.2fr_1.6fr_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+        <div className="grid min-w-[680px] grid-cols-[36px_1.5fr_1.2fr_1.6fr_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
           <div className="flex items-center justify-center">
             <input
               type="checkbox"
@@ -452,7 +452,7 @@ function DncSection({
               <div
                 key={e.id}
                 className={cn(
-                  "grid grid-cols-[36px_1.5fr_1.2fr_1.6fr_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]",
+                  "grid min-w-[680px] grid-cols-[36px_1.5fr_1.2fr_1.6fr_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]",
                   selected.has(e.id) && "bg-[#eaf2fd]/40 hover:bg-[#eaf2fd]/60",
                 )}
               >

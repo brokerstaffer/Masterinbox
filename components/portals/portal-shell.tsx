@@ -1,8 +1,9 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Workflow, UserCheck, Ban, Users } from "lucide-react";
+import { Workflow, UserCheck, Ban, Users, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PortalLogo } from "@/components/portals/portal-logo";
 
@@ -13,13 +14,30 @@ interface Props {
   children: React.ReactNode;
 }
 
-// Sidebar shell for every page under /portal/[token]/. Recruiting
-// Pipeline lives at the portal root — it merges what used to be a
-// separate Introductions surface with the per-row stage tracker
-// (see migration 0027 + app/portal/[token]/page.tsx).
+// Shell for every page under /portal/[token]/. Sidebar is sticky on
+// md+, slides in as a drawer on mobile. Recruiting Pipeline is the
+// portal root — see migration 0027 + app/portal/[token]/page.tsx.
 export function PortalShell({ token, clientName, counts, children }: Props) {
   const pathname = usePathname();
   const base = `/portal/${token}`;
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Close the drawer when navigation happens (mobile users tap a link).
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname]);
+
+  // Lock body scroll when the drawer is open so swipes don't bleed
+  // through to the underlying page.
+  useEffect(() => {
+    if (drawerOpen) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = prev;
+      };
+    }
+  }, [drawerOpen]);
 
   const items = [
     { href: base, label: "Recruiting Pipeline", icon: Workflow, count: counts.pipeline },
@@ -28,12 +46,50 @@ export function PortalShell({ token, clientName, counts, children }: Props) {
     { href: `${base}/team`, label: "Team", icon: Users, count: counts.team },
   ];
 
+  const activeItem = items.find((it) => isActive(pathname, it.href, base));
+
   return (
     <div className="flex min-h-screen bg-[#f6f7f9] text-[#0f1320] antialiased">
-      <aside className="sticky top-0 flex h-screen w-[232px] shrink-0 flex-col border-r border-[#ebecf0] bg-white">
+      {/* Mobile top bar — only visible <md. Hamburger toggles the drawer,
+          plus a compact client name + current section title. */}
+      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-2 border-b border-[#ebecf0] bg-white/95 px-3 backdrop-blur md:hidden">
+        <button
+          type="button"
+          onClick={() => setDrawerOpen(true)}
+          aria-label="Open menu"
+          className="inline-flex size-9 items-center justify-center rounded-md text-[#5b6472] hover:bg-[#f6f7f9]"
+        >
+          <Menu className="size-5" />
+        </button>
+        <PortalLogo className="size-6" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[13px] font-semibold leading-tight">{clientName}</div>
+          <div className="truncate text-[10.5px] uppercase tracking-wider text-[#9aa0ab]">
+            {activeItem?.label ?? "Client Portal"}
+          </div>
+        </div>
+      </header>
+
+      {/* Backdrop for the mobile drawer. */}
+      {drawerOpen ? (
+        <button
+          type="button"
+          aria-label="Close menu"
+          onClick={() => setDrawerOpen(false)}
+          className="fixed inset-0 z-40 bg-[#0f1320]/40 md:hidden"
+        />
+      ) : null}
+
+      {/* Sidebar. Drawer on mobile (slides from left), sticky on md+. */}
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex w-[260px] max-w-[80vw] flex-col border-r border-[#ebecf0] bg-white transition-transform duration-200 ease-out md:sticky md:top-0 md:z-auto md:h-screen md:w-[232px] md:max-w-none md:translate-x-0 md:transition-none",
+          drawerOpen ? "translate-x-0" : "-translate-x-full",
+        )}
+      >
         <div className="flex items-center gap-2.5 border-b border-[#ebecf0] px-5 py-4">
           <PortalLogo className="size-7" />
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="truncate text-[13px] font-semibold leading-tight tracking-tight">
               {clientName}
             </div>
@@ -41,6 +97,14 @@ export function PortalShell({ token, clientName, counts, children }: Props) {
               Client Portal
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(false)}
+            aria-label="Close menu"
+            className="inline-flex size-8 items-center justify-center rounded-md text-[#9aa0ab] hover:bg-[#f6f7f9] md:hidden"
+          >
+            <X className="size-4" />
+          </button>
         </div>
 
         <nav className="flex flex-col gap-px p-2">
@@ -90,7 +154,9 @@ export function PortalShell({ token, clientName, counts, children }: Props) {
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1">{children}</main>
+      {/* Main column. pt-14 reserves space for the mobile top bar; on md+
+          the bar is hidden and the sidebar lives inline so no offset. */}
+      <main className="min-w-0 flex-1 pt-14 md:pt-0">{children}</main>
     </div>
   );
 }
