@@ -3,12 +3,9 @@
 import type { PipelineEntry } from "@/lib/portals/portal-data";
 
 // Inline expandable detail block for a Recruiting Pipeline row.
-// Renders EVERY field Instantly captured for the lead — no hardcoded
-// categories. The lead's snapshot fields (email / phone / company /
-// title) come first as universally useful contact info, then the full
-// lead_detail.custom_fields payload follows in its natural order.
-// Pipeline metadata (introduced date / campaign) and the brokerage's
-// own notes sit beneath dividers.
+// Renders every meaningful field on the lead, including the enriched
+// Instantly payload — uniformly in a grid that wraps on narrow screens
+// for mobile readers.
 
 type LeadDetail = {
   company?: string | null;
@@ -21,13 +18,20 @@ interface DetailField {
   value: string;
 }
 
-export function PipelineDetailInline({ entry }: { entry: PipelineEntry }) {
+export function PipelineDetailInline({
+  entry,
+}: {
+  entry: PipelineEntry;
+  // Reserved for future inline-edit interactions. The caller currently
+  // passes a no-op patch handler; keeping it on the type lets us avoid
+  // a future breaking-change to consumers.
+  token?: string;
+  onLocalUpdate?: (patch: Partial<PipelineEntry>) => void;
+}) {
   const detail = (entry.lead_detail ?? {}) as LeadDetail;
   const cf = (detail.custom_fields ?? {}) as Record<string, unknown>;
 
   const fields: DetailField[] = [];
-  // Track raw lower-cased keys already surfaced, to avoid showing the
-  // same value twice when custom_fields and snapshot fields overlap.
   const shown = new Set<string>();
 
   const tryPush = (label: string, value: unknown, dedupKey?: string) => {
@@ -36,30 +40,24 @@ export function PipelineDetailInline({ entry }: { entry: PipelineEntry }) {
     if (dedupKey) shown.add(dedupKey.toLowerCase());
   };
 
-  // Universally useful contact + identity fields first.
   tryPush("Email", entry.lead_email, "email");
 
   const phone = cf.phone ?? entry.lead_phone;
   tryPush("Phone", phone, "phone");
 
-  const company = detail.company ?? entry.current_brokerage;
+  const company = entry.current_brokerage ?? detail.company;
   tryPush("Company", company, "company");
 
   tryPush("Title", detail.title, "title");
 
-  // Everything else from custom_fields, in the order Instantly returned
-  // it. This is the "any new field automatically shows up" part —
-  // nothing is filtered out except keys we already surfaced above.
+  tryPush("Website", entry.agent_profile_url, "website");
+
+  tryPush("Location", entry.lead_location, "location");
+
   for (const [k, v] of Object.entries(cf)) {
     if (shown.has(k.toLowerCase())) continue;
     if (!hasValue(v)) continue;
     fields.push({ label: prettyKey(k), value: String(v).trim() });
-  }
-
-  // Fallback: legacy pipeline rows without an external_intros backfill
-  // still expose phone / agent profile via snapshot columns.
-  if (fields.length === 0 && entry.agent_profile_url) {
-    fields.push({ label: "Profile", value: entry.agent_profile_url });
   }
 
   const introducedDate = entry.introduced_at
@@ -72,7 +70,7 @@ export function PipelineDetailInline({ entry }: { entry: PipelineEntry }) {
     : null;
 
   return (
-    <div className="px-12 py-6">
+    <div className="px-4 py-5 sm:px-12 sm:py-6">
       {fields.length > 0 ? (
         <div className="grid grid-cols-1 gap-x-10 gap-y-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {fields.map((f) => (
@@ -81,29 +79,40 @@ export function PipelineDetailInline({ entry }: { entry: PipelineEntry }) {
         </div>
       ) : (
         <div className="rounded-md border border-dashed border-[#ebecf0] bg-white px-4 py-3 text-[12px] text-[#9aa0ab]">
-          No Instantly enrichment captured for this lead yet.
+          No additional details captured for this lead yet.
         </div>
       )}
 
       {introducedDate || entry.campaign_name ? (
-        <div
-          className={
-            "mt-7 grid grid-cols-1 gap-x-12 gap-y-3 border-t border-[#ebecf0] pt-6 md:grid-cols-[220px_1fr]"
-          }
-        >
+        <div className="mt-7 grid grid-cols-1 gap-x-12 gap-y-3 border-t border-[#ebecf0] pt-6 md:grid-cols-[220px_1fr]">
           {introducedDate ? <FieldStack label="Introduced" value={introducedDate} /> : null}
           {entry.campaign_name ? <FieldStack label="Campaign" value={entry.campaign_name} /> : null}
         </div>
       ) : null}
 
-      {entry.notes ? (
+      {entry.notes_log.length > 0 ? (
         <div className="mt-7 border-t border-[#ebecf0] pt-6">
           <div className="text-[10.5px] font-medium uppercase tracking-wide text-[#aab0ba]">
             Notes
           </div>
-          <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-[#0f1320]">
-            {entry.notes}
-          </p>
+          <ul className="mt-2 space-y-2">
+            {entry.notes_log.map((n) => (
+              <li key={n.id} className="rounded-lg bg-white p-2.5 ring-1 ring-[#ebecf0]">
+                <div className="text-[11px] text-[#9aa0ab]">
+                  {new Date(n.created_at).toLocaleString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </div>
+                <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-[#0f1320]">
+                  {n.body}
+                </p>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
     </div>
@@ -145,8 +154,6 @@ function hasValue(v: unknown): boolean {
   return true;
 }
 
-// "Last12Mos_ListSoldDollars_Closed" → "Last 12 mos list sold dollars closed"
-// "License Number" stays "License Number" (already pretty)
 function prettyKey(k: string): string {
   return k
     .replace(/_/g, " ")
@@ -156,10 +163,6 @@ function prettyKey(k: string): string {
     .trim();
 }
 
-// Auto-detect URLs from the value (unambiguous: must start with
-// http://); auto-detect emails + phones based on the field LABEL so
-// that strings like a license number "(123) 456-789" don't get treated
-// as a phone link.
 function autoLink(
   label: string,
   value: string,
@@ -173,12 +176,7 @@ function autoLink(
       return { href: `mailto:${value}`, display: value };
     }
   }
-  if (
-    l === "phone" ||
-    l === "mobile" ||
-    l === "cell" ||
-    l.includes("phone")
-  ) {
+  if (l === "phone" || l === "mobile" || l === "cell" || l.includes("phone")) {
     const digits = value.replace(/\D/g, "");
     if (digits.length >= 7 && digits.length <= 15) {
       return {
@@ -187,13 +185,7 @@ function autoLink(
       };
     }
   }
-  if (
-    l === "website" ||
-    l === "linkedin" ||
-    l === "profile" ||
-    l.includes("url")
-  ) {
-    // Bare-domain fallback ("homes.com/...") still gets linkified.
+  if (l === "website" || l === "linkedin" || l === "profile" || l.includes("url")) {
     const hasDot = /\.[a-z]{2,}/i.test(value);
     if (hasDot && !value.includes(" ")) {
       const href = `https://${value.replace(/^\/+/, "")}`;

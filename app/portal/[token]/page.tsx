@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { resolvePortalClient } from "@/lib/portals/token";
 import { loadPipelineEntries } from "@/lib/portals/portal-data";
-import { computePipelineSummary } from "@/lib/portals/pipeline-metrics";
 import { PipelineHeader } from "@/components/portals/pipeline-header";
 import { PipelineBoard } from "@/components/portals/pipeline-board";
 import { PortalLogo } from "@/components/portals/portal-logo";
@@ -36,11 +35,10 @@ export default async function PortalRoot(props: {
   if (!client) return <PortalNotFound />;
 
   const entries = await loadPipelineEntries(client.id);
-  const summary = computePipelineSummary(entries);
 
   return (
     <>
-      <PipelineHeader clientName={client.name} summary={summary} />
+      <PipelineHeader clientName={client.name} />
       <PipelineBoard token={token} entries={entries} />
     </>
   );

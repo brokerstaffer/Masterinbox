@@ -4,7 +4,6 @@ import { ChevronLeft, ExternalLink, Workflow, UserCheck, Ban, Users } from "luci
 import { requireSession } from "@/lib/auth/workspace";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { loadPipelineEntries, loadPortalCounts } from "@/lib/portals/portal-data";
-import { computePipelineSummary } from "@/lib/portals/pipeline-metrics";
 import { PipelineHeader } from "@/components/portals/pipeline-header";
 import { PipelineBoard } from "@/components/portals/pipeline-board";
 import { CLIENT_PORTALS_ENABLED } from "@/lib/portals/flag";
@@ -35,7 +34,6 @@ export default async function PortalDrilldownPage(props: {
     loadPipelineEntries(client.id as string),
     loadPortalCounts(client.id as string),
   ]);
-  const summary = computePipelineSummary(entries);
   const portalPath = client.portal_token ? `/portal/${client.portal_token}` : null;
 
   return (
@@ -81,7 +79,7 @@ export default async function PortalDrilldownPage(props: {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <PipelineHeader clientName={client.name as string} summary={summary} />
+        <PipelineHeader clientName={client.name as string} />
         {client.portal_token ? (
           <PipelineBoard token={client.portal_token as string} entries={entries} />
         ) : (

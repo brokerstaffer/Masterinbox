@@ -4,10 +4,12 @@ import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
 
 // PATCH /api/portal/[token]/pipeline/[id]
-// Body: { stage?, needs_replacement?, notes? }
+// DELETE /api/portal/[token]/pipeline/[id]
 //
 // The token IS the credential. We resolve it to a client_id and only
-// permit updates to pipeline rows that belong to that client.
+// permit reads / writes on pipeline rows that belong to that client.
+// The portal expansion lets the client edit identity fields too
+// (manual leads), so the schema accepts more than just stage moves.
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +26,12 @@ const STAGES = [
 const schema = z.object({
   stage: z.enum(STAGES).optional(),
   needs_replacement: z.boolean().optional(),
-  notes: z.string().max(20_000).nullable().optional(),
+  lead_name: z.string().max(200).nullable().optional(),
+  lead_email: z.string().email().max(200).nullable().optional(),
+  lead_phone: z.string().max(80).nullable().optional(),
+  current_brokerage: z.string().max(200).nullable().optional(),
+  agent_profile_url: z.string().max(500).nullable().optional(),
+  introduced_at: z.string().datetime().nullable().optional(),
 });
 
 export async function PATCH(
@@ -59,5 +66,24 @@ export async function PATCH(
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   if (!data) return NextResponse.json({ error: "Entry not found" }, { status: 404 });
+  return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ token: string; id: string }> },
+) {
+  const { token, id } = await context.params;
+  const client = await resolvePortalClient(token);
+  if (!client) {
+    return NextResponse.json({ error: "Portal not found" }, { status: 404 });
+  }
+  const admin = createAdminSupabase();
+  const { error } = await admin
+    .from("client_pipeline_entries")
+    .delete()
+    .eq("id", id)
+    .eq("client_id", client.id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json({ ok: true });
 }
