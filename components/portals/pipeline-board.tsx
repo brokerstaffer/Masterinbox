@@ -797,12 +797,12 @@ function PipelineRow({
         )}
       </div>
       <div className="text-[12.5px] text-[#5b6472]">{fmtDate(entry.introduced_at)}</div>
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-col items-start gap-1.5">
         <StageSelector value={entry.stage} onChange={onStage} />
         <button
           type="button"
           onClick={onEdit}
-          className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-[#d4e4f8] bg-white px-2 text-[11.5px] font-medium text-[#1565C0] hover:bg-[#eaf2fd]"
+          className="inline-flex h-7 items-center gap-1 rounded-md border border-[#d4e4f8] bg-white px-2 text-[11.5px] font-medium text-[#1565C0] hover:bg-[#eaf2fd]"
           title="Edit name, company, phone, website, intro date"
         >
           <Pencil className="size-3" />
