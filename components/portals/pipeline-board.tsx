@@ -342,42 +342,75 @@ export function PipelineBoard({
             </div>
           </div>
 
-          {/* Bulk toolbar — shows once at least one row is selected. */}
-          {selected.size > 0 ? (
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#d4e4f8] bg-[#eaf2fd] px-3 py-2 text-[12.5px]">
-              <span className="font-medium text-[#1565C0]">
-                {selected.size} selected
-              </span>
-              <div className="flex flex-wrap items-center gap-2">
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button size="sm" variant="outline" disabled={bulkBusy}>
-                        Move to… <ChevronDown className="ml-1 size-3.5" />
-                      </Button>
-                    }
-                  />
-                  <DropdownMenuContent align="end" className="w-48">
-                    {STAGE_ORDER.map((s) => (
-                      <DropdownMenuItem key={s} onClick={() => bulkStage(s)}>
-                        <span className={cn("mr-2 inline-block size-2.5 rounded-full", STAGE_STYLE[s].bg)} />
-                        {STAGE_LABELS[s]}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <Button size="sm" variant="outline" onClick={bulkExport} disabled={bulkBusy}>
-                  <Download className="mr-1 size-3.5" /> Export CSV
-                </Button>
-                <Button size="sm" variant="outline" onClick={bulkDelete} disabled={bulkBusy} className="text-[#e23a3a]">
-                  <Trash2 className="mr-1 size-3.5" /> Delete
-                </Button>
+          {/* Bulk-action bar — always rendered so the affordance is
+              discoverable. When nothing is selected the buttons are
+              disabled and the leading label nudges the user to tick a
+              row. When at least one row is selected the bar lights up
+              and the label switches to a live count. */}
+          <div
+            className={cn(
+              "mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-[12.5px] transition-colors",
+              selected.size > 0
+                ? "border-[#d4e4f8] bg-[#eaf2fd]"
+                : "border-[#ebecf0] bg-white",
+            )}
+          >
+            <span
+              className={cn(
+                "font-medium",
+                selected.size > 0 ? "text-[#1565C0]" : "text-[#5b6472]",
+              )}
+            >
+              {selected.size > 0
+                ? `${selected.size} selected`
+                : "Bulk actions — tick rows below to enable"}
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={bulkBusy || selected.size === 0}
+                    >
+                      Move to… <ChevronDown className="ml-1 size-3.5" />
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end" className="w-48">
+                  {STAGE_ORDER.map((s) => (
+                    <DropdownMenuItem key={s} onClick={() => bulkStage(s)}>
+                      <span className={cn("mr-2 inline-block size-2.5 rounded-full", STAGE_STYLE[s].bg)} />
+                      {STAGE_LABELS[s]}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={bulkExport}
+                disabled={bulkBusy || selected.size === 0}
+              >
+                <Download className="mr-1 size-3.5" /> Export CSV
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={bulkDelete}
+                disabled={bulkBusy || selected.size === 0}
+                className={cn(selected.size > 0 ? "text-[#e23a3a]" : "")}
+              >
+                <Trash2 className="mr-1 size-3.5" /> Delete
+              </Button>
+              {selected.size > 0 ? (
                 <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
                   Clear
                 </Button>
-              </div>
+              ) : null}
             </div>
-          ) : null}
+          </div>
 
           {/* Table (md+) — scrolls horizontally if container shrinks. */}
           <div
