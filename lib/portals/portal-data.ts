@@ -25,12 +25,6 @@ export interface PipelineEntry {
   current_brokerage: string | null;
   agent_profile_url: string | null;
   introduced_at: string | null;
-  // Timestamp of the lead's most recent inbound reply on the underlying
-  // thread (null if the lead never replied or the entry has no thread).
-  // Used by the "This week" pipeline tile so the count reflects the
-  // leads who are *currently in conversation* this week, not when we
-  // applied the "introduction" label — see lib/portals/pipeline-metrics.ts.
-  last_reply_at: string | null;
   // Full Instantly enrichment payload for the lead detail side-panel.
   // null when the entry was triggered by a label assignment (no
   // external_intros row backed it).
@@ -99,43 +93,14 @@ export const loadPipelineEntries = cache(
     const { data, error } = await admin
       .from("client_pipeline_entries")
       .select(
-        "id, thread_id, stage, needs_replacement, notes, lead_name, lead_email, lead_phone, current_brokerage, agent_profile_url, introduced_at, external_intros:external_intro_id (lead_detail, campaign_name)",
+        "id, stage, needs_replacement, notes, lead_name, lead_email, lead_phone, current_brokerage, agent_profile_url, introduced_at, external_intros:external_intro_id (lead_detail, campaign_name)",
       )
       .eq("client_id", clientId)
       .order("introduced_at", { ascending: false })
       .range(0, 9_999);
     if (error || !data) return [];
-
-    // Second hop: fetch the most-recent inbound message per thread so the
-    // "This week" tile can count by lead-reply time rather than label-
-    // assignment time. One batched `in()` query keyed by thread_id; we
-    // reduce client-side to max(sent_at) per thread.
-    const threadIds = Array.from(
-      new Set(
-        (data as Array<{ thread_id: string | null }>)
-          .map((r) => r.thread_id)
-          .filter((x): x is string => !!x),
-      ),
-    );
-    const lastReplyByThread = new Map<string, string>();
-    if (threadIds.length > 0) {
-      const { data: msgs } = await admin
-        .from("messages")
-        .select("thread_id, sent_at")
-        .in("thread_id", threadIds)
-        .eq("direction", "inbound")
-        .order("sent_at", { ascending: false })
-        .range(0, 9_999);
-      for (const m of (msgs ?? []) as Array<{ thread_id: string; sent_at: string | null }>) {
-        if (!m.sent_at) continue;
-        const prev = lastReplyByThread.get(m.thread_id);
-        if (!prev || m.sent_at > prev) lastReplyByThread.set(m.thread_id, m.sent_at);
-      }
-    }
-
     return (data as unknown as Array<
-      Omit<PipelineEntry, "lead_detail" | "campaign_name" | "last_reply_at"> & {
-        thread_id: string | null;
+      Omit<PipelineEntry, "lead_detail" | "campaign_name"> & {
         external_intros:
           | { lead_detail: Record<string, unknown> | null; campaign_name: string | null }
           | { lead_detail: Record<string, unknown> | null; campaign_name: string | null }[]
@@ -147,11 +112,10 @@ export const loadPipelineEntries = cache(
       const ext = Array.isArray(r.external_intros)
         ? r.external_intros[0] ?? null
         : r.external_intros;
-      const { external_intros: _ignore, thread_id, ...rest } = r;
+      const { external_intros: _ignore, ...rest } = r;
       void _ignore;
       return {
         ...rest,
-        last_reply_at: thread_id ? lastReplyByThread.get(thread_id) ?? null : null,
         lead_detail: ext?.lead_detail ?? null,
         campaign_name: ext?.campaign_name ?? null,
       } satisfies PipelineEntry;
