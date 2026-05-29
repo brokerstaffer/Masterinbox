@@ -8,13 +8,12 @@ import {
   Search,
   StickyNote,
   Loader2,
-  RefreshCw,
   Plus,
   Trash2,
   Pencil,
   Download,
   Phone as PhoneIcon,
-  ExternalLink,
+  Globe,
   TrendingUp,
   Trophy,
 } from "lucide-react";
@@ -297,15 +296,6 @@ export function PipelineBoard({
                 />
                 Replacements only
               </label>
-              <button
-                type="button"
-                onClick={() => router.refresh()}
-                className="inline-flex h-9 items-center gap-1.5 rounded-md border border-[#ebecf0] bg-white px-3 text-[13px] font-medium text-[#5b6472] transition-colors hover:bg-[#f6f7f9]"
-                title="Refresh"
-              >
-                <RefreshCw className="size-3.5" />
-                Refresh
-              </button>
               <Button
                 size="sm"
                 onClick={() => setEditTarget({ mode: "create" })}
@@ -631,24 +621,26 @@ function PipelineRow({
           {entry.lead_email ? (
             <div className="truncate text-[11.5px] text-[#9aa0ab]">{entry.lead_email}</div>
           ) : null}
-          {entry.lead_location ? (
-            <div className="truncate text-[11.5px] text-[#9aa0ab]">{entry.lead_location}</div>
-          ) : null}
         </div>
       </button>
       <div className="min-w-0 text-[13px] text-[#5b6472]">
-        <div className="truncate">{entry.current_brokerage ?? "—"}</div>
-        {entry.agent_profile_url ? (
-          <a
-            href={normalizeUrl(entry.agent_profile_url)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-0.5 inline-flex items-center gap-1 truncate text-[11.5px] text-[#1565C0] hover:underline"
-            title={entry.agent_profile_url}
-          >
-            <ExternalLink className="size-3" />
-            {trimUrl(entry.agent_profile_url)}
-          </a>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate">{entry.current_brokerage ?? "—"}</span>
+          {entry.agent_profile_url ? (
+            <a
+              href={normalizeUrl(entry.agent_profile_url)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex size-5 shrink-0 items-center justify-center rounded text-[#9aa0ab] hover:bg-[#eaf2fd] hover:text-[#1565C0]"
+              title={trimUrl(entry.agent_profile_url)}
+              aria-label="Open profile"
+            >
+              <Globe className="size-3.5" />
+            </a>
+          ) : null}
+        </div>
+        {entry.lead_location ? (
+          <div className="mt-0.5 truncate text-[11.5px] text-[#9aa0ab]">{entry.lead_location}</div>
         ) : null}
       </div>
       <div className="text-[12.5px] tabular-nums text-[#5b6472]">
