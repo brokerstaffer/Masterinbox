@@ -13,7 +13,9 @@ import { resolvePortalClient } from "@/lib/portals/token";
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
-  ids: z.array(z.string().uuid()).min(1).max(500),
+  // 5000 ceiling — UI also chunks client-side to keep individual
+  // requests well under any infrastructure timeout.
+  ids: z.array(z.string().uuid()).min(1).max(5000),
 });
 
 export async function POST(

@@ -15,7 +15,9 @@ import { resolvePortalClient } from "@/lib/portals/token";
 export const dynamic = "force-dynamic";
 
 const schema = z.object({
-  ids: z.array(z.string().uuid()).min(1).max(500),
+  // Cap at 5000 to absorb a typical "remove every duplicate" sweep.
+  // UI chunks anyway so this is just a server-side ceiling.
+  ids: z.array(z.string().uuid()).min(1).max(5000),
 });
 
 export async function POST(

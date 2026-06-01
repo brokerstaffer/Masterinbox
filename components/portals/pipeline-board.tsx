@@ -56,6 +56,8 @@ import {
   PortalEmpty,
   Avatar,
   useMounted,
+  PaginationFooter,
+  PORTAL_PAGE_SIZE,
 } from "@/components/portals/portal-ui";
 import { PipelineDetailInline } from "@/components/portals/pipeline-detail-inline";
 import { formatPhoneDisplay } from "@/lib/portals/phone";
@@ -96,6 +98,7 @@ export function PipelineBoard({
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -112,6 +115,15 @@ export function PipelineBoard({
       return true;
     });
   }, [entries, search, stageFilter, replaceOnly]);
+
+  // Reset the pager whenever the active filter set shrinks the result
+  // count below the current page's range.
+  useEffect(() => setPage(1), [search, stageFilter, replaceOnly]);
+
+  const pageItems = useMemo(() => {
+    const start = (page - 1) * PORTAL_PAGE_SIZE;
+    return filtered.slice(start, start + PORTAL_PAGE_SIZE);
+  }, [filtered, page]);
 
   // Per-stage counts for the filter chips.
   const stageCounts = useMemo(() => {
@@ -170,9 +182,28 @@ export function PipelineBoard({
     });
   }
   function toggleSelectAll() {
-    if (selected.size === filtered.length) setSelected(new Set());
-    else setSelected(new Set(filtered.map((e) => e.id)));
+    // Select-all targets the rows actually on screen (this page).
+    // Bulk delete then chunks the union, so flipping through pages
+    // and adding more is non-destructive.
+    if (pageItems.every((e) => selected.has(e.id))) {
+      setSelected((cur) => {
+        const next = new Set(cur);
+        for (const e of pageItems) next.delete(e.id);
+        return next;
+      });
+    } else {
+      setSelected((cur) => {
+        const next = new Set(cur);
+        for (const e of pageItems) next.add(e.id);
+        return next;
+      });
+    }
   }
+
+  // CHUNK keeps individual requests well under the 5000-row server
+  // cap and any infra request timeout. Sequential is fine — a 5k
+  // selection is 5 round trips and we want a deterministic toast.
+  const BULK_CHUNK = 1000;
 
   async function bulkDelete() {
     if (selected.size === 0) return;
@@ -181,19 +212,23 @@ export function PipelineBoard({
     const ids = Array.from(selected);
     setEntries((cur) => cur.filter((e) => !selected.has(e.id)));
     setSelected(new Set());
-    const res = await fetch(`/api/portal/${token}/pipeline`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "delete", ids }),
-    });
-    setBulkBusy(false);
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      toast.error(j.error ?? "Bulk delete failed");
-      router.refresh();
-      return;
+    for (let i = 0; i < ids.length; i += BULK_CHUNK) {
+      const slice = ids.slice(i, i + BULK_CHUNK);
+      const res = await fetch(`/api/portal/${token}/pipeline`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", ids: slice }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        toast.error(j.error ?? "Bulk delete failed");
+        setBulkBusy(false);
+        router.refresh();
+        return;
+      }
     }
-    toast.success(`${ids.length} candidate${ids.length === 1 ? "" : "s"} removed`);
+    setBulkBusy(false);
+    toast.success(`${ids.length.toLocaleString()} candidate${ids.length === 1 ? "" : "s"} removed`);
   }
 
   async function bulkStage(stage: PipelineStage) {
@@ -202,19 +237,23 @@ export function PipelineBoard({
     const ids = Array.from(selected);
     setEntries((cur) => cur.map((e) => (selected.has(e.id) ? { ...e, stage } : e)));
     setSelected(new Set());
-    const res = await fetch(`/api/portal/${token}/pipeline`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "stage", ids, stage }),
-    });
-    setBulkBusy(false);
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      toast.error(j.error ?? "Bulk stage update failed");
-      router.refresh();
-      return;
+    for (let i = 0; i < ids.length; i += BULK_CHUNK) {
+      const slice = ids.slice(i, i + BULK_CHUNK);
+      const res = await fetch(`/api/portal/${token}/pipeline`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "stage", ids: slice, stage }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        toast.error(j.error ?? "Bulk stage update failed");
+        setBulkBusy(false);
+        router.refresh();
+        return;
+      }
     }
-    toast.success(`Moved ${ids.length} to ${STAGE_LABELS[stage]}`);
+    setBulkBusy(false);
+    toast.success(`Moved ${ids.length.toLocaleString()} to ${STAGE_LABELS[stage]}`);
   }
 
   function bulkExport() {
@@ -314,7 +353,7 @@ export function PipelineBoard({
                 <Plus className="mr-1 size-4" /> Add lead
               </Button>
               <span className="ml-auto text-[12px] text-[#9aa0ab]">
-                {filtered.length} of {entries.length} candidates
+                {filtered.length.toLocaleString()} of {entries.length.toLocaleString()} candidates
               </span>
             </div>
             <div className="flex flex-wrap gap-1.5">
@@ -434,7 +473,7 @@ export function PipelineBoard({
                 <input
                   type="checkbox"
                   aria-label="Select all"
-                  checked={filtered.length > 0 && selected.size === filtered.length}
+                  checked={pageItems.length > 0 && pageItems.every((e) => selected.has(e.id))}
                   onChange={toggleSelectAll}
                   className="size-3.5 accent-[#1565C0]"
                 />
@@ -452,7 +491,7 @@ export function PipelineBoard({
               </div>
             ) : (
               <div className="divide-y divide-[#f0f1f4]">
-                {filtered.map((e) => {
+                {pageItems.map((e) => {
                   const expanded = expandedId === e.id;
                   return (
                     <div key={e.id}>
@@ -491,7 +530,7 @@ export function PipelineBoard({
                 No candidates match the current filters.
               </div>
             ) : (
-              filtered.map((e) => (
+              pageItems.map((e) => (
                 <PipelineMobileCard
                   key={e.id}
                   entry={e}
@@ -510,6 +549,14 @@ export function PipelineBoard({
               ))
             )}
           </div>
+
+          <PaginationFooter
+            page={page}
+            pageSize={PORTAL_PAGE_SIZE}
+            total={filtered.length}
+            onPageChange={setPage}
+            label="candidates"
+          />
         </>
       )}
 

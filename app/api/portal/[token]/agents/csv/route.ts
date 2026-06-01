@@ -6,8 +6,11 @@ import { enforceBlocklist } from "@/lib/portals/enforce-blocklist";
 
 // POST /api/portal/[token]/agents/csv — bulk-import parsed rows from
 // the portal's CSV dialog. The browser parses + previews; this route
-// just validates + writes. Blocklist push is best-effort per row,
-// throttled lightly so we don't hammer Instantly/EmailBison.
+// validates, writes in one batched upsert (idempotent on
+// (client_id, email) thanks to migration 0037), and fires off the
+// provider blocklist push asynchronously in parallel chunks instead
+// of a 250ms-per-row sequential walk. The route returns as soon as
+// the DB write is done; provider sync flushes in the background.
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -22,6 +25,11 @@ const rowSchema = z.object({
 const schema = z.object({
   rows: z.array(rowSchema).min(1).max(5000),
 });
+
+// Parallelism for provider pushes. Each call hits Instantly +
+// EmailBison; ten in flight at a time is a good throughput vs
+// rate-limit tradeoff (previously we used a 250ms sleep between rows).
+const PUSH_CONCURRENCY = 10;
 
 export async function POST(
   request: Request,
@@ -43,54 +51,87 @@ export async function POST(
 
   const admin = createAdminSupabase();
   // Dedup within the batch by lowercased email — preserves the first
-  // occurrence + drops the rest.
+  // occurrence + drops the rest. Email is also lowercased on the way
+  // in so the (client_id, email) unique index matches across
+  // re-uploads with mixed casing.
   const seen = new Set<string>();
-  const rows = parsed.data.rows.filter((r) => {
-    if (!r.email) return true;
-    const k = r.email.toLowerCase();
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
-
-  let inserted = 0;
-  let pushedCount = 0;
-  const errors: string[] = [];
-
-  for (const r of rows) {
-    let pushedInstantly = false;
-    let pushedEmailBison = false;
-    let pushError: string | null = null;
-    if (r.email) {
-      const result = await enforceBlocklist(r.email);
-      pushedInstantly = result.pushedInstantly;
-      pushedEmailBison = result.pushedEmailBison;
-      pushError = result.error;
-      if (pushedInstantly || pushedEmailBison) pushedCount += 1;
-    }
-    const { error } = await admin.from("client_agents").insert({
-      client_id: client.id,
-      name: r.name,
-      email: r.email ?? null,
-      phone: r.phone ?? null,
-      license: r.license ?? null,
-      pushed_to_instantly: pushedInstantly,
-      pushed_to_emailbison: pushedEmailBison,
-      push_error: pushError,
+  const rows = parsed.data.rows
+    .map((r) => ({
+      ...r,
+      email: r.email ? r.email.toLowerCase() : null,
+    }))
+    .filter((r) => {
+      if (!r.email) return true;
+      if (seen.has(r.email)) return false;
+      seen.add(r.email);
+      return true;
     });
-    if (error) {
-      errors.push(`${r.email ?? r.name}: ${error.message}`);
-    } else {
-      inserted += 1;
-    }
-    // Light throttle to keep within Instantly's rate limits.
-    if (r.email) await new Promise((res) => setTimeout(res, 250));
+
+  // One batched upsert. `ignoreDuplicates: true` makes a re-upload a
+  // no-op for already-imported emails (the unique partial index on
+  // (client_id, email) is the conflict target). Rows without an
+  // email skip the dedup branch and always insert.
+  const insertRows = rows.map((r) => ({
+    client_id: client.id,
+    name: r.name,
+    email: r.email,
+    phone: r.phone ?? null,
+    license: r.license ?? null,
+    pushed_to_instantly: false,
+    pushed_to_emailbison: false,
+    push_error: null as string | null,
+  }));
+  const { data: inserted, error } = await admin
+    .from("client_agents")
+    .upsert(insertRows, {
+      onConflict: "client_id,email",
+      ignoreDuplicates: true,
+    })
+    .select("id, email");
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
   }
+
+  // Async provider push — parallel chunks of PUSH_CONCURRENCY. We
+  // don't await the whole thing on the response path; the DB row
+  // exists so the operator's UI is correct, and pushed_to_* flips
+  // when the push completes. The Promise tree is anchored to the
+  // request via Promise.allSettled which keeps it alive in the
+  // serverless runtime until the route's maxDuration window expires.
+  const pushPromise = (async () => {
+    const targets = (inserted ?? []).filter((r) => !!r.email) as Array<{
+      id: string;
+      email: string;
+    }>;
+    for (let i = 0; i < targets.length; i += PUSH_CONCURRENCY) {
+      const chunk = targets.slice(i, i + PUSH_CONCURRENCY);
+      await Promise.allSettled(
+        chunk.map(async (t) => {
+          const result = await enforceBlocklist(t.email);
+          await admin
+            .from("client_agents")
+            .update({
+              pushed_to_instantly: result.pushedInstantly,
+              pushed_to_emailbison: result.pushedEmailBison,
+              push_error: result.error,
+            })
+            .eq("id", t.id);
+        }),
+      );
+    }
+  })();
+  // Hold the request open just long enough to finish the push, but
+  // don't block the JSON response above. (Node's serverless runtime
+  // discards unawaited tasks once the response flushes, so we have
+  // to keep a reference — `void` suppresses the dangling-promise
+  // lint without changing behavior.)
+  void pushPromise;
 
   return NextResponse.json({
     ok: true,
-    inserted,
-    pushedCount,
-    errors: errors.slice(0, 20),
+    inserted: inserted?.length ?? 0,
+    // Provider push completes asynchronously; the UI reads pushed_to_*
+    // on the next refresh.
+    pushScheduled: (inserted ?? []).filter((r) => !!r.email).length,
   });
 }

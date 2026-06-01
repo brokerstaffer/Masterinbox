@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Plus,
@@ -41,22 +41,31 @@ import {
   PortalEmpty,
   Avatar,
   useMounted,
+  PaginationFooter,
+  PORTAL_PAGE_SIZE,
 } from "@/components/portals/portal-ui";
 
 export function DncList({
   token,
-  entries,
+  entries: initial,
 }: {
   token: string;
   entries: DncEntry[];
 }) {
   const router = useRouter();
   const mounted = useMounted();
+  // Local copy so optimistic deletes immediately decrement the
+  // Agents / Companies stat-card counts (previous bug: they kept
+  // their pre-delete value until the next refresh).
+  const [entries, setEntries] = useState(initial);
+  useEffect(() => setEntries(initial), [initial]);
   const [openAdd, setOpenAdd] = useState(false);
   const [openCsv, setOpenCsv] = useState(false);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<DncEntry | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [agentPage, setAgentPage] = useState(1);
+  const [companyPage, setCompanyPage] = useState(1);
 
   const agents = useMemo(
     () => entries.filter((e) => e.kind === "agent"),
@@ -75,13 +84,24 @@ export function DncList({
       .some((v) => v!.toLowerCase().includes(q));
   };
 
+  // Reset both pagers any time the search changes — otherwise the
+  // user could land on page 5 of a filter set that only has 1 page.
+  useEffect(() => {
+    setAgentPage(1);
+    setCompanyPage(1);
+  }, [search]);
+
   async function remove(id: string) {
     if (!confirm("Remove from DNC list?")) return;
+    // Optimistic local update so the counts on the stat cards
+    // decrement immediately, then refresh to reconcile.
+    setEntries((cur) => cur.filter((e) => e.id !== id));
     const res = await fetch(`/api/portal/${token}/dnc/${id}`, {
       method: "DELETE",
     });
     if (!res.ok) {
       toast.error("Delete failed");
+      router.refresh();
       return;
     }
     toast.success("Removed");
@@ -140,19 +160,32 @@ export function DncList({
   async function bulkDelete() {
     if (selected.size === 0) return;
     if (!confirm(`Remove ${selected.size} entry(ies) from DNC?`)) return;
-    const res = await fetch(`/api/portal/${token}/dnc/bulk-delete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: Array.from(selected) }),
-    });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      toast.error(j.error ?? "Bulk delete failed");
-      return;
-    }
-    const j = await res.json().catch(() => ({}));
-    toast.success(`Removed ${j.deleted ?? selected.size}`);
+    const ids = Array.from(selected);
+    // Optimistic local update so the agent/company stat cards drop
+    // their count immediately. Re-fetch on next router.refresh.
+    setEntries((cur) => cur.filter((e) => !selected.has(e.id)));
     clearSelection();
+    // Chunk the delete so we stay well under the server cap and
+    // individual requests are short.
+    const CHUNK = 1000;
+    let deleted = 0;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK);
+      const res = await fetch(`/api/portal/${token}/dnc/bulk-delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: slice }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        toast.error(j.error ?? "Bulk delete failed");
+        router.refresh();
+        return;
+      }
+      const j = await res.json().catch(() => ({}));
+      deleted += (j.deleted as number | undefined) ?? slice.length;
+    }
+    toast.success(`Removed ${deleted.toLocaleString()}`);
     router.refresh();
   }
   function bulkExport() {
@@ -309,6 +342,8 @@ export function DncList({
             selected={selected}
             onToggleOne={toggleOne}
             onToggleAllVisible={toggleAllVisibleIn}
+            page={agentPage}
+            onPageChange={setAgentPage}
           />
 
           {companies.length > 0 || agents.length === 0 ? (
@@ -324,6 +359,8 @@ export function DncList({
                 onToggleOne={toggleOne}
                 onToggleAllVisible={toggleAllVisibleIn}
                 companyStyle
+                page={companyPage}
+                onPageChange={setCompanyPage}
               />
             </div>
           ) : null}
@@ -405,7 +442,7 @@ function DncStatCard({
           accent ? "text-[#1565C0]" : "text-[#0f1320]",
         )}
       >
-        {value}
+        {value.toLocaleString()}
       </div>
       <div className="mt-1.5 text-[11.5px] text-[#9aa0ab]">{hint}</div>
     </div>
@@ -423,6 +460,8 @@ function DncSection({
   onToggleOne,
   onToggleAllVisible,
   companyStyle,
+  page,
+  onPageChange,
 }: {
   title: string;
   count: number;
@@ -434,12 +473,23 @@ function DncSection({
   onToggleOne: (id: string) => void;
   onToggleAllVisible: (rows: DncEntry[]) => void;
   companyStyle?: boolean;
+  page: number;
+  onPageChange: (next: number) => void;
 }) {
+  // Slice the section's filtered entries to the current page. The
+  // "select all visible" checkbox follows the page slice so adding
+  // everyone on the screen is one click.
+  const pageItems = useMemo(() => {
+    const start = (page - 1) * PORTAL_PAGE_SIZE;
+    return entries.slice(start, start + PORTAL_PAGE_SIZE);
+  }, [entries, page]);
   return (
     <>
       <div className="mb-2 flex items-center gap-2">
         <h2 className="text-[13px] font-semibold tracking-tight">{title}</h2>
-        <span className="text-[11px] font-medium text-[#9aa0ab]">{count}</span>
+        <span className="text-[11px] font-medium text-[#9aa0ab]">
+          {count.toLocaleString()}
+        </span>
       </div>
       <div
         className={cn(
@@ -453,9 +503,9 @@ function DncSection({
               type="checkbox"
               aria-label={`Select all ${title}`}
               checked={
-                entries.length > 0 && entries.every((e) => selected.has(e.id))
+                pageItems.length > 0 && pageItems.every((e) => selected.has(e.id))
               }
-              onChange={() => onToggleAllVisible(entries)}
+              onChange={() => onToggleAllVisible(pageItems)}
               className="size-3.5 cursor-pointer accent-[#1565C0]"
             />
           </div>
@@ -470,7 +520,7 @@ function DncSection({
           </div>
         ) : (
           <div className="divide-y divide-[#f0f1f4]">
-            {entries.map((e) => (
+            {pageItems.map((e) => (
               <div
                 key={e.id}
                 className={cn(
@@ -542,6 +592,13 @@ function DncSection({
           </div>
         )}
       </div>
+      <PaginationFooter
+        page={page}
+        pageSize={PORTAL_PAGE_SIZE}
+        total={entries.length}
+        onPageChange={onPageChange}
+        label={companyStyle ? "companies" : "agents"}
+      />
     </>
   );
 }

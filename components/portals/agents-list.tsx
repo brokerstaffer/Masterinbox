@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Plus,
@@ -37,23 +37,31 @@ import {
   PortalEmpty,
   Avatar,
   useMounted,
+  PaginationFooter,
+  PORTAL_PAGE_SIZE,
 } from "@/components/portals/portal-ui";
 import { cn } from "@/lib/utils";
 
 export function AgentsList({
   token,
-  entries,
+  entries: initial,
 }: {
   token: string;
   entries: AgentEntry[];
 }) {
   const router = useRouter();
   const mounted = useMounted();
+  // Local copy so optimistic deletes immediately update the stat-card
+  // count without waiting on router.refresh().
+  const [entries, setEntries] = useState(initial);
+  useEffect(() => setEntries(initial), [initial]);
+
   const [search, setSearch] = useState("");
   const [openAdd, setOpenAdd] = useState(false);
   const [openCsv, setOpenCsv] = useState(false);
   const [editing, setEditing] = useState<AgentEntry | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return entries;
@@ -64,6 +72,15 @@ export function AgentsList({
         .some((v) => v!.toLowerCase().includes(q)),
     );
   }, [entries, search]);
+
+  // Reset the pager on any filter/data change so we never land on an
+  // out-of-range page.
+  useEffect(() => setPage(1), [search]);
+
+  const pageItems = useMemo(() => {
+    const start = (page - 1) * PORTAL_PAGE_SIZE;
+    return filtered.slice(start, start + PORTAL_PAGE_SIZE);
+  }, [filtered, page]);
 
   async function remove(id: string) {
     if (!confirm("Remove this agent from your roster?")) return;
@@ -111,9 +128,12 @@ export function AgentsList({
       return next;
     });
   }
+  // "Select all visible" = the current page slice, not the whole
+  // filtered set. Operators can flip through pages and add to the
+  // selection across them; bulkDelete chunks safely either way.
   function toggleAllVisible() {
     setSelected((cur) => {
-      const visibleIds = filtered.map((e) => e.id);
+      const visibleIds = pageItems.map((e) => e.id);
       const allSelected = visibleIds.every((id) => cur.has(id));
       const next = new Set(cur);
       if (allSelected) {
@@ -130,19 +150,33 @@ export function AgentsList({
   async function bulkDelete() {
     if (selected.size === 0) return;
     if (!confirm(`Remove ${selected.size} agent(s)?`)) return;
-    const res = await fetch(`/api/portal/${token}/agents/bulk-delete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: Array.from(selected) }),
-    });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      toast.error(j.error ?? "Bulk delete failed");
-      return;
-    }
-    const j = await res.json().catch(() => ({}));
-    toast.success(`Removed ${j.deleted ?? selected.size}`);
+    const ids = Array.from(selected);
+    // Optimistic: drop the rows now so the stat-card count moves
+    // immediately. Re-fetch on the next router.refresh.
+    setEntries((cur) => cur.filter((e) => !selected.has(e.id)));
     clearSelection();
+    // Chunk so a single request never exceeds the 5000-row server
+    // cap and individual round-trips stay short. Sequential to keep
+    // total work order-of-magnitude small at typical scale.
+    const CHUNK = 1000;
+    let deleted = 0;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK);
+      const res = await fetch(`/api/portal/${token}/agents/bulk-delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: slice }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        toast.error(j.error ?? "Bulk delete failed");
+        router.refresh();
+        return;
+      }
+      const j = await res.json().catch(() => ({}));
+      deleted += (j.deleted as number | undefined) ?? slice.length;
+    }
+    toast.success(`Removed ${deleted.toLocaleString()}`);
     router.refresh();
   }
   function bulkExport() {
@@ -219,7 +253,7 @@ export function AgentsList({
               />
             </div>
             <span className="ml-auto text-[12px] text-[#9aa0ab]">
-              {filtered.length} of {entries.length}
+              {filtered.length.toLocaleString()} of {entries.length.toLocaleString()}
             </span>
           </div>
 
@@ -288,8 +322,8 @@ export function AgentsList({
                   type="checkbox"
                   aria-label="Select all visible"
                   checked={
-                    filtered.length > 0 &&
-                    filtered.every((e) => selected.has(e.id))
+                    pageItems.length > 0 &&
+                    pageItems.every((e) => selected.has(e.id))
                   }
                   onChange={toggleAllVisible}
                   className="size-3.5 cursor-pointer accent-[#1565C0]"
@@ -306,7 +340,7 @@ export function AgentsList({
               </div>
             ) : (
               <div className="divide-y divide-[#f0f1f4]">
-                {filtered.map((a) => (
+                {pageItems.map((a) => (
                   <div
                     key={a.id}
                     className={cn(
@@ -356,6 +390,14 @@ export function AgentsList({
               </div>
             )}
           </div>
+
+          <PaginationFooter
+            page={page}
+            pageSize={PORTAL_PAGE_SIZE}
+            total={filtered.length}
+            onPageChange={setPage}
+            label="agents"
+          />
         </>
       )}
 
@@ -434,7 +476,7 @@ function StatCard({
           accent ? "text-[#1565C0]" : "text-[#0f1320]",
         )}
       >
-        {value}
+        {value.toLocaleString()}
       </div>
       <div className="mt-1.5 text-[11.5px] text-[#9aa0ab]">{hint}</div>
     </div>
@@ -656,11 +698,13 @@ function CsvImportDialog({
             </div>
             {importedCount !== null ? (
               <p className="mt-3 rounded-md bg-[#e9f7ef] px-3 py-2 text-[12px] text-[#0c8a4e]">
-                Imported {importedCount} agents.
+                Imported {importedCount.toLocaleString()} agents. Duplicates
+                from previous uploads were skipped automatically.
               </p>
             ) : (
               <p className="mt-3 text-[11.5px] leading-relaxed text-[#9aa0ab]">
-                Your agents you add are excluded from outreach.
+                Your agents you add are excluded from outreach. Re-uploading
+                the same file is safe — already-imported emails are skipped.
               </p>
             )}
           </div>

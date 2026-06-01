@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PortalLogo } from "@/components/portals/portal-logo";
 
@@ -92,6 +93,77 @@ export function Pill({
     </span>
   );
 }
+
+// Shared pager footer for the portal list views (Agents, DNC,
+// Recruiting Pipeline). All three lists paginate client-side at the
+// same page size, so the controls are deliberately minimal: a
+// prev/next pair flanking a "X – Y of Z" indicator. The total count
+// already accounts for active filters at the call site, so the math
+// here is purely slicing math.
+export function PaginationFooter({
+  page,
+  pageSize,
+  total,
+  onPageChange,
+  className,
+  label = "results",
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  onPageChange: (next: number) => void;
+  className?: string;
+  label?: string;
+}) {
+  if (total <= pageSize) return null;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const start = (safePage - 1) * pageSize + 1;
+  const end = Math.min(safePage * pageSize, total);
+  return (
+    <div
+      className={cn(
+        "mt-3 flex items-center justify-between rounded-xl border border-[#ebecf0] bg-white px-3 py-2 text-[12px] text-[#5b6472]",
+        className,
+      )}
+    >
+      <div className="tabular-nums">
+        <span className="font-medium text-[#0f1320]">
+          {start.toLocaleString()}–{end.toLocaleString()}
+        </span>{" "}
+        of {total.toLocaleString()} {label}
+      </div>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => onPageChange(safePage - 1)}
+          disabled={safePage <= 1}
+          className="inline-flex h-7 items-center gap-1 rounded-md border border-[#ebecf0] bg-white px-2 text-[12px] font-medium text-[#5b6472] transition-colors hover:bg-[#f6f7f9] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <ChevronLeft className="size-3.5" />
+          Prev
+        </button>
+        <span className="px-2 tabular-nums text-[12px] text-[#9aa0ab]">
+          Page {safePage} / {totalPages}
+        </span>
+        <button
+          type="button"
+          onClick={() => onPageChange(safePage + 1)}
+          disabled={safePage >= totalPages}
+          className="inline-flex h-7 items-center gap-1 rounded-md border border-[#ebecf0] bg-white px-2 text-[12px] font-medium text-[#5b6472] transition-colors hover:bg-[#f6f7f9] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Next
+          <ChevronRight className="size-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Page-size constant used by every portal list so they paginate in
+// lockstep. 50 is the user-confirmed default; tweaking here changes
+// every list at once.
+export const PORTAL_PAGE_SIZE = 50;
 
 // Initials avatar — used in the Team and DNC lists.
 export function Avatar({
