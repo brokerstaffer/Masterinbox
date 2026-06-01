@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import { requireSession } from "@/lib/auth/workspace";
 import { _invalidateClientCache, deriveClientIdFromCampaign } from "@/lib/clients/derive";
 import { CLIENT_PORTALS_ENABLED } from "@/lib/portals/flag";
 
@@ -84,8 +85,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const user = await requireAuthedUser();
-  if ("error" in user) return user.error;
+  // requireSession gives both the user AND the active workspace so we
+  // can auto-create the matching sidebar list below.
+  const session = await requireSession();
 
   const parsed = createSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -130,9 +132,56 @@ export async function POST(request: Request) {
   // doesn't fire on every webhook, only on this admin write.
   if (data) {
     await retagUnknownThreads(admin, data.id);
+    // Sidebar list <-> client binding. Without this, the new client
+    // exists in the catalog but has no sidebar surface — replies still
+    // route via deriveClientIdFromCampaign, but the operator has no
+    // list to click into. The unique partial index on
+    // (workspace_id, client_id) makes this idempotent.
+    await ensureListForClient(admin, {
+      workspaceId: session.activeWorkspace.id,
+      ownerUserId: session.user.id,
+      clientId: data.id,
+      clientName: data.name,
+    });
   }
 
   return NextResponse.json({ ok: true, client: data });
+}
+
+// Idempotent: ensures a `lists` row exists for the given client_id in
+// this workspace. Re-runs are safe thanks to the
+// `lists_workspace_client_unique` partial unique index — onConflict
+// turns the second call into a no-op.
+async function ensureListForClient(
+  admin: ReturnType<typeof createAdminSupabase>,
+  args: {
+    workspaceId: string;
+    ownerUserId: string;
+    clientId: string;
+    clientName: string;
+  },
+): Promise<void> {
+  const { data: maxRow } = await admin
+    .from("lists")
+    .select("sort_order")
+    .eq("workspace_id", args.workspaceId)
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const nextOrder = ((maxRow?.sort_order as number | null) ?? -1) + 1;
+  await admin
+    .from("lists")
+    .upsert(
+      {
+        workspace_id: args.workspaceId,
+        owner_user_id: args.ownerUserId,
+        client_id: args.clientId,
+        name: args.clientName,
+        sort_order: nextOrder,
+        shared: true,
+      },
+      { onConflict: "workspace_id,client_id", ignoreDuplicates: true },
+    );
 }
 
 // Reusable: confirms there's a signed-in user. Returns an error
