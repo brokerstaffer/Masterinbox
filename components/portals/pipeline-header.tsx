@@ -71,11 +71,11 @@ export function PipelineHeader({
       </h1>
       {/* Nicole Collins intro — sits directly under the title so the
           brokerage sees who's sending intros the moment the page loads.
-          The photo file lives at /public/portal/nicole-collins.jpg.
+          The photo file lives at /public/portal/nicole-collins.png.
           On a fresh deploy that hasn't dropped the asset in place yet,
-          the <img> falls back to the AA-style initials block via the
-          onError handler so the row never looks broken. */}
-      <div className="mt-4 flex items-start gap-4 rounded-2xl border border-[#ebecf0] bg-white p-4 shadow-sm sm:p-5">
+          the <img> falls back to the initials block via the onError
+          handler so the row never looks broken. */}
+      <div className="mt-4 flex items-center gap-4 rounded-2xl border border-[#ebecf0] bg-white p-4 shadow-sm sm:p-5">
         <NicolePhoto />
         <p className="min-w-0 text-[13.5px] leading-relaxed text-[#5b6472]">
           <span className="font-medium text-[#0f1320]">Nicole Collins</span>{" "}
@@ -96,15 +96,17 @@ export function PipelineHeader({
   );
 }
 
-// 64px circular portrait — initials fallback in the brand palette if
-// the static asset isn't there yet so a fresh deploy looks intentional.
+// 72px circular portrait — sized for a 1182×1182 PNG so the
+// downscale stays crisp without overpowering the title row. Initials
+// fallback in the brand palette covers the case where the static
+// asset hasn't been dropped in yet on a fresh deploy.
 function NicolePhoto() {
   const [errored, setErrored] = useState(false);
   if (errored) {
     return (
       <div
         aria-label="Nicole Collins"
-        className="flex size-14 shrink-0 items-center justify-center rounded-full bg-[#eaf2fd] text-[15px] font-semibold text-[#1565C0]"
+        className="flex size-[72px] shrink-0 items-center justify-center rounded-full bg-[#eaf2fd] text-[18px] font-semibold text-[#1565C0]"
       >
         NC
       </div>
@@ -113,10 +115,10 @@ function NicolePhoto() {
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src="/portal/nicole-collins.jpg"
+      src="/portal/nicole-collins.png"
       alt="Nicole Collins"
       onError={() => setErrored(true)}
-      className="size-14 shrink-0 rounded-full object-cover ring-1 ring-[#ebecf0]"
+      className="size-[72px] shrink-0 rounded-full object-cover ring-1 ring-[#ebecf0]"
     />
   );
 }

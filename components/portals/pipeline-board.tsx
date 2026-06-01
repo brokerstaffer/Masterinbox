@@ -723,7 +723,7 @@ function PipelineRow({
           type="button"
           onClick={onEdit}
           className="inline-flex h-7 items-center gap-1 rounded-md border border-[#d4e4f8] bg-white px-2 text-[11.5px] font-medium text-[#1565C0] hover:bg-[#eaf2fd]"
-          title="Edit name, company, phone, website, intro date"
+          title="Edit name, company, phone, agent profile, intro date"
         >
           <Pencil className="size-3" />
           Edit
@@ -864,7 +864,7 @@ function PipelineMobileCard({
             type="button"
             onClick={onEdit}
             className="inline-flex h-8 items-center gap-1 rounded-md border border-[#d4e4f8] bg-white px-2 text-[12px] font-medium text-[#1565C0]"
-            title="Edit name, company, phone, website, intro date"
+            title="Edit name, company, phone, agent profile, intro date"
           >
             <Pencil className="size-3.5" />
             Edit

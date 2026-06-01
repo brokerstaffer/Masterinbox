@@ -50,7 +50,7 @@ export function PipelineDetailInline({
 
   tryPush("Title", detail.title, "title");
 
-  tryPush("Website", entry.agent_profile_url, "website");
+  tryPush("Agent profile", entry.agent_profile_url, "website");
 
   tryPush("Location", entry.lead_location, "location");
 
