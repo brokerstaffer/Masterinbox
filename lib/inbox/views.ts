@@ -2,8 +2,7 @@ import { cache } from "react";
 import { createServerSupabase } from "@/lib/supabase/server";
 import {
   OPEN_RESPONSES_PRESET,
-  isOpenResponse,
-  resolveOpenResponseLabelIds,
+  openResponsesThreadIds,
 } from "@/lib/inbox/open-responses";
 
 export type { CustomView } from "./views-shared";
@@ -155,34 +154,29 @@ export const loadViewCounts = cache(async function loadViewCounts(
     }
   }
 
-  // For the "Open Responses" view: which threads carry ANY label (so we
-  // can spot the untagged ones), plus the Interested / Meetings Booked
-  // label ids. Resolved once, reused in the loop.
-  const labeledThreadIds = new Set<string>();
-  for (const bucket of byLabel.values()) {
-    for (const id of bucket.all) labeledThreadIds.add(id);
-  }
-  const { interested: interestedId, meetingsBooked: bookedId } =
-    await resolveOpenResponseLabelIds(supabase, workspaceId);
-  const interestedAll = (interestedId && byLabel.get(interestedId)?.all) || new Set<string>();
-  const bookedAll = (bookedId && byLabel.get(bookedId)?.all) || new Set<string>();
+  // For the "Open Responses" view we now have to know which thread's
+  // last message was inbound — that's only knowable after a per-thread
+  // message lookup, which `openResponsesThreadIds` already does. Reuse
+  // that helper so the count pass and the visible-list pass can never
+  // disagree about who belongs.
+  const openResponseSet = views.some(
+    (v) => (v.filter_json as { preset?: string } | null)?.preset === OPEN_RESPONSES_PRESET,
+  )
+    ? await openResponsesThreadIds(supabase, workspaceId)
+    : new Set<string>();
 
   const counts: Record<string, ViewCount> = {};
   for (const v of views) {
     const preset = (v.filter_json as { preset?: string } | null)?.preset;
     if (preset === OPEN_RESPONSES_PRESET) {
+      // Intersect with the current list-scoped page of threads. When
+      // the sidebar has a client list active, that limits totalOpen
+      // and the `%` shown in the pill follows. The helper itself isn't
+      // list-scoped, so we filter by membership here.
       const all = new Set<string>();
       const unseen = new Set<string>();
       for (const t of threadRows) {
-        if (
-          !isOpenResponse({
-            hasAnyLabel: labeledThreadIds.has(t.id),
-            hasInterested: interestedAll.has(t.id),
-            hasMeetingsBooked: bookedAll.has(t.id),
-          })
-        ) {
-          continue;
-        }
+        if (!openResponseSet.has(t.id)) continue;
         all.add(t.id);
         if (unseenSet.has(t.id)) unseen.add(t.id);
       }
