@@ -50,25 +50,27 @@ function initials(name: string | null | undefined, email: string | null | undefi
 }
 
 // For inbound messages, decide which display name to show alongside
-// the From email. The row's `senderEmail` is the actual From address
-// for THIS message — when it matches the lead's email we can trust
-// the lead's full_name; when it doesn't (multi-participant threads,
-// e.g. the brokerage's own alias replying into the same thread),
-// the lead's name would be misleading.
+// the From email. Resolution order:
 //
-// Resolution order for non-lead senders:
-//   1. Scan the message body for a "Name <email>" pattern matching
-//      the sender's email (every modern email client embeds this as
-//      "On <date>, <Name> <<email>> wrote:" in the quoted reply).
-//      Catches "Howe Realty Growth <Growth@howerealtygroup.com>".
-//   2. Fall back to titlecasing the email's local part
-//      ("growth@…" → "Growth"). Better than echoing the lead.
+//   1. message.sender_name — the From header's display name captured
+//      at sync time (Instantly's from_address_json[0].name, or
+//      EmailBison's from_name). The source of truth.
+//   2. If sender_name is null AND the sender email matches the lead's
+//      email — use the lead's full_name from the prospect row.
+//   3. Scan the message body for a "<Name> <<email>>" pattern matching
+//      the actual From email (clients quote "On <date>, <Name>
+//      <<email>> wrote:" in reply chains). Catches the case where the
+//      sync didn't capture sender_name on older rows.
+//   4. Fall back to titlecasing the email's local part
+//      ("growth@…" → "Growth"). Better than echoing the wrong lead.
 function resolveInboundSenderName(
+  storedSenderName: string | null,
   senderEmail: string | null,
   leadEmail: string | null,
   leadName: string,
   body: string | null,
 ): string {
+  if (storedSenderName && storedSenderName.trim()) return storedSenderName.trim();
   const a = senderEmail?.trim().toLowerCase() ?? "";
   const b = leadEmail?.trim().toLowerCase() ?? "";
   if (a && b && a === b) return leadName;
@@ -650,6 +652,7 @@ function MessageBlock({
   const senderLabel = outbound
     ? youName
     : resolveInboundSenderName(
+        message.sender_name,
         senderEmail,
         leadEmail,
         leadName,

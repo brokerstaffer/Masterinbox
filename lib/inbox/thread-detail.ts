@@ -4,6 +4,11 @@ export interface MessageRow {
   id: string;
   direction: "inbound" | "outbound";
   sender: string | null;
+  // Display name from the From header, captured at sync time —
+  // e.g. "Howe Realty Growth" for growth@howerealtygroup.com. Null
+  // when the provider didn't surface it; the render falls back to
+  // body parsing and then to a titlecased local-part.
+  sender_name: string | null;
   recipients: Record<string, unknown>;
   subject: string | null;
   body_html: string | null;
@@ -78,7 +83,7 @@ export async function loadThreadDetail(
       .maybeSingle(),
     supabase
       .from("messages")
-      .select("id, direction, sender, recipients, subject, body_html, body_text, sent_at")
+      .select("id, direction, sender, sender_name, recipients, subject, body_html, body_text, sent_at")
       .eq("thread_id", threadId)
       .order("sent_at", { ascending: true }),
     // Pull the most recent inbound's raw_payload (signature lives there).

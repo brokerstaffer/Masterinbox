@@ -335,6 +335,15 @@ async function upsertHistoricalEmail(
     .eq("external_message_id", externalMessageId)
     .maybeSingle();
 
+  // `from_address_json` is the structured From header from
+  // /emails/{id} — first entry's `name` is the display name we want
+  // ("Howe Realty Growth" for growth@howerealtygroup.com, etc.).
+  // Trim + length-cap so a wild header doesn't blow up the column.
+  const fromJsonName = email.from_address_json?.[0]?.name;
+  const senderName =
+    typeof fromJsonName === "string" && fromJsonName.trim().length > 0
+      ? fromJsonName.trim().slice(0, 200)
+      : null;
   const row = {
     workspace_id: ctx.workspaceId,
     thread_id: threadId,
@@ -342,6 +351,7 @@ async function upsertHistoricalEmail(
     source_provider: "instantly" as const,
     direction,
     sender: email.from_address_email ?? null,
+    sender_name: senderName,
     recipients: parseRecipients(email),
     subject: email.subject ?? null,
     body_html: html,

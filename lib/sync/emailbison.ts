@@ -283,6 +283,13 @@ function inboundFromReply(reply: EmailBisonReply, leadEmail: string | null = nul
       : reply.to
         ? [reply.to]
         : [];
+  // EmailBison ships from_name on most reply payloads — store it so
+  // the thread view doesn't have to fall back to titlecasing the
+  // local-part of the From address.
+  const senderName =
+    typeof reply.from_name === "string" && reply.from_name.trim().length > 0
+      ? reply.from_name.trim().slice(0, 200)
+      : null;
   return {
     direction: "inbound" as const,
     externalMessageId,
@@ -291,6 +298,7 @@ function inboundFromReply(reply: EmailBisonReply, leadEmail: string | null = nul
     // different envelope (autoresponder, alias) — prefer the canonical
     // lead.email so we never end up with a null sender.
     sender: reply.from_email_address ?? leadEmail ?? reply.from_name ?? null,
+    sender_name: senderName,
     recipients: { to, cc: reply.cc ?? null, bcc: reply.bcc ?? null },
     subject: reply.email_subject ?? null,
     body_html: reply.html_body ?? null,

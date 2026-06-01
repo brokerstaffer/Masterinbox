@@ -187,75 +187,128 @@ export async function loadThreads(
       .filter((r) => r.enabled)
       .map((r) => prepRow(r, workspaceId, supabase)),
   );
+
+  // ID-restriction collection
+  // -------------------------
+  // Several signals narrow the visible set by thread id: prepRow's
+  // idIn lists (label filters), listThreadIds (manual thread_list
+  // membership), searchThreadIds (top-bar search), openResponseIds
+  // ("Open Responses" preset). Each one is a set of thread UUIDs.
+  //
+  // If we pass them all to `.in("id", …)` clauses, PostgREST encodes
+  // them in the URL query string. ~400 UUIDs is enough to overshoot
+  // Node's 16 KB header cap and fetch throws HeadersOverflowError —
+  // the page silently renders empty even though the data is there.
+  // (That's the "Not Interested can't be clicked" bug at 441 matches.)
+  //
+  // Switch strategy when any id-set restriction is active: fetch the
+  // full matching list (no id-set filters in the URL), intersect with
+  // the id sets in memory, then paginate. Single round-trip, payload
+  // bounded by the OPEN-thread count instead of by URL length.
+  const idRestrictionSets: Set<string>[] = [];
   for (const r of resolved) {
     if (r?.idIn !== undefined) {
       if (r.idIn.length === 0) {
         return { rows: [], total: 0, page: safePage, pageSize };
       }
-      query = query.in("id", r.idIn) as typeof query;
+      idRestrictionSets.push(new Set(r.idIn));
     }
     if (r?.idNotIn !== undefined && r.idNotIn.length > 0) {
+      // idNotIn arrays are typically small (label exclusions) so the
+      // URL stays under cap; keep applying it directly.
       query = query.not("id", "in", `(${r.idNotIn.join(",")})`) as typeof query;
     }
   }
-
   if (listClientId) {
     query = query.eq("client_id", listClientId) as typeof query;
   }
-  if (listThreadIds !== null) {
-    query = query.in("id", listThreadIds);
-  }
-  if (searchThreadIds !== null) {
-    query = query.in("id", searchThreadIds) as typeof query;
-  }
-  if (openResponseIds !== null) {
-    query = query.in("id", openResponseIds) as typeof query;
-  }
+  if (listThreadIds !== null) idRestrictionSets.push(new Set(listThreadIds));
+  if (searchThreadIds !== null) idRestrictionSets.push(new Set(searchThreadIds));
+  if (openResponseIds !== null) idRestrictionSets.push(new Set(openResponseIds));
+  const usingIdRestrictionPath = idRestrictionSets.length > 0;
 
-  // Single round-trip: fetch the page detail rows AND the total count in
-  // one PostgREST request via `count: 'exact'` + `.range()`. Previously
-  // this was 2 sequential RTTs — a `select id` over up to 50k rows
-  // (~280ms) followed by `select detail where id in (page)` (~280ms).
-  // Collapsed via count+range, plus fetching ALL workspace
-  // label_assignments in parallel rather than a follow-up IN clause
-  // gated on the page IDs. Per-click savings: 1 sequential round-trip
-  // (~280ms) on every navigation.
+  // Two execution paths share the rest of the function:
   //
-  // Trade-off: post-filters (domain, name, email) still run client-side,
-  // so the displayed total can be slightly off when they exclude rows.
-  // Accepted; post-filters are rare in the typical view.
-  const offset = (safePage - 1) * pageSize;
-  // Swap the select column list to fetch detail rows. The count option lives
-  // on the initial QueryBuilder.select() above — this second call goes
-  // through TransformBuilder.select() and only updates the `select=` URL
-  // param. The Prefer: count=exact header set earlier is preserved.
-  const detailQuery = query.select(
-    `id, subject, last_message_at, last_message_preview, needs_reply, seen, message_count, source_provider, campaign_id, campaign_name,
+  // FAST PATH (no id-set restrictions active): one query, the DB
+  //   does count + range, ~50 rows come back.
+  //
+  // SAFE PATH (id restrictions are active — label-based views,
+  //   list_id membership, top-bar search, or Open Responses): fetch
+  //   all matching rows in one go, intersect with the id sets in
+  //   memory, paginate locally. Keeps URLs under PostgREST's header
+  //   cap regardless of how many threads a label has been applied
+  //   to. The payload is bounded by the OPEN-thread count, not by
+  //   URL length.
+  const detailCols = `id, subject, last_message_at, last_message_preview, needs_reply, seen, message_count, source_provider, campaign_id, campaign_name,
        leads:lead_id(full_name, email, company),
        channels:channel_id(provider),
-       clients:client_id(name, slug)`,
-  );
-  const pagedQuery = (
-    detailQuery.order("last_message_at", {
-      ascending: false,
-      nullsFirst: false,
-    }) as unknown as {
-      range(from: number, to: number): Promise<{
-        data: Record<string, unknown>[] | null;
-        error: { message: string } | null;
-        count: number | null;
-      }>;
-    }
-  ).range(offset, offset + pageSize - 1);
+       clients:client_id(name, slug)`;
+  const offset = (safePage - 1) * pageSize;
 
-  const pageResult = await pagedQuery;
-  const { data, error, count } = pageResult;
-  if (error) {
-    console.error("[loadThreads] page query failed", error);
-    return { rows: [], total: 0, page: safePage, pageSize };
+  let ordered: Record<string, unknown>[] = [];
+  let total = 0;
+
+  if (!usingIdRestrictionPath) {
+    // Trade-off: post-filters (domain, name, email) still run client-
+    // side, so the displayed total can be slightly off when they
+    // exclude rows. Accepted; post-filters are rare in the typical
+    // view.
+    const detailQuery = query.select(detailCols);
+    const pagedQuery = (
+      detailQuery.order("last_message_at", {
+        ascending: false,
+        nullsFirst: false,
+      }) as unknown as {
+        range(from: number, to: number): Promise<{
+          data: Record<string, unknown>[] | null;
+          error: { message: string } | null;
+          count: number | null;
+        }>;
+      }
+    ).range(offset, offset + pageSize - 1);
+
+    const pageResult = await pagedQuery;
+    const { data, error, count } = pageResult;
+    if (error) {
+      console.error("[loadThreads] page query failed", error);
+      return { rows: [], total: 0, page: safePage, pageSize };
+    }
+    total = count ?? data?.length ?? 0;
+    ordered = data ?? [];
+  } else {
+    // Safe path. Fetch everything that matches the SQL filters and
+    // intersect with the id sets in memory. 49_999 range covers any
+    // realistic OPEN-thread count.
+    const fullQuery = query.select(detailCols);
+    const orderedQuery = (
+      fullQuery.order("last_message_at", {
+        ascending: false,
+        nullsFirst: false,
+      }) as unknown as {
+        range(from: number, to: number): Promise<{
+          data: Record<string, unknown>[] | null;
+          error: { message: string } | null;
+        }>;
+      }
+    ).range(0, 49_999);
+
+    const fullResult = await orderedQuery;
+    if (fullResult.error) {
+      console.error("[loadThreads] safe-path query failed", fullResult.error);
+      return { rows: [], total: 0, page: safePage, pageSize };
+    }
+    const allRows = fullResult.data ?? [];
+    // Every restriction set must contain the row's id (logical AND).
+    const matching = allRows.filter((r) => {
+      const id = (r as { id?: string }).id;
+      if (!id) return false;
+      for (const s of idRestrictionSets) if (!s.has(id)) return false;
+      return true;
+    });
+    total = matching.length;
+    ordered = matching.slice(offset, offset + pageSize);
   }
-  const total = count ?? data?.length ?? 0;
-  const ordered = data ?? [];
+
   if (ordered.length === 0) {
     return { rows: [], total, page: safePage, pageSize };
   }
@@ -450,11 +503,12 @@ async function prepRow(
   const ids = Array.isArray(row.value) ? (row.value as string[]) : [];
   if (ids.length === 0) return null;
 
-  // Explicit range — without it PostgREST caps at 1000 rows, and
-  // any label that's been applied to more than 1000 threads (e.g.
-  // "Not Interested" at this scale) silently truncates so the view
-  // looks broken. 49,999 is overkill for current sizing but covers
-  // a label that's been applied to nearly every open thread.
+  // Explicit range so PostgREST's 1000-row default doesn't truncate
+  // a popular label (e.g. "Not Interested" at ~45% of all threads).
+  // The caller (loadThreads) intersects these in memory now rather
+  // than pushing the list through `.in("id", …)` — that path used
+  // to overshoot Node's 16 KB header cap and silently empty the
+  // view. See the SAFE PATH branch in loadThreads.
   const { data } = await supabase
     .from("label_assignments")
     .select("target_id")
