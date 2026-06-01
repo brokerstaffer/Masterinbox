@@ -126,19 +126,17 @@ export function PipelineFooterInfo() {
         <div className="text-[11px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
           What each stage means
         </div>
-        {/* Two-column grid inside each <li>: the chip column is fixed-
-            width and left-justified so chips line up under the section
-            heading with no wasted whitespace, and the description
-            track starts at the same x-position for every row. */}
+        {/* Flex row per legend entry: chip is auto-width and the
+            description sits right next to it with a consistent gap.
+            Drops the previous fixed-width track that left dead
+            whitespace between short chips ("Hired", "Not a Fit") and
+            their copy. */}
         <ul className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           {LEGEND_ORDER.map((s) => (
-            <li
-              key={s}
-              className="grid grid-cols-[150px_1fr] items-start gap-3"
-            >
+            <li key={s} className="flex items-start gap-3">
               <span
                 className={cn(
-                  "mt-1 inline-flex justify-self-start rounded-full px-2 py-0.5 text-[10.5px] font-semibold text-white",
+                  "mt-0.5 inline-flex shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold text-white",
                   LEGEND_STYLE[s],
                 )}
               >
