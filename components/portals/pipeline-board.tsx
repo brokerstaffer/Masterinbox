@@ -15,13 +15,12 @@ import {
   Phone as PhoneIcon,
   MessageSquare,
   Globe,
-  TrendingUp,
-  Trophy,
   Mail,
   Calendar,
   Workflow,
   MapPin,
   X,
+  Repeat,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -266,7 +265,7 @@ export function PipelineBoard({
       "Email",
       "Phone",
       "Company",
-      "Website",
+      "Agent profile",
       "Location",
       "Stage",
       "Introduced",
@@ -294,21 +293,8 @@ export function PipelineBoard({
     URL.revokeObjectURL(url);
   }
 
-  const totalCount = entries.length;
-  const hiredCount = stageCounts.hired;
-  const lastIntroAt = useMemo(() => {
-    let max: string | null = null;
-    for (const e of entries) {
-      if (!e.introduced_at) continue;
-      if (!max || e.introduced_at > max) max = e.introduced_at;
-    }
-    return max;
-  }, [entries]);
-
   return (
     <div className="mx-auto max-w-6xl px-4 pb-12 pt-6 sm:px-6">
-      <LiveTiles total={totalCount} hired={hiredCount} lastIntroAt={lastIntroAt} />
-
       {entries.length === 0 ? (
         <div className="space-y-3">
           <PortalEmpty
@@ -350,7 +336,7 @@ export function PipelineBoard({
                 onClick={() => setEditTarget({ mode: "create" })}
                 className="h-9"
               >
-                <Plus className="mr-1 size-4" /> Add lead
+                <Plus className="mr-1 size-4" /> Add candidate
               </Button>
               <span className="ml-auto text-[12px] text-[#9aa0ab]">
                 {filtered.length.toLocaleString()} of {entries.length.toLocaleString()} candidates
@@ -587,60 +573,6 @@ export function PipelineBoard({
   );
 }
 
-function LiveTiles({
-  total,
-  hired,
-  lastIntroAt,
-}: {
-  total: number;
-  hired: number;
-  lastIntroAt: string | null;
-}) {
-  // Re-derives instantly when stages move because `entries` lives in the
-  // parent client component — replaces the static server-rendered tiles
-  // that used to lag behind optimistic UI updates.
-  return (
-    <div className="mb-6 grid grid-cols-2 gap-3">
-      <div className="rounded-2xl border border-[#d4e4f8] bg-white p-4 shadow-sm">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
-            Total introductions
-          </span>
-          <span className="flex size-7 items-center justify-center rounded-lg bg-[#eaf2fd] text-[#1565C0]">
-            <TrendingUp className="size-3.5" />
-          </span>
-        </div>
-        <div className="mt-2.5 text-[28px] font-semibold leading-none tracking-tight tabular-nums text-[#1565C0]">
-          {total.toLocaleString()}
-        </div>
-        <div className="mt-1.5 text-[11.5px] text-[#9aa0ab]">
-          {lastIntroAt
-            ? `Most recent ${formatAbsolute(lastIntroAt)}`
-            : "Waiting on the first intro"}
-        </div>
-      </div>
-      <div className="rounded-2xl border border-[#ebecf0] bg-white p-4 shadow-sm">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
-            Hired
-          </span>
-          <span className="flex size-7 items-center justify-center rounded-lg bg-[#f6f7f9] text-[#aab0ba]">
-            <Trophy className="size-3.5" />
-          </span>
-        </div>
-        <div className="mt-2.5 text-[28px] font-semibold leading-none tracking-tight tabular-nums text-[#0f1320]">
-          {hired.toLocaleString()}
-        </div>
-        <div className="mt-1.5 text-[11.5px] text-[#9aa0ab]">
-          {hired > 0
-            ? `${Math.round((hired / Math.max(total, 1)) * 100)}% conversion`
-            : "Zero so far"}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function PipelineRow({
   entry,
   expanded,
@@ -678,10 +610,20 @@ function PipelineRow({
           aria-label="Select"
         />
       </div>
-      <button
-        type="button"
+      {/* Candidate cell — a div-button rather than a real <button> so
+          the agent-profile <a> below can sit inside it without
+          producing invalid nested-interactive markup. */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onToggleExpand}
-        className="flex min-w-0 items-start gap-3 text-left"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggleExpand();
+          }
+        }}
+        className="flex min-w-0 cursor-pointer items-start gap-3 text-left"
         title={expanded ? "Hide lead details" : "Show lead details"}
         aria-expanded={expanded}
       >
@@ -697,8 +639,24 @@ function PipelineRow({
               {entry.lead_name || entry.lead_email || "Unknown"}
             </span>
             {entry.stage === "no_show" || entry.needs_replacement ? (
-              <span className="rounded-full bg-[#fde8e8] px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#c0392b]">
-                Replacement
+              // Discreet replacement marker: muted Repeat icon with a
+              // hover tooltip so the brokerage understands this intro
+              // will be replaced without the row screaming red at them.
+              <span
+                title="This introduction will be replaced."
+                aria-label="This introduction will be replaced."
+                className="inline-flex size-4 shrink-0 items-center justify-center text-[#9aa0ab]"
+              >
+                <Repeat className="size-3.5" />
+              </span>
+            ) : null}
+            {entry.lead_location ? (
+              <span
+                title={entry.lead_location}
+                aria-label={`Location: ${entry.lead_location}`}
+                className="inline-flex size-4 shrink-0 items-center justify-center text-[#9aa0ab]"
+              >
+                <MapPin className="size-3.5" />
               </span>
             ) : null}
             <ChevronDown
@@ -711,25 +669,23 @@ function PipelineRow({
           {entry.lead_email ? (
             <div className="truncate text-[11.5px] text-[#9aa0ab]">{entry.lead_email}</div>
           ) : null}
+          {entry.agent_profile_url ? (
+            <a
+              href={normalizeUrl(entry.agent_profile_url)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="mt-0.5 inline-flex max-w-full items-center gap-1 truncate text-[11.5px] text-[#1565C0] hover:underline"
+              title={trimUrl(entry.agent_profile_url)}
+            >
+              <Globe className="size-3 shrink-0" />
+              <span className="truncate">Agent profile</span>
+            </a>
+          ) : null}
         </div>
-      </button>
+      </div>
       <div className="min-w-0 text-[13px] text-[#5b6472]">
         <div className="truncate">{entry.current_brokerage ?? "—"}</div>
-        {entry.agent_profile_url ? (
-          <a
-            href={normalizeUrl(entry.agent_profile_url)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-0.5 inline-flex items-center gap-1 truncate text-[11.5px] text-[#1565C0] hover:underline"
-            title={trimUrl(entry.agent_profile_url)}
-          >
-            <Globe className="size-3" />
-            Website
-          </a>
-        ) : null}
-        {entry.lead_location ? (
-          <div className="mt-0.5 truncate text-[11.5px] text-[#9aa0ab]">{entry.lead_location}</div>
-        ) : null}
       </div>
       <div className="text-[12.5px] tabular-nums text-[#5b6472]">
         {phone ? (
@@ -839,8 +795,21 @@ function PipelineMobileCard({
               {entry.lead_name || entry.lead_email || "Unknown"}
             </span>
             {entry.stage === "no_show" || entry.needs_replacement ? (
-              <span className="rounded-full bg-[#fde8e8] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#c0392b]">
-                Replacement
+              <span
+                title="This introduction will be replaced."
+                aria-label="This introduction will be replaced."
+                className="inline-flex size-4 shrink-0 items-center justify-center text-[#9aa0ab]"
+              >
+                <Repeat className="size-3.5" />
+              </span>
+            ) : null}
+            {entry.lead_location ? (
+              <span
+                title={entry.lead_location}
+                aria-label={`Location: ${entry.lead_location}`}
+                className="inline-flex size-4 shrink-0 items-center justify-center text-[#9aa0ab]"
+              >
+                <MapPin className="size-3.5" />
               </span>
             ) : null}
           </div>
@@ -855,15 +824,12 @@ function PipelineMobileCard({
               href={normalizeUrl(entry.agent_profile_url)}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-0.5 inline-flex items-center gap-1 truncate text-[12px] text-[#1565C0] hover:underline"
+              className="mt-0.5 inline-flex max-w-full items-center gap-1 truncate text-[12px] text-[#1565C0] hover:underline"
               title={trimUrl(entry.agent_profile_url)}
             >
-              <Globe className="size-3" />
-              Website
+              <Globe className="size-3 shrink-0" />
+              <span className="truncate">Agent profile</span>
             </a>
-          ) : null}
-          {entry.lead_location ? (
-            <div className="text-[12px] text-[#9aa0ab]">{entry.lead_location}</div>
           ) : null}
         </div>
       </div>
@@ -1134,16 +1100,20 @@ function NotesSheet({
     },
     {
       icon: Globe,
-      label: "Website",
+      label: "Agent profile",
       visible: !!entry.agent_profile_url,
       body: entry.agent_profile_url ? (
+        // Truncate on a single line with ellipsis instead of letting
+        // long realtor.com URLs wrap mid-token and break the row's
+        // grid alignment. Full URL stays available via the tooltip
+        // + the anchor's href (right-click → copy still works).
         <a
           href={normalizeUrl(entry.agent_profile_url)}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 break-all text-[#1565C0] hover:underline"
+          title={trimUrl(entry.agent_profile_url)}
+          className="block max-w-full truncate text-[#1565C0] hover:underline"
         >
-          <Globe className="size-3 shrink-0" />
           {trimUrl(entry.agent_profile_url)}
         </a>
       ) : null,
@@ -1192,8 +1162,12 @@ function NotesSheet({
                   {entry.lead_name || entry.lead_email || "Unknown"}
                 </h2>
                 {isReplacement ? (
-                  <span className="rounded-full bg-[#fde8e8] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#c0392b]">
-                    Replacement
+                  <span
+                    title="This introduction will be replaced."
+                    aria-label="This introduction will be replaced."
+                    className="inline-flex size-5 shrink-0 items-center justify-center text-[#9aa0ab]"
+                  >
+                    <Repeat className="size-4" />
                   </span>
                 ) : null}
               </div>
@@ -1476,7 +1450,7 @@ function EditLeadDialog({
             <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Compass" />
           </div>
           <div>
-            <Label className="text-[12px]">Website</Label>
+            <Label className="text-[12px]">Agent profile</Label>
             <Input
               value={website}
               onChange={(e) => setWebsite(e.target.value)}
@@ -1560,16 +1534,6 @@ function csvCell(v: string): string {
   return s;
 }
 
-function formatAbsolute(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
 
 function normalizeUrl(u: string): string {
   if (/^https?:\/\//i.test(u)) return u;

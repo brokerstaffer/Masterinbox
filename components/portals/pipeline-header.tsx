@@ -1,4 +1,7 @@
-import { Phone, Reply, MessageSquare } from "lucide-react";
+"use client";
+
+import { useState, Fragment } from "react";
+import { ChevronDown, Phone, Reply, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   STAGE_DESCRIPTIONS,
@@ -7,15 +10,14 @@ import {
   type PipelineStage,
 } from "@/lib/portals/portal-data";
 
-// The Recruiting Pipeline page is split in three:
-//   <PipelineHeader>  → slim breadcrumb + title (above the table)
-//   <PipelineBoard>   → the table itself (client component)
-//   <PipelineFooterInfo> → intro paragraph + best-practices + stage legend
+// Splits into three render targets:
+//   <PipelineHeader>      → title + Nicole Collins intro (always visible)
+//   <PipelineBoard>       → the table (in its own file)
+//   <PipelineFooterInfo>  → collapsibles for Best Practices + Stage legend
 //
-// The header used to also hold the explanatory blocks, which pushed
-// the data below the fold. Moving them under the table keeps the
-// pipeline immediately visible while still letting the information
-// live on the same page for new users to discover.
+// The intro copy used to live in the footer; it's been hoisted to the
+// header so the user-supplied Nicole Collins photo can sit next to it
+// the moment the page loads.
 
 // Stage chip colour map mirrors the pipeline board so the legend reads
 // as a direct lookup.
@@ -67,40 +69,75 @@ export function PipelineHeader({
       <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-[#0f1320] sm:text-[26px]">
         Every introduction, end to end
       </h1>
+      {/* Nicole Collins intro — sits directly under the title so the
+          brokerage sees who's sending intros the moment the page loads.
+          The photo file lives at /public/portal/nicole-collins.jpg.
+          On a fresh deploy that hasn't dropped the asset in place yet,
+          the <img> falls back to the AA-style initials block via the
+          onError handler so the row never looks broken. */}
+      <div className="mt-4 flex items-start gap-4 rounded-2xl border border-[#ebecf0] bg-white p-4 shadow-sm sm:p-5">
+        <NicolePhoto />
+        <p className="min-w-0 text-[13.5px] leading-relaxed text-[#5b6472]">
+          <span className="font-medium text-[#0f1320]">Nicole Collins</span>{" "}
+          (
+          <a
+            href="mailto:nicole.c@brokerstaffer.com"
+            className="text-[#1565C0] hover:underline"
+          >
+            nicole.c@brokerstaffer.com
+          </a>
+          ), the Talent Acquisition Coordinator assigned to your account,
+          will send all warm introductions via email. Please keep an eye
+          out for messages from her, as this is how interested candidates
+          will be introduced to you.
+        </p>
+      </div>
     </header>
   );
 }
 
-// Renders the explanatory blocks (intro paragraph + best-practices +
-// legend) BELOW the pipeline table. Server-side; no client state.
+// 64px circular portrait — initials fallback in the brand palette if
+// the static asset isn't there yet so a fresh deploy looks intentional.
+function NicolePhoto() {
+  const [errored, setErrored] = useState(false);
+  if (errored) {
+    return (
+      <div
+        aria-label="Nicole Collins"
+        className="flex size-14 shrink-0 items-center justify-center rounded-full bg-[#eaf2fd] text-[15px] font-semibold text-[#1565C0]"
+      >
+        NC
+      </div>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/portal/nicole-collins.jpg"
+      alt="Nicole Collins"
+      onError={() => setErrored(true)}
+      className="size-14 shrink-0 rounded-full object-cover ring-1 ring-[#ebecf0]"
+    />
+  );
+}
+
+// Renders Best Practices + Stage legend BELOW the pipeline. Both are
+// collapsibles (closed by default) so they don't push the data off-
+// screen but stay discoverable for first-time users.
 export function PipelineFooterInfo() {
   return (
     <section className="mx-auto mt-2 max-w-6xl px-4 pb-12 sm:px-6">
-      <p className="max-w-3xl text-[13.5px] leading-relaxed text-[#5b6472]">
-        Every warm intro lands here. Introductions will come by email from{" "}
-        <span className="font-medium text-[#0f1320]">Nicole Collins</span>{" "}
-        (<a
-          href="mailto:nicole.c@brokerstaffer.com"
-          className="text-[#1565C0] hover:underline"
-        >
-          nicole.c@brokerstaffer.com
-        </a>
-        ), the Talent Acquisition Coordinator assigned to your account, so
-        please keep an eye out for emails from her.
-      </p>
-
-      {/* Best practices — what to do the moment an intro arrives. */}
-      <div className="mt-6 rounded-2xl border border-[#d4e4f8] bg-[#f4f9ff] p-4 sm:p-5">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-[#1565C0]">
-          Best practices when an intro lands
-        </div>
-        <ol className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <Disclosure
+        title="Best practices when an intro lands"
+        accent="bg-[#f4f9ff] border-[#d4e4f8]"
+      >
+        <ol className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {BEST_PRACTICES.map((b, i) => {
             const Icon = b.icon;
             return (
               <li
                 key={b.title}
-                className="flex items-start gap-3 rounded-xl border border-white/60 bg-white/80 p-3"
+                className="flex items-start gap-3 rounded-xl border border-white/60 bg-white p-3"
               >
                 <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#1565C0] text-[11px] font-semibold text-white">
                   {i + 1}
@@ -118,37 +155,74 @@ export function PipelineFooterInfo() {
             );
           })}
         </ol>
-      </div>
+      </Disclosure>
 
-      {/* Legend — definitions for every stage, in the order they appear
-          on the chips above. */}
-      <div className="mt-6 rounded-2xl border border-[#ebecf0] bg-white p-4 sm:p-5">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
-          What each stage means
-        </div>
-        {/* Flex row per legend entry: chip is auto-width and the
-            description sits right next to it with a consistent gap.
-            Drops the previous fixed-width track that left dead
-            whitespace between short chips ("Hired", "Not a Fit") and
-            their copy. */}
-        <ul className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {LEGEND_ORDER.map((s) => (
-            <li key={s} className="flex items-start gap-3">
-              <span
-                className={cn(
-                  "mt-0.5 inline-flex shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold text-white",
-                  LEGEND_STYLE[s],
-                )}
-              >
-                {s === "interview" ? "Screening / Interview" : STAGE_LABELS[s]}
-              </span>
-              <p className="text-[12.5px] leading-snug text-[#5b6472]">
-                {STAGE_DESCRIPTIONS[s]}
-              </p>
-            </li>
-          ))}
-        </ul>
+      <div className="mt-3">
+        <Disclosure title="What each stage means">
+          {/* The legend `ul` is a single CSS grid with a shared chip
+              column. Auto-sizing the chip column to the widest chip
+              across the whole list keeps every chip's left edge in line
+              and every description starting at the same x. */}
+          <ul className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-3 sm:grid-cols-[auto_1fr_auto_1fr]">
+            {LEGEND_ORDER.map((s) => (
+              <Fragment key={s}>
+                <span
+                  className={cn(
+                    "mt-0.5 inline-flex shrink-0 self-start rounded-full px-2 py-0.5 text-[10.5px] font-semibold text-white",
+                    LEGEND_STYLE[s],
+                  )}
+                >
+                  {s === "interview" ? "Screening / Interview" : STAGE_LABELS[s]}
+                </span>
+                <p className="text-[12.5px] leading-snug text-[#5b6472]">
+                  {STAGE_DESCRIPTIONS[s]}
+                </p>
+              </Fragment>
+            ))}
+          </ul>
+        </Disclosure>
       </div>
     </section>
+  );
+}
+
+// Lightweight chevron-toggle card. Closed by default so the pipeline
+// sits as the dominant element on the page; expanding either card is
+// a one-tap nudge once a user wants the help text.
+function Disclosure({
+  title,
+  children,
+  accent,
+}: {
+  title: string;
+  children: React.ReactNode;
+  accent?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div
+      className={cn(
+        "rounded-2xl border bg-white",
+        accent ?? "border-[#ebecf0]",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left sm:px-5"
+        aria-expanded={open}
+      >
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-[#1565C0]">
+          {title}
+        </span>
+        <ChevronDown
+          className={cn(
+            "size-4 shrink-0 text-[#9aa0ab] transition-transform",
+            open ? "rotate-180" : "",
+          )}
+        />
+      </button>
+      {open ? <div className="px-4 pb-4 sm:px-5 sm:pb-5">{children}</div> : null}
+    </div>
   );
 }
