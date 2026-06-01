@@ -248,19 +248,8 @@ export async function loadThreads(
     }
   ).range(offset, offset + pageSize - 1);
 
-  const [pageResult, assignmentsResult] = await Promise.all([
-    pagedQuery,
-    // Fetch label_assignments for every thread in the workspace and join
-    // in JS. Workspaces typically have hundreds of assignments — cheap
-    // payload (~10-30KB) for the latency saved by not gating on page IDs.
-    supabase
-      .from("label_assignments")
-      .select("target_id, labels:label_id(name, color)")
-      .eq("workspace_id", workspaceId)
-      .eq("target_type", "thread"),
-  ]);
+  const pageResult = await pagedQuery;
   const { data, error, count } = pageResult;
-  const assignments = assignmentsResult.data;
   if (error) {
     console.error("[loadThreads] page query failed", error);
     return { rows: [], total: 0, page: safePage, pageSize };
@@ -270,6 +259,25 @@ export async function loadThreads(
   if (ordered.length === 0) {
     return { rows: [], total, page: safePage, pageSize };
   }
+
+  // Fetch label_assignments only for the visible page of threads. The
+  // older "fetch every assignment in the workspace" path silently hit
+  // PostgREST's 1000-row default cap once the workspace passed ~1k AI
+  // labels — the most recent inbox rows stopped showing their chips
+  // because their assignments fell outside the truncated window.
+  // Filtering by `target_id IN (visible thread ids)` keeps payload
+  // small (≤ pageSize × labels-per-thread rows) and scales linearly.
+  const visibleIds = ordered
+    .map((r) => (r as { id?: string }).id)
+    .filter((id): id is string => typeof id === "string");
+  const { data: assignments } = visibleIds.length
+    ? await supabase
+        .from("label_assignments")
+        .select("target_id, labels:label_id(name, color)")
+        .eq("workspace_id", workspaceId)
+        .eq("target_type", "thread")
+        .in("target_id", visibleIds)
+    : { data: [] as unknown[] };
 
   const labelsByThread = new Map<string, Array<{ name: string; color: string }>>();
   for (const r of assignments ?? []) {
