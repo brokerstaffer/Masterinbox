@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Tag, Check } from "lucide-react";
 import {
@@ -24,6 +24,15 @@ export function LabelPickerButton({
   const router = useRouter();
   const [assigned, setAssigned] = useState<Set<string>>(new Set(assignedLabelIds));
   const [pending, startTransition] = useTransition();
+  const [filter, setFilter] = useState("");
+
+  // Case-insensitive substring match on the label name — mirrors the
+  // composer's TemplatePicker so the two dropdowns feel the same.
+  const visible = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return allLabels;
+    return allLabels.filter((l) => l.name.toLowerCase().includes(q));
+  }, [allLabels, filter]);
 
   // Single-label-per-thread (May 2026 client decision). Clicking a
   // label:
@@ -65,32 +74,52 @@ export function LabelPickerButton({
           </button>
         }
       />
-      <DropdownMenuContent align="end" className="w-64 p-1 max-h-80 overflow-y-auto">
+      <DropdownMenuContent align="end" className="w-64 max-h-80 overflow-y-auto p-0">
         {allLabels.length === 0 ? (
           <p className="text-xs text-muted-foreground px-2 py-3 text-center">
             No labels yet. Create one in Settings → Labels.
           </p>
         ) : (
-          allLabels.map((l) => {
-            const isOn = assigned.has(l.id);
-            return (
-              <button
-                key={l.id}
-                type="button"
-                disabled={pending}
-                onClick={() => toggle(l.id)}
-                className={cn(
-                  "w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover:bg-accent transition-colors",
-                  pending && "opacity-50",
-                )}
-              >
-                <span className="size-4 flex items-center justify-center">
-                  {isOn ? <Check className="size-3.5" /> : null}
-                </span>
-                <LabelChip name={l.name} color={l.color} />
-              </button>
-            );
-          })
+          <>
+            <div className="sticky top-0 z-10 border-b bg-background p-1.5">
+              <input
+                type="search"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Search labels…"
+                autoFocus
+                className="h-7 w-full rounded-md border bg-background px-2 text-xs placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/30"
+              />
+            </div>
+            <div className="p-1">
+              {visible.length === 0 ? (
+                <p className="text-xs text-muted-foreground px-2 py-3 text-center">
+                  No labels match &quot;{filter}&quot;.
+                </p>
+              ) : (
+                visible.map((l) => {
+                  const isOn = assigned.has(l.id);
+                  return (
+                    <button
+                      key={l.id}
+                      type="button"
+                      disabled={pending}
+                      onClick={() => toggle(l.id)}
+                      className={cn(
+                        "w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm hover:bg-accent transition-colors",
+                        pending && "opacity-50",
+                      )}
+                    >
+                      <span className="size-4 flex items-center justify-center">
+                        {isOn ? <Check className="size-3.5" /> : null}
+                      </span>
+                      <LabelChip name={l.name} color={l.color} />
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

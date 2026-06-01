@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Mail,
@@ -38,6 +38,15 @@ export function BulkActionsBar({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [createListOpen, setCreateListOpen] = useState(false);
+  const [labelFilter, setLabelFilter] = useState("");
+
+  // Case-insensitive substring match — same pattern as the
+  // thread-level label picker so both dropdowns feel the same.
+  const visibleLabels = useMemo(() => {
+    const q = labelFilter.trim().toLowerCase();
+    if (!q) return labels;
+    return labels.filter((l) => l.name.toLowerCase().includes(q));
+  }, [labels, labelFilter]);
 
   async function bulk(body: object) {
     const res = await fetch("/api/threads/bulk", {
@@ -201,26 +210,46 @@ export function BulkActionsBar({
               />
             }
           />
-          <DropdownMenuContent align="end" className="w-64 max-h-80 overflow-y-auto">
+          <DropdownMenuContent align="end" className="w-64 max-h-80 overflow-y-auto p-0">
             {labels.length === 0 ? (
               <div className="text-xs text-muted-foreground px-2 py-2">
                 No labels yet — create one in Settings → Labels.
               </div>
             ) : (
-              labels.map((l) => (
-                <button
-                  key={l.id}
-                  type="button"
-                  onClick={() => doLabels([l.id], "add")}
-                  className={cn(
-                    "w-full flex items-center gap-2 px-2 py-1.5 text-left rounded hover:bg-accent text-sm",
-                    pending && "opacity-50",
+              <>
+                <div className="sticky top-0 z-10 border-b bg-background p-1.5">
+                  <input
+                    type="search"
+                    value={labelFilter}
+                    onChange={(e) => setLabelFilter(e.target.value)}
+                    placeholder="Search labels…"
+                    autoFocus
+                    className="h-7 w-full rounded-md border bg-background px-2 text-xs placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  />
+                </div>
+                <div className="p-1">
+                  {visibleLabels.length === 0 ? (
+                    <div className="text-xs text-muted-foreground px-2 py-2 text-center">
+                      No labels match &quot;{labelFilter}&quot;.
+                    </div>
+                  ) : (
+                    visibleLabels.map((l) => (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onClick={() => doLabels([l.id], "add")}
+                        className={cn(
+                          "w-full flex items-center gap-2 px-2 py-1.5 text-left rounded hover:bg-accent text-sm",
+                          pending && "opacity-50",
+                        )}
+                      >
+                        <Check className="size-3.5 opacity-0" />
+                        <LabelChip name={l.name} color={l.color} />
+                      </button>
+                    ))
                   )}
-                >
-                  <Check className="size-3.5 opacity-0" />
-                  <LabelChip name={l.name} color={l.color} />
-                </button>
-              ))
+                </div>
+              </>
             )}
           </DropdownMenuContent>
         </DropdownMenu>
