@@ -49,6 +49,32 @@ function initials(name: string | null | undefined, email: string | null | undefi
     .toUpperCase();
 }
 
+// For inbound messages, decide which display name to show alongside
+// the From email. The row's `senderEmail` is the actual From address
+// for THIS message — when it matches the lead's email we can trust
+// the lead's full_name; when it doesn't (multi-participant threads,
+// e.g. the brokerage's own alias forwarding the intro back), the
+// lead's name would be misleading, so we derive a readable name from
+// the email's local part instead. Splits on `.`, `_`, `-`, `+` and
+// titlecases each segment ("growth.team" → "Growth Team").
+function resolveInboundSenderName(
+  senderEmail: string | null,
+  leadEmail: string | null,
+  leadName: string,
+): string {
+  const a = senderEmail?.trim().toLowerCase() ?? "";
+  const b = leadEmail?.trim().toLowerCase() ?? "";
+  if (a && b && a === b) return leadName;
+  if (!senderEmail) return leadName;
+  const localPart = senderEmail.split("@")[0] ?? "";
+  if (!localPart) return leadName;
+  return localPart
+    .split(/[._\-+]+/)
+    .filter(Boolean)
+    .map((p) => p[0]!.toUpperCase() + p.slice(1).toLowerCase())
+    .join(" ");
+}
+
 export function ThreadView({
   detail,
   availableLabels = [],
@@ -572,13 +598,21 @@ function MessageBlock({
 }) {
   const outbound = message.direction === "outbound";
   const [expanded, setExpanded] = useState(false);
-  const senderLabel = outbound ? youName : leadName;
   // For outbound: use the row's sender if captured, else fall back to the
   // workspace's pinned OUR-side address (set from the webhook). For inbound:
   // use sender (lead's actual from) or fall back to the lead's email.
   const senderEmail = outbound
     ? message.sender ?? ourSenderEmail
     : message.sender ?? leadEmail;
+  // Display name resolution. Outbound is "You". Inbound only borrows
+  // the lead's name when the message actually came from the lead's
+  // email; otherwise we titlecase the local-part of the From address
+  // so multi-participant threads (e.g. the brokerage's own alias
+  // replying into the same thread) don't show the lead's name on the
+  // wrong message.
+  const senderLabel = outbound
+    ? youName
+    : resolveInboundSenderName(senderEmail, leadEmail, leadName);
   const senderInitials = initials(senderLabel, senderEmail);
 
   return (

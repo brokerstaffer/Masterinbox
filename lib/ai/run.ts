@@ -108,16 +108,20 @@ export async function labelInboundMessage(input: LabelInboundInput): Promise<Lab
     labelRow = fallback;
   }
 
-  // Re-label semantics: if relabel_ongoing OR force, wipe any existing AI
-  // assignment on this thread so we don't accumulate stale labels.
-  if (cfg.relabel_ongoing || input.force) {
-    await admin
-      .from("label_assignments")
-      .delete()
-      .eq("target_type", "thread")
-      .eq("target_id", input.threadId)
-      .eq("assigned_by", "ai");
-  }
+  // Single-label-per-thread (May 2026 product decision). Wipe every
+  // existing assignment on this thread BEFORE the upsert so the AI
+  // never stacks a second chip on top of an existing one — matches
+  // what app/api/threads/[threadId]/labels/route.ts does for user
+  // assignments. Previously this was gated on
+  // `cfg.relabel_ongoing || input.force` and only cleared AI rows;
+  // the gap let a manual user label and the AI's later guess coexist
+  // (the user-reported "double label" bug).
+  await admin
+    .from("label_assignments")
+    .delete()
+    .eq("target_type", "thread")
+    .eq("target_id", input.threadId)
+    .neq("label_id", labelRow.id);
 
   await admin.from("label_assignments").upsert(
     {
@@ -352,6 +356,17 @@ export async function backfillLabelsForWorkspace(
       }
       labelRow = fallbackLabel;
     }
+
+    // Wipe every existing label on this thread before the upsert so
+    // the AI never stacks on top of a manual user label (single-
+    // label-per-thread rule). Mirrors what the single-thread path
+    // and the user POST endpoint do.
+    await admin
+      .from("label_assignments")
+      .delete()
+      .eq("target_type", "thread")
+      .eq("target_id", t.id)
+      .neq("label_id", labelRow.id);
 
     const { error: upsertErr } = await admin.from("label_assignments").upsert(
       {
