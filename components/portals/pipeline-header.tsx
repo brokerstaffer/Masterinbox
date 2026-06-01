@@ -126,11 +126,10 @@ export function PipelineFooterInfo() {
         <div className="text-[11px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
           What each stage means
         </div>
-        {/* Two-column grid inside each <li> so the chip occupies a
-            fixed-width track on the left and the description starts at
-            the same x-position for every row. Chip is right-justified
-            within its track so the chip's right edge stays consistent
-            and the gap to the description is uniform. */}
+        {/* Two-column grid inside each <li>: the chip column is fixed-
+            width and left-justified so chips line up under the section
+            heading with no wasted whitespace, and the description
+            track starts at the same x-position for every row. */}
         <ul className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           {LEGEND_ORDER.map((s) => (
             <li
@@ -139,7 +138,7 @@ export function PipelineFooterInfo() {
             >
               <span
                 className={cn(
-                  "mt-1 inline-flex justify-self-end rounded-full px-2 py-0.5 text-[10.5px] font-semibold text-white",
+                  "mt-1 inline-flex justify-self-start rounded-full px-2 py-0.5 text-[10.5px] font-semibold text-white",
                   LEGEND_STYLE[s],
                 )}
               >

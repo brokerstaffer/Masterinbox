@@ -32,6 +32,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -505,7 +509,7 @@ export function PipelineBoard({
       )}
 
       {openNotes ? (
-        <NotesDialog
+        <NotesSheet
           token={token}
           entry={openNotes}
           onClose={() => setOpenNotes(null)}
@@ -924,7 +928,12 @@ function StageSelector({
   );
 }
 
-function NotesDialog({
+// Slides in from the right when the user clicks the Notes pill on a
+// row. Layout: a sticky lead-summary card on top (avatar, name, the
+// quick-contact bits), then the note composer + numbered note cards
+// underneath. Replaces the older modal dialog so the row stays
+// visually anchored on the left while notes are managed on the right.
+function NotesSheet({
   token,
   entry,
   onClose,
@@ -940,10 +949,6 @@ function NotesDialog({
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
-  const ref = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    ref.current?.focus();
-  }, []);
 
   async function addNote() {
     const body = draft.trim();
@@ -1007,102 +1012,229 @@ function NotesDialog({
     onApply(next);
   }
 
+  const phone = entry.lead_phone;
+  const isReplacement = entry.stage === "no_show" || entry.needs_replacement;
+
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>
-            Notes — {entry.lead_name ?? entry.lead_email ?? "Candidate"}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div>
-            <Textarea
-              ref={ref}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Add a new note…"
-              rows={3}
-              className="resize-y text-[13px]"
-            />
-            <div className="mt-2 flex justify-end">
-              <Button onClick={addNote} disabled={busy || !draft.trim()} size="sm">
-                {busy ? <Loader2 className="size-4 animate-spin" /> : "Add note"}
-              </Button>
+    <Sheet open onOpenChange={(v) => !v && onClose()}>
+      <SheetContent
+        side="right"
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-md"
+      >
+        {/* Lead summary — sticky on top so the operator always sees
+            who they're noting against while they scroll the list. */}
+        <header className="shrink-0 border-b border-[#ebecf0] bg-white px-5 py-4">
+          <div className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-[#9aa0ab]">
+            Lead details
+          </div>
+          <div className="mt-2 flex items-start gap-3">
+            <Avatar name={entry.lead_name ?? entry.lead_email ?? "?"} />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="truncate text-[15px] font-semibold text-[#0f1320]">
+                  {entry.lead_name || entry.lead_email || "Unknown"}
+                </span>
+                {isReplacement ? (
+                  <span className="rounded-full bg-[#fde8e8] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#c0392b]">
+                    Replacement
+                  </span>
+                ) : null}
+              </div>
+              {entry.lead_email ? (
+                <a
+                  href={`mailto:${entry.lead_email}`}
+                  className="block truncate text-[12px] text-[#1565C0] hover:underline"
+                >
+                  {entry.lead_email}
+                </a>
+              ) : null}
             </div>
           </div>
-          {notes.length > 0 ? (
-            <ul className="max-h-72 space-y-2 overflow-y-auto border-t border-[#ebecf0] pt-3">
-              {notes.map((n) => (
-                <li
-                  key={n.id}
-                  className="rounded-lg border border-[#ebecf0] bg-[#fafbfc] p-2.5"
-                >
-                  {editing === n.id ? (
-                    <div className="space-y-2">
-                      <Textarea
-                        value={editDraft}
-                        onChange={(e) => setEditDraft(e.target.value)}
-                        rows={3}
-                        className="text-[13px]"
-                      />
-                      <div className="flex justify-end gap-2">
-                        <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>
-                          Cancel
-                        </Button>
-                        <Button size="sm" onClick={() => saveEdit(n.id)} disabled={busy}>
-                          Save
-                        </Button>
+          {/* Two-column meta grid. Each cell stays compact so the
+              header doesn't eat the available vertical space. */}
+          <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2.5 text-[12.5px]">
+            {phone ? (
+              <div className="col-span-2">
+                <dt className="text-[10.5px] font-medium uppercase tracking-wide text-[#aab0ba]">
+                  Phone
+                </dt>
+                <dd className="mt-0.5 flex items-center gap-1.5">
+                  <span className="tabular-nums text-[#0f1320]">{formatPhoneDisplay(phone)}</span>
+                  <a
+                    href={`tel:${phone.replace(/[^+\d]/g, "")}`}
+                    className="inline-flex h-6 items-center gap-1 rounded border border-[#d4e4f8] bg-white px-1.5 text-[10.5px] font-medium text-[#1565C0] hover:bg-[#eaf2fd]"
+                    title="Call"
+                  >
+                    <PhoneIcon className="size-3" />
+                    Call
+                  </a>
+                  <a
+                    href={`sms:${phone.replace(/[^+\d]/g, "")}`}
+                    className="inline-flex h-6 items-center gap-1 rounded border border-[#d4e4f8] bg-white px-1.5 text-[10.5px] font-medium text-[#1565C0] hover:bg-[#eaf2fd]"
+                    title="Text"
+                  >
+                    <MessageSquare className="size-3" />
+                    Text
+                  </a>
+                </dd>
+              </div>
+            ) : null}
+            {entry.current_brokerage ? (
+              <div>
+                <dt className="text-[10.5px] font-medium uppercase tracking-wide text-[#aab0ba]">
+                  Company
+                </dt>
+                <dd className="mt-0.5 truncate text-[#0f1320]">
+                  {entry.current_brokerage}
+                </dd>
+              </div>
+            ) : null}
+            {entry.lead_location ? (
+              <div>
+                <dt className="text-[10.5px] font-medium uppercase tracking-wide text-[#aab0ba]">
+                  Location
+                </dt>
+                <dd className="mt-0.5 truncate text-[#0f1320]">
+                  {entry.lead_location}
+                </dd>
+              </div>
+            ) : null}
+            {entry.agent_profile_url ? (
+              <div className="col-span-2">
+                <dt className="text-[10.5px] font-medium uppercase tracking-wide text-[#aab0ba]">
+                  Website
+                </dt>
+                <dd className="mt-0.5">
+                  <a
+                    href={normalizeUrl(entry.agent_profile_url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 truncate text-[#1565C0] hover:underline"
+                  >
+                    <Globe className="size-3" />
+                    {trimUrl(entry.agent_profile_url)}
+                  </a>
+                </dd>
+              </div>
+            ) : null}
+            <div>
+              <dt className="text-[10.5px] font-medium uppercase tracking-wide text-[#aab0ba]">
+                Stage
+              </dt>
+              <dd className="mt-0.5 text-[#0f1320]">{STAGE_LABELS[entry.stage]}</dd>
+            </div>
+            <div>
+              <dt className="text-[10.5px] font-medium uppercase tracking-wide text-[#aab0ba]">
+                Introduced
+              </dt>
+              <dd className="mt-0.5 text-[#0f1320]">{fmtDate(entry.introduced_at)}</dd>
+            </div>
+          </dl>
+        </header>
+
+        {/* Notes section — scrolls independently of the lead summary. */}
+        <div className="flex min-h-0 flex-1 flex-col bg-[#fafbfc]">
+          <div className="shrink-0 px-5 pt-4">
+            <div className="flex items-baseline justify-between">
+              <div className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-[#9aa0ab]">
+                Notes
+              </div>
+              <div className="text-[11px] text-[#9aa0ab]">
+                {notes.length} {notes.length === 1 ? "entry" : "entries"}
+              </div>
+            </div>
+            <div className="mt-2 rounded-xl border border-[#ebecf0] bg-white p-2 shadow-sm">
+              <Textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Add a new note…"
+                rows={3}
+                className="resize-y border-0 bg-transparent p-1 text-[13px] focus-visible:ring-0"
+              />
+              <div className="flex justify-end">
+                <Button onClick={addNote} disabled={busy || !draft.trim()} size="sm">
+                  {busy ? <Loader2 className="size-4 animate-spin" /> : "Add note"}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            {notes.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-[#ebecf0] bg-white px-4 py-8 text-center text-[12.5px] text-[#9aa0ab]">
+                No notes yet. Add the first one above.
+              </div>
+            ) : (
+              <ol className="space-y-3">
+                {notes.map((n, i) => (
+                  <li
+                    key={n.id}
+                    className="relative rounded-xl border border-[#ebecf0] bg-white p-3 pl-12 shadow-sm"
+                  >
+                    {/* Numbered marker so operators can refer to notes
+                        in order ("see note 2 from last week"). */}
+                    <span className="absolute left-3 top-3 inline-flex size-7 items-center justify-center rounded-full bg-[#eaf2fd] text-[12px] font-semibold text-[#1565C0]">
+                      {i + 1}
+                    </span>
+                    {editing === n.id ? (
+                      <div className="space-y-2">
+                        <Textarea
+                          value={editDraft}
+                          onChange={(e) => setEditDraft(e.target.value)}
+                          rows={3}
+                          className="text-[13px]"
+                        />
+                        <div className="flex justify-end gap-2">
+                          <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>
+                            Cancel
+                          </Button>
+                          <Button size="sm" onClick={() => saveEdit(n.id)} disabled={busy}>
+                            Save
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="text-[11px] text-[#9aa0ab]">
-                        {fmtDateTime(n.created_at)}
-                        {n.updated_at && n.updated_at !== n.created_at
-                          ? ` · edited ${fmtDateTime(n.updated_at)}`
-                          : ""}
-                      </div>
-                      <p className="mt-1 whitespace-pre-wrap text-[13px] text-[#0f1320]">
-                        {n.body}
-                      </p>
-                      <div className="mt-1.5 flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditing(n.id);
-                            setEditDraft(n.body);
-                          }}
-                          className="text-[11.5px] text-[#1565C0] hover:underline"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => deleteNote(n.id)}
-                          className="text-[11.5px] text-[#c0392b] hover:underline"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="border-t border-[#ebecf0] pt-3 text-[12px] text-[#9aa0ab]">
-              No notes yet. Add one above.
-            </p>
-          )}
+                    ) : (
+                      <>
+                        <div className="text-[11px] text-[#9aa0ab]">
+                          {fmtDateTime(n.created_at)}
+                          {n.updated_at && n.updated_at !== n.created_at
+                            ? ` · edited ${fmtDateTime(n.updated_at)}`
+                            : ""}
+                        </div>
+                        <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-[#0f1320]">
+                          {n.body}
+                        </p>
+                        <div className="mt-2 flex justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditing(n.id);
+                              setEditDraft(n.body);
+                            }}
+                            className="inline-flex h-6 items-center gap-1 rounded border border-[#ebecf0] bg-white px-2 text-[11px] font-medium text-[#5b6472] hover:bg-[#f6f7f9]"
+                          >
+                            <Pencil className="size-3" />
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteNote(n.id)}
+                            className="inline-flex h-6 items-center gap-1 rounded border border-[#fbd9d4] bg-white px-2 text-[11px] font-medium text-[#c0392b] hover:bg-[#fef0ee]"
+                          >
+                            <Trash2 className="size-3" />
+                            Delete
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }
 
