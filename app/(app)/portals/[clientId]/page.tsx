@@ -3,12 +3,11 @@ import { notFound } from "next/navigation";
 import { ChevronLeft, ExternalLink, Workflow, UserCheck, Ban, Users } from "lucide-react";
 import { requireSession } from "@/lib/auth/workspace";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import { loadPipelineEntries, loadPortalCounts } from "@/lib/portals/portal-data";
 import {
-  loadAgentEntries,
-  loadPipelineEntries,
-  loadPortalCounts,
-} from "@/lib/portals/portal-data";
-import { PipelineHeader } from "@/components/portals/pipeline-header";
+  PipelineHeader,
+  PipelineFooterInfo,
+} from "@/components/portals/pipeline-header";
 import { PipelineBoard } from "@/components/portals/pipeline-board";
 import { CLIENT_PORTALS_ENABLED } from "@/lib/portals/flag";
 import { PortalsComingSoon } from "@/components/portals/portals-coming-soon";
@@ -34,12 +33,10 @@ export default async function PortalDrilldownPage(props: {
     .maybeSingle();
   if (!client || client.slug === "unknown") notFound();
 
-  const [entries, agents, counts] = await Promise.all([
+  const [entries, counts] = await Promise.all([
     loadPipelineEntries(client.id as string),
-    loadAgentEntries(client.id as string),
     loadPortalCounts(client.id as string),
   ]);
-  const agentOptions = agents.map((a) => ({ id: a.id, name: a.name }));
   const portalPath = client.portal_token ? `/portal/${client.portal_token}` : null;
 
   return (
@@ -87,11 +84,13 @@ export default async function PortalDrilldownPage(props: {
       <div className="flex-1 overflow-y-auto">
         <PipelineHeader clientName={client.name as string} />
         {client.portal_token ? (
-          <PipelineBoard
-            token={client.portal_token as string}
-            entries={entries}
-            agents={agentOptions}
-          />
+          <>
+            <PipelineBoard
+              token={client.portal_token as string}
+              entries={entries}
+            />
+            <PipelineFooterInfo />
+          </>
         ) : (
           <div className="mx-auto max-w-6xl px-6 py-12 text-center text-sm text-muted-foreground">
             This client has no portal token yet; pipeline edits aren&apos;t wired up.

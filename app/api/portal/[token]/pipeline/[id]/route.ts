@@ -32,9 +32,6 @@ const schema = z.object({
   current_brokerage: z.string().max(200).nullable().optional(),
   agent_profile_url: z.string().max(500).nullable().optional(),
   introduced_at: z.string().datetime().nullable().optional(),
-  // null clears the assignment; otherwise must match a row on
-  // client_agents (FK enforces this on the DB side).
-  assigned_agent_id: z.string().uuid().nullable().optional(),
 });
 
 export async function PATCH(

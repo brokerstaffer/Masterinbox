@@ -7,9 +7,15 @@ import {
   type PipelineStage,
 } from "@/lib/portals/portal-data";
 
-// Intro copy + best-practices + legend, rendered above the Recruiting
-// Pipeline table. Server-side; the stat tiles live inside the board's
-// client component so they update optimistically as stages move.
+// The Recruiting Pipeline page is split in three:
+//   <PipelineHeader>  → slim breadcrumb + title (above the table)
+//   <PipelineBoard>   → the table itself (client component)
+//   <PipelineFooterInfo> → intro paragraph + best-practices + stage legend
+//
+// The header used to also hold the explanatory blocks, which pushed
+// the data below the fold. Moving them under the table keeps the
+// pipeline immediately visible while still letting the information
+// live on the same page for new users to discover.
 
 // Stage chip colour map mirrors the pipeline board so the legend reads
 // as a direct lookup.
@@ -61,7 +67,16 @@ export function PipelineHeader({
       <h1 className="text-[22px] font-semibold leading-tight tracking-tight text-[#0f1320] sm:text-[26px]">
         Every introduction, end to end
       </h1>
-      <p className="mt-2 max-w-3xl text-[13.5px] leading-relaxed text-[#5b6472]">
+    </header>
+  );
+}
+
+// Renders the explanatory blocks (intro paragraph + best-practices +
+// legend) BELOW the pipeline table. Server-side; no client state.
+export function PipelineFooterInfo() {
+  return (
+    <section className="mx-auto mt-2 max-w-6xl px-4 pb-12 sm:px-6">
+      <p className="max-w-3xl text-[13.5px] leading-relaxed text-[#5b6472]">
         Every warm intro lands here. Introductions will come by email from{" "}
         <span className="font-medium text-[#0f1320]">Nicole Collins</span>{" "}
         (<a
@@ -75,7 +90,7 @@ export function PipelineHeader({
       </p>
 
       {/* Best practices — what to do the moment an intro arrives. */}
-      <section className="mt-6 rounded-2xl border border-[#d4e4f8] bg-[#f4f9ff] p-4 sm:p-5">
+      <div className="mt-6 rounded-2xl border border-[#d4e4f8] bg-[#f4f9ff] p-4 sm:p-5">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-[#1565C0]">
           Best practices when an intro lands
         </div>
@@ -103,11 +118,11 @@ export function PipelineHeader({
             );
           })}
         </ol>
-      </section>
+      </div>
 
       {/* Legend — definitions for every stage, in the order they appear
-          on the chips below. */}
-      <section className="mt-6 rounded-2xl border border-[#ebecf0] bg-white p-4 sm:p-5">
+          on the chips above. */}
+      <div className="mt-6 rounded-2xl border border-[#ebecf0] bg-white p-4 sm:p-5">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
           What each stage means
         </div>
@@ -128,8 +143,7 @@ export function PipelineHeader({
             </li>
           ))}
         </ul>
-      </section>
-    </header>
+      </div>
+    </section>
   );
 }
-

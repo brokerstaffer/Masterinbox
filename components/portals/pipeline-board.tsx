@@ -13,10 +13,10 @@ import {
   Pencil,
   Download,
   Phone as PhoneIcon,
+  MessageSquare,
   Globe,
   TrendingUp,
   Trophy,
-  UserPlus,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -65,19 +65,12 @@ const STAGE_STYLE: Record<PipelineStage, { bg: string; text: string }> = {
 
 type EditTarget = { mode: "create" } | { mode: "edit"; entry: PipelineEntry };
 
-export interface AgentOption {
-  id: string;
-  name: string;
-}
-
 export function PipelineBoard({
   token,
   entries: initial,
-  agents,
 }: {
   token: string;
   entries: PipelineEntry[];
-  agents: AgentOption[];
 }) {
   const router = useRouter();
   const mounted = useMounted();
@@ -155,21 +148,6 @@ export function PipelineBoard({
     void patch(id, { stage });
   }
 
-  function assignAgent(id: string, agent: AgentOption | null) {
-    setEntries((cur) =>
-      cur.map((e) =>
-        e.id === id
-          ? {
-              ...e,
-              assigned_agent_id: agent?.id ?? null,
-              assigned_agent_name: agent?.name ?? null,
-            }
-          : e,
-      ),
-    );
-    void patch(id, { assigned_agent_id: agent?.id ?? null });
-  }
-
   function applyEntryEdit(id: string, patchEdits: Partial<PipelineEntry>) {
     setEntries((cur) => cur.map((e) => (e.id === id ? { ...e, ...patchEdits } : e)));
   }
@@ -207,45 +185,6 @@ export function PipelineBoard({
       return;
     }
     toast.success(`${ids.length} candidate${ids.length === 1 ? "" : "s"} removed`);
-  }
-
-  async function bulkAssign(agent: AgentOption | null) {
-    if (selected.size === 0) return;
-    setBulkBusy(true);
-    const ids = Array.from(selected);
-    setEntries((cur) =>
-      cur.map((e) =>
-        selected.has(e.id)
-          ? {
-              ...e,
-              assigned_agent_id: agent?.id ?? null,
-              assigned_agent_name: agent?.name ?? null,
-            }
-          : e,
-      ),
-    );
-    setSelected(new Set());
-    const res = await fetch(`/api/portal/${token}/pipeline`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "assign",
-        ids,
-        assigned_agent_id: agent?.id ?? null,
-      }),
-    });
-    setBulkBusy(false);
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      toast.error(j.error ?? "Bulk assign failed");
-      router.refresh();
-      return;
-    }
-    toast.success(
-      agent
-        ? `Assigned ${ids.length} to ${agent.name}`
-        : `Cleared assignment on ${ids.length}`,
-    );
   }
 
   async function bulkStage(stage: PipelineStage) {
@@ -436,41 +375,6 @@ export function PipelineBoard({
                       variant="outline"
                       disabled={bulkBusy || selected.size === 0}
                     >
-                      <UserPlus className="mr-1 size-3.5" />
-                      Assign to… <ChevronDown className="ml-1 size-3.5" />
-                    </Button>
-                  }
-                />
-                <DropdownMenuContent align="end" className="max-h-72 w-56 overflow-y-auto">
-                  {agents.length === 0 ? (
-                    <div className="px-2 py-2 text-[12px] text-[#9aa0ab]">
-                      Add agents on the Your Agents page first.
-                    </div>
-                  ) : (
-                    <>
-                      {agents.map((a) => (
-                        <DropdownMenuItem key={a.id} onClick={() => bulkAssign(a)}>
-                          {a.name}
-                        </DropdownMenuItem>
-                      ))}
-                      <DropdownMenuItem
-                        onClick={() => bulkAssign(null)}
-                        className="border-t border-[#ebecf0] text-[#9aa0ab]"
-                      >
-                        Clear assignment
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={bulkBusy || selected.size === 0}
-                    >
                       Move to… <ChevronDown className="ml-1 size-3.5" />
                     </Button>
                   }
@@ -516,7 +420,7 @@ export function PipelineBoard({
               mounted ? "opacity-100" : "opacity-0",
             )}
           >
-            <div className="grid grid-cols-[36px_1.4fr_1fr_130px_130px_200px_150px_60px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+            <div className="grid grid-cols-[36px_1.4fr_1.1fr_140px_130px_200px_60px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
               <div>
                 <input
                   type="checkbox"
@@ -531,7 +435,6 @@ export function PipelineBoard({
               <div>Phone</div>
               <div>Introduced</div>
               <div>Stage</div>
-              <div>Assigned</div>
               <div className="text-right">Notes</div>
             </div>
             {filtered.length === 0 ? (
@@ -548,10 +451,8 @@ export function PipelineBoard({
                         entry={e}
                         expanded={expanded}
                         selected={selected.has(e.id)}
-                        agents={agents}
                         onToggleSelect={() => toggleSelect(e.id)}
                         onStage={(s) => changeStage(e.id, s)}
-                        onAssign={(a) => assignAgent(e.id, a)}
                         onOpenNotes={() => setOpenNotes(e)}
                         onEdit={() => setEditTarget({ mode: "edit", entry: e })}
                         onToggleExpand={() =>
@@ -587,10 +488,8 @@ export function PipelineBoard({
                   entry={e}
                   expanded={expandedId === e.id}
                   selected={selected.has(e.id)}
-                  agents={agents}
                   onToggleSelect={() => toggleSelect(e.id)}
                   onStage={(s) => changeStage(e.id, s)}
-                  onAssign={(a) => assignAgent(e.id, a)}
                   onOpenNotes={() => setOpenNotes(e)}
                   onEdit={() => setEditTarget({ mode: "edit", entry: e })}
                   onToggleExpand={() =>
@@ -690,10 +589,8 @@ function PipelineRow({
   entry,
   expanded,
   selected,
-  agents,
   onToggleSelect,
   onStage,
-  onAssign,
   onOpenNotes,
   onEdit,
   onToggleExpand,
@@ -701,10 +598,8 @@ function PipelineRow({
   entry: PipelineEntry;
   expanded: boolean;
   selected: boolean;
-  agents: AgentOption[];
   onToggleSelect: () => void;
   onStage: (s: PipelineStage) => void;
-  onAssign: (agent: AgentOption | null) => void;
   onOpenNotes: () => void;
   onEdit: () => void;
   onToggleExpand: () => void;
@@ -713,7 +608,7 @@ function PipelineRow({
   return (
     <div
       className={cn(
-        "grid grid-cols-[36px_1.4fr_1fr_130px_130px_200px_150px_60px] items-start gap-3 px-4 py-3 transition-colors",
+        "grid grid-cols-[36px_1.4fr_1.1fr_140px_130px_200px_60px] items-start gap-3 px-4 py-3 transition-colors",
         expanded ? "bg-[#fafbfc]" : "hover:bg-[#fafbfc]",
         selected ? "bg-[#eaf2fd] hover:bg-[#eaf2fd]" : "",
       )}
@@ -745,7 +640,7 @@ function PipelineRow({
             >
               {entry.lead_name || entry.lead_email || "Unknown"}
             </span>
-            {entry.stage === "no_show" ? (
+            {entry.stage === "no_show" || entry.needs_replacement ? (
               <span className="rounded-full bg-[#fde8e8] px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#c0392b]">
                 Replacement
               </span>
@@ -763,35 +658,48 @@ function PipelineRow({
         </div>
       </button>
       <div className="min-w-0 text-[13px] text-[#5b6472]">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate">{entry.current_brokerage ?? "—"}</span>
-          {entry.agent_profile_url ? (
-            <a
-              href={normalizeUrl(entry.agent_profile_url)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex size-5 shrink-0 items-center justify-center rounded text-[#9aa0ab] hover:bg-[#eaf2fd] hover:text-[#1565C0]"
-              title={trimUrl(entry.agent_profile_url)}
-              aria-label="Open profile"
-            >
-              <Globe className="size-3.5" />
-            </a>
-          ) : null}
-        </div>
+        <div className="truncate">{entry.current_brokerage ?? "—"}</div>
+        {entry.agent_profile_url ? (
+          <a
+            href={normalizeUrl(entry.agent_profile_url)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-0.5 inline-flex items-center gap-1 truncate text-[11.5px] text-[#1565C0] hover:underline"
+            title={trimUrl(entry.agent_profile_url)}
+          >
+            <Globe className="size-3" />
+            Website
+          </a>
+        ) : null}
         {entry.lead_location ? (
           <div className="mt-0.5 truncate text-[11.5px] text-[#9aa0ab]">{entry.lead_location}</div>
         ) : null}
       </div>
       <div className="text-[12.5px] tabular-nums text-[#5b6472]">
         {phone ? (
-          <a
-            href={`tel:${phone.replace(/[^+\d]/g, "")}`}
-            className="inline-flex items-center gap-1.5 text-[#1565C0] hover:underline"
-            title={`Call ${phone}`}
-          >
-            <PhoneIcon className="size-3.5" />
-            {formatPhoneDisplay(phone)}
-          </a>
+          <div className="flex flex-col items-start gap-0.5">
+            <span>{formatPhoneDisplay(phone)}</span>
+            <div className="inline-flex items-center gap-1">
+              <a
+                href={`tel:${phone.replace(/[^+\d]/g, "")}`}
+                className="inline-flex h-5 items-center gap-1 rounded border border-[#d4e4f8] bg-white px-1.5 text-[10.5px] font-medium text-[#1565C0] hover:bg-[#eaf2fd]"
+                aria-label={`Call ${phone}`}
+                title="Call"
+              >
+                <PhoneIcon className="size-3" />
+                Call
+              </a>
+              <a
+                href={`sms:${phone.replace(/[^+\d]/g, "")}`}
+                className="inline-flex h-5 items-center gap-1 rounded border border-[#d4e4f8] bg-white px-1.5 text-[10.5px] font-medium text-[#1565C0] hover:bg-[#eaf2fd]"
+                aria-label={`Text ${phone}`}
+                title="Text"
+              >
+                <MessageSquare className="size-3" />
+                Text
+              </a>
+            </div>
+          </div>
         ) : (
           "—"
         )}
@@ -808,14 +716,6 @@ function PipelineRow({
           <Pencil className="size-3" />
           Edit
         </button>
-      </div>
-      <div className="min-w-0">
-        <AgentPicker
-          agents={agents}
-          value={entry.assigned_agent_id}
-          valueName={entry.assigned_agent_name}
-          onChange={onAssign}
-        />
       </div>
       <div className="flex justify-end">
         <button
@@ -841,10 +741,8 @@ function PipelineMobileCard({
   entry,
   expanded,
   selected,
-  agents,
   onToggleSelect,
   onStage,
-  onAssign,
   onOpenNotes,
   onEdit,
   onToggleExpand,
@@ -854,10 +752,8 @@ function PipelineMobileCard({
   entry: PipelineEntry;
   expanded: boolean;
   selected: boolean;
-  agents: AgentOption[];
   onToggleSelect: () => void;
   onStage: (s: PipelineStage) => void;
-  onAssign: (agent: AgentOption | null) => void;
   onOpenNotes: () => void;
   onEdit: () => void;
   onToggleExpand: () => void;
@@ -886,7 +782,7 @@ function PipelineMobileCard({
             <span className="truncate text-[14px] font-medium">
               {entry.lead_name || entry.lead_email || "Unknown"}
             </span>
-            {entry.stage === "no_show" ? (
+            {entry.stage === "no_show" || entry.needs_replacement ? (
               <span className="rounded-full bg-[#fde8e8] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#c0392b]">
                 Replacement
               </span>
@@ -898,6 +794,18 @@ function PipelineMobileCard({
           {entry.current_brokerage ? (
             <div className="mt-1 text-[12.5px] text-[#5b6472]">{entry.current_brokerage}</div>
           ) : null}
+          {entry.agent_profile_url ? (
+            <a
+              href={normalizeUrl(entry.agent_profile_url)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-0.5 inline-flex items-center gap-1 truncate text-[12px] text-[#1565C0] hover:underline"
+              title={trimUrl(entry.agent_profile_url)}
+            >
+              <Globe className="size-3" />
+              Website
+            </a>
+          ) : null}
           {entry.lead_location ? (
             <div className="text-[12px] text-[#9aa0ab]">{entry.lead_location}</div>
           ) : null}
@@ -905,20 +813,26 @@ function PipelineMobileCard({
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <StageSelector value={entry.stage} onChange={onStage} />
-        <AgentPicker
-          agents={agents}
-          value={entry.assigned_agent_id}
-          valueName={entry.assigned_agent_name}
-          onChange={onAssign}
-        />
         {phone ? (
-          <a
-            href={`tel:${phone.replace(/[^+\d]/g, "")}`}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#ebecf0] bg-white px-2 text-[12px] text-[#1565C0] hover:bg-[#f6f7f9]"
-          >
-            <PhoneIcon className="size-3.5" />
-            {formatPhoneDisplay(phone)}
-          </a>
+          <div className="inline-flex h-8 items-center gap-1 rounded-md border border-[#ebecf0] bg-white pl-2 pr-1 text-[12px] text-[#5b6472]">
+            <span className="tabular-nums">{formatPhoneDisplay(phone)}</span>
+            <a
+              href={`tel:${phone.replace(/[^+\d]/g, "")}`}
+              className="inline-flex size-6 items-center justify-center rounded text-[#1565C0] hover:bg-[#eaf2fd]"
+              aria-label={`Call ${phone}`}
+              title="Call"
+            >
+              <PhoneIcon className="size-3.5" />
+            </a>
+            <a
+              href={`sms:${phone.replace(/[^+\d]/g, "")}`}
+              className="inline-flex size-6 items-center justify-center rounded text-[#1565C0] hover:bg-[#eaf2fd]"
+              aria-label={`Text ${phone}`}
+              title="Text"
+            >
+              <MessageSquare className="size-3.5" />
+            </a>
+          </div>
         ) : null}
         <span className="text-[11.5px] text-[#9aa0ab]">
           Introduced {fmtDate(entry.introduced_at)}
@@ -966,70 +880,6 @@ function PipelineMobileCard({
         </div>
       ) : null}
     </div>
-  );
-}
-
-function AgentPicker({
-  agents,
-  value,
-  valueName,
-  onChange,
-}: {
-  agents: AgentOption[];
-  value: string | null;
-  valueName: string | null;
-  onChange: (agent: AgentOption | null) => void;
-}) {
-  const current = value && valueName ? { id: value, name: valueName } : null;
-  const label = current ? current.name : "Unassigned";
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <button
-            type="button"
-            className={cn(
-              "inline-flex h-7 w-full max-w-[160px] items-center justify-between gap-1.5 rounded-md border px-2 text-[12px] transition-colors",
-              current
-                ? "border-[#d4e4f8] bg-[#eaf2fd] text-[#1565C0] hover:bg-[#dbe9fa]"
-                : "border-[#ebecf0] bg-white text-[#5b6472] hover:bg-[#f6f7f9]",
-            )}
-            title={current ? `Assigned to ${current.name}` : "Assign an agent"}
-          >
-            <span className="truncate">{label}</span>
-            <ChevronDown className="size-3 shrink-0 opacity-70" />
-          </button>
-        }
-      />
-      <DropdownMenuContent align="start" className="max-h-72 w-56 overflow-y-auto">
-        {agents.length === 0 ? (
-          <div className="px-2 py-2 text-[12px] text-[#9aa0ab]">
-            Add agents on the Your Agents page first.
-          </div>
-        ) : (
-          <>
-            {agents.map((a) => (
-              <DropdownMenuItem
-                key={a.id}
-                onClick={() => onChange(a)}
-                className="flex items-center justify-between gap-2"
-              >
-                <span className="truncate text-[13px]">{a.name}</span>
-                {a.id === value ? <Check className="size-3.5 text-[#1565C0]" /> : null}
-              </DropdownMenuItem>
-            ))}
-            {value ? (
-              <DropdownMenuItem
-                onClick={() => onChange(null)}
-                className="border-t border-[#ebecf0] text-[#9aa0ab]"
-              >
-                Clear assignment
-              </DropdownMenuItem>
-            ) : null}
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 
@@ -1282,6 +1132,12 @@ function EditLeadDialog({
       ? toLocalDateInput(initial.introduced_at)
       : toLocalDateInput(new Date().toISOString()),
   );
+  // Manual "Replacement" tag. The pill renders whenever this flag is
+  // true OR the stage is No-Show; this checkbox is how the client
+  // flips it on for leads in any other stage.
+  const [needsReplacement, setNeedsReplacement] = useState<boolean>(
+    initial?.needs_replacement ?? false,
+  );
   const [pending, startTransition] = useTransition();
 
   async function submit() {
@@ -1294,6 +1150,7 @@ function EditLeadDialog({
       introduced_at: introducedAt
         ? new Date(introducedAt + "T12:00:00Z").toISOString()
         : null,
+      needs_replacement: needsReplacement,
     };
     if (target.mode === "create") {
       const res = await fetch(`/api/portal/${token}/pipeline`, {
@@ -1310,7 +1167,7 @@ function EditLeadDialog({
       const newRow: PipelineEntry = {
         id: j.id,
         stage: "introduction",
-        needs_replacement: false,
+        needs_replacement: body.needs_replacement,
         lead_name: body.lead_name,
         lead_email: body.lead_email,
         lead_phone: body.lead_phone,
@@ -1318,8 +1175,6 @@ function EditLeadDialog({
         agent_profile_url: body.agent_profile_url,
         lead_location: null,
         introduced_at: body.introduced_at,
-        assigned_agent_id: null,
-        assigned_agent_name: null,
         lead_detail: null,
         campaign_name: null,
         notes_log: [],
@@ -1391,6 +1246,19 @@ function EditLeadDialog({
               onChange={(e) => setIntroducedAt(e.target.value)}
             />
           </div>
+          <label className="flex items-center gap-2 rounded-md border border-[#ebecf0] bg-[#fafbfc] px-3 py-2 text-[12.5px] text-[#5b6472] sm:col-span-2">
+            <input
+              type="checkbox"
+              checked={needsReplacement}
+              onChange={(e) => setNeedsReplacement(e.target.checked)}
+              className="size-3.5 accent-[#1565C0]"
+            />
+            <span>
+              <span className="font-medium text-[#0f1320]">Mark as needing replacement.</span>{" "}
+              Always shows the Replacement tag next to the lead's name. (Leads
+              in stage "No Show" show the tag automatically.)
+            </span>
+          </label>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>

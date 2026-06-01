@@ -35,10 +35,6 @@ export interface PipelineEntry {
   // each component hunting through custom_fields.
   lead_location: string | null;
   introduced_at: string | null;
-  // Which of the brokerage's own agents (Your Agents roster) is paired
-  // with this lead. Nullable — "Unassigned" is the default.
-  assigned_agent_id: string | null;
-  assigned_agent_name: string | null;
   // Full Instantly enrichment payload for the lead detail side-panel.
   // null when the entry was triggered by a label assignment (no
   // external_intros row backed it).
@@ -110,7 +106,7 @@ export const loadPipelineEntries = cache(
     const { data, error } = await admin
       .from("client_pipeline_entries")
       .select(
-        "id, stage, needs_replacement, lead_name, lead_email, lead_phone, current_brokerage, agent_profile_url, introduced_at, assigned_agent_id, external_intros:external_intro_id (lead_detail, campaign_name), leads:lead_id (custom_fields, company), assigned_agent:assigned_agent_id (id, name)",
+        "id, stage, needs_replacement, lead_name, lead_email, lead_phone, current_brokerage, agent_profile_url, introduced_at, external_intros:external_intro_id (lead_detail, campaign_name), leads:lead_id (custom_fields, company)",
       )
       .eq("client_id", clientId)
       .order("introduced_at", { ascending: false })
@@ -138,11 +134,7 @@ export const loadPipelineEntries = cache(
     return (data as unknown as Array<
       Omit<
         PipelineEntry,
-        | "lead_detail"
-        | "campaign_name"
-        | "notes_log"
-        | "lead_location"
-        | "assigned_agent_name"
+        "lead_detail" | "campaign_name" | "notes_log" | "lead_location"
       > & {
         external_intros:
           | { lead_detail: Record<string, unknown> | null; campaign_name: string | null }
@@ -152,10 +144,6 @@ export const loadPipelineEntries = cache(
           | { custom_fields: Record<string, unknown> | null; company: string | null }
           | { custom_fields: Record<string, unknown> | null; company: string | null }[]
           | null;
-        assigned_agent:
-          | { id: string; name: string }
-          | { id: string; name: string }[]
-          | null;
       }
     >).map((r) => {
       // PostgREST returns the joined row as either a single object or an
@@ -164,9 +152,6 @@ export const loadPipelineEntries = cache(
         ? r.external_intros[0] ?? null
         : r.external_intros;
       const lead = Array.isArray(r.leads) ? r.leads[0] ?? null : r.leads;
-      const assignedAgent = Array.isArray(r.assigned_agent)
-        ? r.assigned_agent[0] ?? null
-        : r.assigned_agent;
       const cf = (lead?.custom_fields ?? {}) as Record<string, unknown>;
       const extCf = ((ext?.lead_detail as { custom_fields?: Record<string, unknown> } | null)
         ?.custom_fields ?? {}) as Record<string, unknown>;
@@ -181,15 +166,9 @@ export const loadPipelineEntries = cache(
         return null;
       };
 
-      const {
-        external_intros: _ignore1,
-        leads: _ignore2,
-        assigned_agent: _ignore3,
-        ...rest
-      } = r;
+      const { external_intros: _ignore1, leads: _ignore2, ...rest } = r;
       void _ignore1;
       void _ignore2;
-      void _ignore3;
 
       return {
         ...rest,
@@ -210,7 +189,6 @@ export const loadPipelineEntries = cache(
           "market",
           "Market",
         ),
-        assigned_agent_name: assignedAgent?.name ?? null,
         lead_detail: ext?.lead_detail ?? null,
         campaign_name: ext?.campaign_name ?? null,
         notes_log: notesByEntry.get(rest.id) ?? [],
