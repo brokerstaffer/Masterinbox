@@ -894,6 +894,13 @@ function TemplatePicker({
             type="search"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
+            // Base UI's Menu intercepts every keystroke for ARIA
+            // type-ahead navigation between items. Stopping
+            // propagation on keydown + pointerdown keeps this input
+            // owning its own events (same pattern as the sender
+            // picker below).
+            onKeyDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
             placeholder="Search templates…"
             autoFocus
             className="w-full h-8 rounded-md border bg-background px-2 text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/30"

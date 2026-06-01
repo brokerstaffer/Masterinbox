@@ -53,19 +53,30 @@ function initials(name: string | null | undefined, email: string | null | undefi
 // the From email. The row's `senderEmail` is the actual From address
 // for THIS message — when it matches the lead's email we can trust
 // the lead's full_name; when it doesn't (multi-participant threads,
-// e.g. the brokerage's own alias forwarding the intro back), the
-// lead's name would be misleading, so we derive a readable name from
-// the email's local part instead. Splits on `.`, `_`, `-`, `+` and
-// titlecases each segment ("growth.team" → "Growth Team").
+// e.g. the brokerage's own alias replying into the same thread),
+// the lead's name would be misleading.
+//
+// Resolution order for non-lead senders:
+//   1. Scan the message body for a "Name <email>" pattern matching
+//      the sender's email (every modern email client embeds this as
+//      "On <date>, <Name> <<email>> wrote:" in the quoted reply).
+//      Catches "Howe Realty Growth <Growth@howerealtygroup.com>".
+//   2. Fall back to titlecasing the email's local part
+//      ("growth@…" → "Growth"). Better than echoing the lead.
 function resolveInboundSenderName(
   senderEmail: string | null,
   leadEmail: string | null,
   leadName: string,
+  body: string | null,
 ): string {
   const a = senderEmail?.trim().toLowerCase() ?? "";
   const b = leadEmail?.trim().toLowerCase() ?? "";
   if (a && b && a === b) return leadName;
   if (!senderEmail) return leadName;
+  if (body) {
+    const fromBody = displayNameFromBody(body, senderEmail);
+    if (fromBody) return fromBody;
+  }
   const localPart = senderEmail.split("@")[0] ?? "";
   if (!localPart) return leadName;
   return localPart
@@ -73,6 +84,32 @@ function resolveInboundSenderName(
     .filter(Boolean)
     .map((p) => p[0]!.toUpperCase() + p.slice(1).toLowerCase())
     .join(" ");
+}
+
+// Pulls a display name out of an HTML or plain-text email body by
+// matching the "<Name> <<email>>" pattern most clients emit when
+// quoting an earlier message. Case-insensitive email match because
+// the same address can be capitalised differently across replies
+// ("growth" vs "Growth").
+function displayNameFromBody(body: string, senderEmail: string): string | null {
+  // Strip tags so HTML and plain text both feed the same regex.
+  const text = body.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ");
+  // The leading capture allows letters, digits, common punctuation,
+  // and any non-< character so multi-word names with periods or
+  // hyphens come through cleanly. The {1,80} cap keeps a malformed
+  // body from matching a paragraph of text into the name slot.
+  const escaped = senderEmail.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(
+    `([A-Za-z][A-Za-z0-9.,'\\- ]{0,80}?)\\s*<\\s*${escaped}\\s*>`,
+    "i",
+  );
+  const match = text.match(re);
+  if (!match) return null;
+  const candidate = match[1].trim();
+  // Reject obvious noise: the candidate must look like a name, not
+  // an email scrap or a blob of punctuation.
+  if (!candidate || /@/.test(candidate)) return null;
+  return candidate;
 }
 
 export function ThreadView({
@@ -612,7 +649,12 @@ function MessageBlock({
   // wrong message.
   const senderLabel = outbound
     ? youName
-    : resolveInboundSenderName(senderEmail, leadEmail, leadName);
+    : resolveInboundSenderName(
+        senderEmail,
+        leadEmail,
+        leadName,
+        message.body_html ?? message.body_text ?? null,
+      );
   const senderInitials = initials(senderLabel, senderEmail);
 
   return (

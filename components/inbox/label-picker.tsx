@@ -86,6 +86,8 @@ export function LabelPickerButton({
                 type="search"
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
+                onKeyDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
                 placeholder="Search labels…"
                 autoFocus
                 className="h-7 w-full rounded-md border bg-background px-2 text-xs placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/30"

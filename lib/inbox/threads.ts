@@ -450,12 +450,18 @@ async function prepRow(
   const ids = Array.isArray(row.value) ? (row.value as string[]) : [];
   if (ids.length === 0) return null;
 
+  // Explicit range — without it PostgREST caps at 1000 rows, and
+  // any label that's been applied to more than 1000 threads (e.g.
+  // "Not Interested" at this scale) silently truncates so the view
+  // looks broken. 49,999 is overkill for current sizing but covers
+  // a label that's been applied to nearly every open thread.
   const { data } = await supabase
     .from("label_assignments")
     .select("target_id")
     .eq("workspace_id", workspaceId)
     .eq("target_type", "thread")
-    .in("label_id", ids);
+    .in("label_id", ids)
+    .range(0, 49_999);
   const targetIds = Array.from(new Set((data ?? []).map((r) => r.target_id as string)));
 
   if (row.operator === "is") return { idIn: targetIds };

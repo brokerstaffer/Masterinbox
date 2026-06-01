@@ -20,6 +20,7 @@ export type LabelResult =
   | { status: "labeled"; label: string }
   | { status: "skipped_disabled" | "skipped_no_key" | "skipped_no_config" }
   | { status: "skipped_already_labeled" }
+  | { status: "skipped_user_labeled" }
   | { status: "skipped_no_labels" }
   | { status: "skipped_model_returned_none" }
   | { status: "skipped_no_match"; raw: string }
@@ -108,19 +109,32 @@ export async function labelInboundMessage(input: LabelInboundInput): Promise<Lab
     labelRow = fallback;
   }
 
-  // Single-label-per-thread (May 2026 product decision). Wipe every
-  // existing assignment on this thread BEFORE the upsert so the AI
-  // never stacks a second chip on top of an existing one — matches
-  // what app/api/threads/[threadId]/labels/route.ts does for user
-  // assignments. Previously this was gated on
-  // `cfg.relabel_ongoing || input.force` and only cleared AI rows;
-  // the gap let a manual user label and the AI's later guess coexist
-  // (the user-reported "double label" bug).
+  // AI defers to user. If the thread already has a user-assigned
+  // label, the AI keeps quiet — its classification stays out of the
+  // way of a manual decision. Without this, AI re-labels of an
+  // already-classified thread silently overwrote the operator's
+  // intent and surfaced as "double labeling" because the wipe-then-
+  // upsert ran with assigned_by='ai' on top of an existing user row.
+  const { count: userLabeled } = await admin
+    .from("label_assignments")
+    .select("id", { head: true, count: "exact" })
+    .eq("target_type", "thread")
+    .eq("target_id", input.threadId)
+    .eq("assigned_by", "user");
+  if ((userLabeled ?? 0) > 0) {
+    return { status: "skipped_user_labeled" };
+  }
+
+  // No user verdict on this thread — single-label-per-thread rules
+  // still apply, so wipe every other AI assignment before upserting
+  // the new one. We never touch rows whose assigned_by='user' (the
+  // skip above guards that path anyway).
   await admin
     .from("label_assignments")
     .delete()
     .eq("target_type", "thread")
     .eq("target_id", input.threadId)
+    .eq("assigned_by", "ai")
     .neq("label_id", labelRow.id);
 
   await admin.from("label_assignments").upsert(
@@ -158,6 +172,7 @@ export interface BackfillResult {
   labeled: number;
   no_inbound: number;
   skipped_already_labeled: number;
+  skipped_user_labeled: number;
   skipped_disabled: number;
   skipped_no_key: number;
   skipped_no_config: number;
@@ -207,6 +222,7 @@ export async function backfillLabelsForWorkspace(
     labeled: 0,
     no_inbound: 0,
     skipped_already_labeled: 0,
+    skipped_user_labeled: 0,
     skipped_disabled: 0,
     skipped_no_key: 0,
     skipped_no_config: 0,
@@ -357,15 +373,32 @@ export async function backfillLabelsForWorkspace(
       labelRow = fallbackLabel;
     }
 
-    // Wipe every existing label on this thread before the upsert so
-    // the AI never stacks on top of a manual user label (single-
-    // label-per-thread rule). Mirrors what the single-thread path
-    // and the user POST endpoint do.
+    // AI defers to user — see the single-thread path for the full
+    // explanation. If a manual user assignment exists on this
+    // thread, the AI keeps quiet so the operator's classification
+    // stays the source of truth.
+    const { count: userLabeled } = await admin
+      .from("label_assignments")
+      .select("id", { head: true, count: "exact" })
+      .eq("target_type", "thread")
+      .eq("target_id", t.id)
+      .eq("assigned_by", "user");
+    if ((userLabeled ?? 0) > 0) {
+      return {
+        kind: "result",
+        threadId: t.id,
+        result: { status: "skipped_user_labeled" },
+      };
+    }
+
+    // No user verdict — single-label-per-thread rules still apply,
+    // so wipe every other AI assignment before upserting the new one.
     await admin
       .from("label_assignments")
       .delete()
       .eq("target_type", "thread")
       .eq("target_id", t.id)
+      .eq("assigned_by", "ai")
       .neq("label_id", labelRow.id);
 
     const { error: upsertErr } = await admin.from("label_assignments").upsert(
@@ -423,6 +456,9 @@ export async function backfillLabelsForWorkspace(
         break;
       case "skipped_already_labeled":
         result.skipped_already_labeled++;
+        break;
+      case "skipped_user_labeled":
+        result.skipped_user_labeled++;
         break;
       case "skipped_disabled":
         result.skipped_disabled++;
