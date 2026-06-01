@@ -205,7 +205,15 @@ export async function loadThreads(
   // full matching list (no id-set filters in the URL), intersect with
   // the id sets in memory, then paginate. Single round-trip, payload
   // bounded by the OPEN-thread count instead of by URL length.
+  // Logical AND across these sets — every set must contain the row's
+  // id for it to qualify. EXCLUSION sets go in `idNotInSets` and are
+  // applied as the negation. Both kinds funnel into the safe path
+  // (memory intersection) so neither ever builds a too-long URL,
+  // regardless of how many ids a future view's filter ends up
+  // matching. This is the single guard that protects every label-
+  // based / list / search / preset view, present and future.
   const idRestrictionSets: Set<string>[] = [];
+  const idNotInSets: Set<string>[] = [];
   for (const r of resolved) {
     if (r?.idIn !== undefined) {
       if (r.idIn.length === 0) {
@@ -214,9 +222,7 @@ export async function loadThreads(
       idRestrictionSets.push(new Set(r.idIn));
     }
     if (r?.idNotIn !== undefined && r.idNotIn.length > 0) {
-      // idNotIn arrays are typically small (label exclusions) so the
-      // URL stays under cap; keep applying it directly.
-      query = query.not("id", "in", `(${r.idNotIn.join(",")})`) as typeof query;
+      idNotInSets.push(new Set(r.idNotIn));
     }
   }
   if (listClientId) {
@@ -225,7 +231,8 @@ export async function loadThreads(
   if (listThreadIds !== null) idRestrictionSets.push(new Set(listThreadIds));
   if (searchThreadIds !== null) idRestrictionSets.push(new Set(searchThreadIds));
   if (openResponseIds !== null) idRestrictionSets.push(new Set(openResponseIds));
-  const usingIdRestrictionPath = idRestrictionSets.length > 0;
+  const usingIdRestrictionPath =
+    idRestrictionSets.length > 0 || idNotInSets.length > 0;
 
   // Two execution paths share the rest of the function:
   //
@@ -298,11 +305,14 @@ export async function loadThreads(
       return { rows: [], total: 0, page: safePage, pageSize };
     }
     const allRows = fullResult.data ?? [];
-    // Every restriction set must contain the row's id (logical AND).
+    // Every restriction set must contain the row's id (logical AND);
+    // no exclusion set may contain it. Both kinds get intersected in
+    // memory so the URL never carries thousands of UUIDs.
     const matching = allRows.filter((r) => {
       const id = (r as { id?: string }).id;
       if (!id) return false;
       for (const s of idRestrictionSets) if (!s.has(id)) return false;
+      for (const s of idNotInSets) if (s.has(id)) return false;
       return true;
     });
     total = matching.length;

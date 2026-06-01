@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { requireSession } from "@/lib/auth/workspace";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { chunkedRun } from "@/lib/db/chunked-in";
 
 export const dynamic = "force-dynamic";
 
@@ -29,22 +30,28 @@ export async function POST(request: Request) {
   }
 
   const supabase = await createServerSupabase();
-  const { data: threads, error } = await supabase
-    .from("threads")
-    .select(
-      `id, subject, status, last_message_at, message_count,
-       leads:lead_id(full_name, email, company, title),
-       channels:channel_id(display_name, provider)`,
-    )
-    .in("id", parsed.data.thread_ids)
-    .eq("workspace_id", session.activeWorkspace.id);
-
-  if (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
+  // Chunk the .in() so the PostgREST URL stays under Node's header
+  // cap regardless of how many ids the operator selects (zod allows
+  // up to 5000; the URL form of in.(…) starts to break around 400).
+  const chunkResults = await chunkedRun(parsed.data.thread_ids, (slice) =>
+    supabase
+      .from("threads")
+      .select(
+        `id, subject, status, last_message_at, message_count,
+         leads:lead_id(full_name, email, company, title),
+         channels:channel_id(display_name, provider)`,
+      )
+      .in("id", slice)
+      .eq("workspace_id", session.activeWorkspace.id),
+  );
+  const failed = chunkResults.find((r) => r.error);
+  if (failed?.error) {
+    return new Response(JSON.stringify({ error: failed.error.message }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
     });
   }
+  const threads = chunkResults.flatMap((r) => r.data ?? []);
 
   const headers = [
     "thread_id",

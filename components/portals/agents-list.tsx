@@ -155,10 +155,12 @@ export function AgentsList({
     // immediately. Re-fetch on the next router.refresh.
     setEntries((cur) => cur.filter((e) => !selected.has(e.id)));
     clearSelection();
-    // Chunk so a single request never exceeds the 5000-row server
-    // cap and individual round-trips stay short. Sequential to keep
-    // total work order-of-magnitude small at typical scale.
-    const CHUNK = 1000;
+    // Tuned for the PostgREST URL cap, not just the zod 5000 row
+    // limit. 1000 UUIDs in `.in("id", …)` exceed Node's 16 KB header
+    // cap on the server's PostgREST request; ~300 keeps every chunk
+    // under ~11 KB with headroom. Sequential to keep the toast
+    // deterministic.
+    const CHUNK = 300;
     let deleted = 0;
     for (let i = 0; i < ids.length; i += CHUNK) {
       const slice = ids.slice(i, i + CHUNK);

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth/workspace";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { chunkedRun } from "@/lib/db/chunked-in";
 
 export const dynamic = "force-dynamic";
 
@@ -69,33 +70,47 @@ export async function POST(request: Request) {
   const wsId = session.activeWorkspace.id;
   const data = parsed.data;
 
+  // Every server-side `.in("id"|"target_id"|"thread_id", thread_ids)`
+  // call below funnels through chunkedRun so the URL it builds for
+  // PostgREST stays under Node's 16 KB header cap regardless of how
+  // many ids the client sends. The zod schema caps at 500; without
+  // chunking that translates to a ~18.5 KB URL and silent failure.
   switch (data.action) {
     case "seen": {
-      const { error } = await supabase
-        .from("threads")
-        .update({ seen: data.seen })
-        .in("id", data.thread_ids)
-        .eq("workspace_id", wsId);
-      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      const results = await chunkedRun(data.thread_ids, (slice) =>
+        supabase
+          .from("threads")
+          .update({ seen: data.seen })
+          .in("id", slice)
+          .eq("workspace_id", wsId),
+      );
+      const failed = results.find((r) => r.error);
+      if (failed?.error) return NextResponse.json({ error: failed.error.message }, { status: 400 });
       return NextResponse.json({ ok: true });
     }
     case "status": {
-      const { error } = await supabase
-        .from("threads")
-        .update({ status: data.status })
-        .in("id", data.thread_ids)
-        .eq("workspace_id", wsId);
-      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      const results = await chunkedRun(data.thread_ids, (slice) =>
+        supabase
+          .from("threads")
+          .update({ status: data.status })
+          .in("id", slice)
+          .eq("workspace_id", wsId),
+      );
+      const failed = results.find((r) => r.error);
+      if (failed?.error) return NextResponse.json({ error: failed.error.message }, { status: 400 });
       return NextResponse.json({ ok: true });
     }
     case "delete": {
       // Soft delete — move to trash. We can wire hard-delete behind a flag later.
-      const { error } = await supabase
-        .from("threads")
-        .update({ status: "trash" })
-        .in("id", data.thread_ids)
-        .eq("workspace_id", wsId);
-      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      const results = await chunkedRun(data.thread_ids, (slice) =>
+        supabase
+          .from("threads")
+          .update({ status: "trash" })
+          .in("id", slice)
+          .eq("workspace_id", wsId),
+      );
+      const failed = results.find((r) => r.error);
+      if (failed?.error) return NextResponse.json({ error: failed.error.message }, { status: 400 });
       return NextResponse.json({ ok: true });
     }
     case "labels": {
@@ -110,13 +125,16 @@ export async function POST(request: Request) {
         // The brief window where threads have zero labels is the same
         // trade-off the single-thread path makes — Supabase REST
         // doesn't support cross-statement transactions.
-        const wipe = await supabase
-          .from("label_assignments")
-          .delete()
-          .eq("target_type", "thread")
-          .in("target_id", data.thread_ids);
-        if (wipe.error) {
-          return NextResponse.json({ error: wipe.error.message }, { status: 400 });
+        const wipeResults = await chunkedRun(data.thread_ids, (slice) =>
+          supabase
+            .from("label_assignments")
+            .delete()
+            .eq("target_type", "thread")
+            .in("target_id", slice),
+        );
+        const wipeFail = wipeResults.find((r) => r.error);
+        if (wipeFail?.error) {
+          return NextResponse.json({ error: wipeFail.error.message }, { status: 400 });
         }
         // Build a cross-product (thread × label) and upsert with the unique
         // constraint on (label_id, target_type, target_id).
@@ -130,19 +148,31 @@ export async function POST(request: Request) {
             assigned_user_id: session.user.id,
           })),
         );
-        const { error } = await supabase
-          .from("label_assignments")
-          .upsert(rows, { onConflict: "label_id,target_type,target_id" });
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        // Insert in row chunks rather than thread-id chunks — the
+        // payload is in the POST body, not the URL, so the cap is
+        // request body size (much larger), but we still split for
+        // sane request times at 5k × 50 = 250k rows.
+        const insertChunkSize = 500;
+        for (let i = 0; i < rows.length; i += insertChunkSize) {
+          const { error } = await supabase
+            .from("label_assignments")
+            .upsert(rows.slice(i, i + insertChunkSize), {
+              onConflict: "label_id,target_type,target_id",
+            });
+          if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        }
         return NextResponse.json({ ok: true });
       } else {
-        const { error } = await supabase
-          .from("label_assignments")
-          .delete()
-          .eq("target_type", "thread")
-          .in("target_id", data.thread_ids)
-          .in("label_id", data.label_ids);
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        const results = await chunkedRun(data.thread_ids, (slice) =>
+          supabase
+            .from("label_assignments")
+            .delete()
+            .eq("target_type", "thread")
+            .in("target_id", slice)
+            .in("label_id", data.label_ids),
+        );
+        const failed = results.find((r) => r.error);
+        if (failed?.error) return NextResponse.json({ error: failed.error.message }, { status: 400 });
         return NextResponse.json({ ok: true });
       }
     }
@@ -154,18 +184,27 @@ export async function POST(request: Request) {
           workspace_id: wsId,
           added_by: session.user.id,
         }));
-        const { error } = await supabase
-          .from("thread_list_items")
-          .upsert(rows, { onConflict: "list_id,thread_id" });
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        // Upsert in row chunks; payload lives in POST body.
+        const insertChunkSize = 500;
+        for (let i = 0; i < rows.length; i += insertChunkSize) {
+          const { error } = await supabase
+            .from("thread_list_items")
+            .upsert(rows.slice(i, i + insertChunkSize), {
+              onConflict: "list_id,thread_id",
+            });
+          if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        }
         return NextResponse.json({ ok: true });
       } else {
-        const { error } = await supabase
-          .from("thread_list_items")
-          .delete()
-          .eq("list_id", data.list_id)
-          .in("thread_id", data.thread_ids);
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        const results = await chunkedRun(data.thread_ids, (slice) =>
+          supabase
+            .from("thread_list_items")
+            .delete()
+            .eq("list_id", data.list_id)
+            .in("thread_id", slice),
+        );
+        const failed = results.find((r) => r.error);
+        if (failed?.error) return NextResponse.json({ error: failed.error.message }, { status: 400 });
         return NextResponse.json({ ok: true });
       }
     }

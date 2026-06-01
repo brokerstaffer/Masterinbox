@@ -199,10 +199,12 @@ export function PipelineBoard({
     }
   }
 
-  // CHUNK keeps individual requests well under the 5000-row server
-  // cap and any infra request timeout. Sequential is fine — a 5k
-  // selection is 5 round trips and we want a deterministic toast.
-  const BULK_CHUNK = 1000;
+  // CHUNK is tuned for the PostgREST URL cap, not the zod limit.
+  // 1000 UUIDs in a `.in("id", …)` URL exceeds Node's 16 KB header
+  // cap on the server's PostgREST call; ~300 keeps every request
+  // under ~11 KB with headroom. Sequential is fine — a 5k selection
+  // is 17 round trips and we want a deterministic toast.
+  const BULK_CHUNK = 300;
 
   async function bulkDelete() {
     if (selected.size === 0) return;

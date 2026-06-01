@@ -165,9 +165,11 @@ export function DncList({
     // their count immediately. Re-fetch on next router.refresh.
     setEntries((cur) => cur.filter((e) => !selected.has(e.id)));
     clearSelection();
-    // Chunk the delete so we stay well under the server cap and
-    // individual requests are short.
-    const CHUNK = 1000;
+    // Tuned for the PostgREST URL cap, not just the zod 5000 row
+    // limit. 1000 UUIDs in `.in("id", …)` exceed Node's 16 KB header
+    // cap on the server's PostgREST request; ~300 keeps every chunk
+    // under ~11 KB with headroom.
+    const CHUNK = 300;
     let deleted = 0;
     for (let i = 0; i < ids.length; i += CHUNK) {
       const slice = ids.slice(i, i + CHUNK);
