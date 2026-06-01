@@ -170,7 +170,7 @@ export function PipelineFooterInfo() {
               <Fragment key={s}>
                 <span
                   className={cn(
-                    "mt-0.5 inline-flex shrink-0 self-start rounded-full px-2 py-0.5 text-[10.5px] font-semibold text-white",
+                    "mt-0.5 inline-flex shrink-0 items-center justify-center self-start rounded-full px-2 py-0.5 text-center text-[10.5px] font-semibold text-white",
                     LEGEND_STYLE[s],
                   )}
                 >
