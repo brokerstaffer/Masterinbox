@@ -34,10 +34,24 @@ export function PipelineDetailInline({
   const fields: DetailField[] = [];
   const shown = new Set<string>();
 
-  const tryPush = (label: string, value: unknown, dedupKey?: string) => {
+  const tryPush = (
+    label: string,
+    value: unknown,
+    // dedupKey *always* marks the key as "shown" — even when the
+    // value is empty — so a custom_fields entry with the same key
+    // never sneaks in as a duplicate field with a sibling label.
+    // Previously this was gated on hasValue(value), which let
+    // cf.website surface as a separate "Website" row whenever
+    // entry.agent_profile_url was null (the common case for
+    // webhook-sourced leads).
+    dedupKey?: string | string[],
+  ) => {
+    if (dedupKey) {
+      const keys = Array.isArray(dedupKey) ? dedupKey : [dedupKey];
+      for (const k of keys) shown.add(k.toLowerCase());
+    }
     if (!hasValue(value)) return;
     fields.push({ label, value: String(value).trim() });
-    if (dedupKey) shown.add(dedupKey.toLowerCase());
   };
 
   tryPush("Email", entry.lead_email, "email");
@@ -50,7 +64,19 @@ export function PipelineDetailInline({
 
   tryPush("Title", detail.title, "title");
 
-  tryPush("Agent profile", entry.agent_profile_url, "website");
+  // Coalesce agent profile from every place a URL might live so the
+  // expanded card always renders ONE clean "Agent profile" link, not
+  // a duplicate "Website" plain-text fallback. portal-data.ts already
+  // does this for entry.agent_profile_url, but only at trigger time —
+  // leads enriched later only have it in cf.website / cf.url here.
+  const agentProfile =
+    (entry.agent_profile_url as string | null) ??
+    (typeof cf.website === "string" ? cf.website : null) ??
+    (typeof cf.Website === "string" ? cf.Website : null) ??
+    (typeof cf.url === "string" ? cf.url : null) ??
+    (typeof cf.URL === "string" ? cf.URL : null) ??
+    null;
+  tryPush("Agent profile", agentProfile, ["website", "url"]);
 
   tryPush("Location", entry.lead_location, "location");
 
@@ -171,10 +197,22 @@ function autoLink(
   label: string,
   value: string,
 ): { href?: string; external?: boolean; display: string } {
-  if (/^https?:\/\//i.test(value)) {
-    return { href: value, external: true, display: trimUrl(value) };
-  }
   const l = label.toLowerCase();
+  // URL-y labels: agent profile, website, linkedin, profile, or
+  // anything containing "url". "agent profile" used to fall through
+  // because none of the equality checks matched it — long realtor.com
+  // paths rendered as plain text, not a clickable link.
+  const looksUrly =
+    l === "website" ||
+    l === "linkedin" ||
+    l === "profile" ||
+    l === "agent profile" ||
+    l.includes("url") ||
+    l.includes("profile");
+
+  if (/^https?:\/\//i.test(value)) {
+    return { href: value, external: true, display: prettyHost(value) };
+  }
   if (l === "email" || l.includes("email")) {
     if (/^[\w.+-]+@[\w.-]+\.\w+$/.test(value)) {
       return { href: `mailto:${value}`, display: value };
@@ -189,19 +227,33 @@ function autoLink(
       };
     }
   }
-  if (l === "website" || l === "linkedin" || l === "profile" || l.includes("url")) {
+  if (looksUrly) {
     const hasDot = /\.[a-z]{2,}/i.test(value);
     if (hasDot && !value.includes(" ")) {
       const href = `https://${value.replace(/^\/+/, "")}`;
-      return { href, external: true, display: trimUrl(value) };
+      return { href, external: true, display: prettyHost(value) };
     }
   }
   return { display: value };
 }
 
-function trimUrl(url: string): string {
-  return url
+// Display form for a URL inside a narrow field cell.
+//
+// - Strips protocol + www + trailing slash (the original trimUrl
+//   behaviour).
+// - If the path is long (realtor.com hash-style routes like
+//   /realestateagents/634039a3cbc67abcc0c68231) collapse it to
+//   "host › last-segment-prefix…" so the displayed text fits the
+//   cell without forcing the `block truncate` to ellipsis-clip a
+//   mid-word slug. Full URL stays in the anchor's href + the
+//   `title` tooltip.
+function prettyHost(url: string): string {
+  const cleaned = url
     .replace(/^https?:\/\//i, "")
     .replace(/^www\./i, "")
     .replace(/\/$/, "");
+  if (cleaned.length <= 38) return cleaned;
+  const firstSlash = cleaned.indexOf("/");
+  if (firstSlash < 0) return cleaned;
+  return cleaned.slice(0, firstSlash) + "/…";
 }
