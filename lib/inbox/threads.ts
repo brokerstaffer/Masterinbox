@@ -2,6 +2,7 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import { loadViewBySlug, type CustomView } from "@/lib/inbox/views";
 import { searchThreads } from "@/lib/inbox/search";
 import { OPEN_RESPONSES_PRESET, openResponsesThreadIds } from "@/lib/inbox/open-responses";
+import { fetchAllRows } from "@/lib/db/paginated-select";
 import type { FilterRow, FilterState } from "@/lib/inbox/filters";
 
 export type SourceProvider = "emailbison" | "instantly";
@@ -284,27 +285,31 @@ export async function loadThreads(
     ordered = data ?? [];
   } else {
     // Safe path. Fetch everything that matches the SQL filters and
-    // intersect with the id sets in memory. 49_999 range covers any
-    // realistic OPEN-thread count.
-    const fullQuery = query.select(detailCols);
-    const orderedQuery = (
-      fullQuery.order("last_message_at", {
-        ascending: false,
-        nullsFirst: false,
-      }) as unknown as {
-        range(from: number, to: number): Promise<{
+    // intersect with the id sets in memory. PAGE past Supabase's
+    // server-side db-max-rows=1000 cap — a single .range(0, 49_999)
+    // does NOT lift it (the server replies Content-Range: 0-999/N no
+    // matter what range the client asks for). The only way to drain
+    // every row is to page in 1000-row windows; fetchAllRows does
+    // that.
+    const orderedQuery = query
+      .select(detailCols)
+      .order("last_message_at", { ascending: false, nullsFirst: false });
+    let safePathError: { message: string } | null = null;
+    const allRows = await fetchAllRows<Record<string, unknown>>(({ from, to }) =>
+      (orderedQuery as unknown as {
+        range(from: number, to: number): PromiseLike<{
           data: Record<string, unknown>[] | null;
           error: { message: string } | null;
         }>;
-      }
-    ).range(0, 49_999);
-
-    const fullResult = await orderedQuery;
-    if (fullResult.error) {
-      console.error("[loadThreads] safe-path query failed", fullResult.error);
+      }).range(from, to),
+    ).catch((err: Error) => {
+      safePathError = { message: err.message };
+      return [] as Record<string, unknown>[];
+    });
+    if (safePathError) {
+      console.error("[loadThreads] safe-path query failed", safePathError);
       return { rows: [], total: 0, page: safePage, pageSize };
     }
-    const allRows = fullResult.data ?? [];
     // Every restriction set must contain the row's id (logical AND);
     // no exclusion set may contain it. Both kinds get intersected in
     // memory so the URL never carries thousands of UUIDs.
@@ -513,20 +518,24 @@ async function prepRow(
   const ids = Array.isArray(row.value) ? (row.value as string[]) : [];
   if (ids.length === 0) return null;
 
-  // Explicit range so PostgREST's 1000-row default doesn't truncate
-  // a popular label (e.g. "Not Interested" at ~45% of all threads).
-  // The caller (loadThreads) intersects these in memory now rather
-  // than pushing the list through `.in("id", …)` — that path used
-  // to overshoot Node's 16 KB header cap and silently empty the
-  // view. See the SAFE PATH branch in loadThreads.
-  const { data } = await supabase
-    .from("label_assignments")
-    .select("target_id")
-    .eq("workspace_id", workspaceId)
-    .eq("target_type", "thread")
-    .in("label_id", ids)
-    .range(0, 49_999);
-  const targetIds = Array.from(new Set((data ?? []).map((r) => r.target_id as string)));
+  // Page past PostgREST's 1000-row cap. Supabase has
+  // db-max-rows=1000 set server-side; a single .range(0, 49_999)
+  // request comes back as `Content-Range: 0-999/<total>` no matter
+  // what range the client asks for. Drain by paging in 1000-row
+  // windows. Missing this leaks excluded threads back into the
+  // result (e.g. a labels-NOT filter pointing at >1000 assignments
+  // would only exclude the first 1000 and the rest leak through —
+  // the exact symptom of the Brokers/Owners view bug).
+  const rows = await fetchAllRows<{ target_id: string }>(({ from, to }) =>
+    supabase
+      .from("label_assignments")
+      .select("target_id")
+      .eq("workspace_id", workspaceId)
+      .eq("target_type", "thread")
+      .in("label_id", ids)
+      .range(from, to),
+  );
+  const targetIds = Array.from(new Set(rows.map((r) => r.target_id)));
 
   if (row.operator === "is") return { idIn: targetIds };
   if (row.operator === "not") return { idNotIn: targetIds };

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/db/paginated-select";
 import { isSuperAdmin } from "@/lib/auth/super-admin";
 import { _invalidateClientCache, deriveClientIdFromCampaign } from "@/lib/clients/derive";
 
@@ -38,13 +39,26 @@ export async function POST(request: Request) {
   const admin = createAdminSupabase();
   _invalidateClientCache(); // make sure we derive against fresh client data
 
-  const { data: threads, error } = await admin
-    .from("threads")
-    .select("id, campaign_name, client_id")
-    .not("campaign_name", "is", null)
-    .range(0, 49_999);
-  if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  // Page past db-max-rows=1000 — this admin job scans the entire
+  // workspace, which routinely exceeds 1000 threads. See
+  // lib/db/paginated-select.ts.
+  let scanError: { message: string } | null = null;
+  const threads = await fetchAllRows<{
+    id: string;
+    campaign_name: string | null;
+    client_id: string | null;
+  }>(({ from, to }) =>
+    admin
+      .from("threads")
+      .select("id, campaign_name, client_id")
+      .not("campaign_name", "is", null)
+      .range(from, to),
+  ).catch((err: Error) => {
+    scanError = { message: err.message };
+    return [];
+  });
+  if (scanError) {
+    return NextResponse.json({ ok: false, error: (scanError as { message: string }).message }, { status: 500 });
   }
 
   // Derive the correct client for each thread, then group thread ids by
@@ -53,7 +67,7 @@ export async function POST(request: Request) {
   const moveTo = new Map<string, string[]>(); // newClientId → threadIds
   let scanned = 0;
   let changed = 0;
-  for (const t of threads ?? []) {
+  for (const t of threads) {
     scanned++;
     const newClientId = await deriveClientIdFromCampaign(t.campaign_name as string);
     if (!newClientId) continue;

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/workspace";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/db/paginated-select";
 import { env } from "@/lib/env";
 
 // GET /api/clients/intros[?label=Introduction]
@@ -83,23 +84,23 @@ export async function GET(request: Request) {
     );
   }
 
-  // Pull every assignment for this label. `.range(0, 49_999)` defeats the
-  // default 1000-row implicit limit Supabase's REST layer enforces — fine
-  // for tens of thousands of intros, blows up beyond that (we'd need a
-  // pagination strategy then; flag that here so future work knows).
-  const { data: assignments } = await admin
-    .from("label_assignments")
-    .select("assigned_at, target_id")
-    .eq("workspace_id", workspaceId)
-    .eq("target_type", "thread")
-    .eq("label_id", labelRow.id)
-    .order("assigned_at", { ascending: false })
-    .range(0, 49_999);
-
-  const assignmentList = (assignments ?? []) as Array<{
+  // Pull every assignment for this label. .range() alone does NOT
+  // lift Supabase's server-side db-max-rows=1000 cap — the response
+  // comes back capped no matter what range the client asks for. Page
+  // in 1000-row windows via fetchAllRows. See lib/db/paginated-select.
+  const assignmentList = await fetchAllRows<{
     assigned_at: string;
     target_id: string;
-  }>;
+  }>(({ from, to }) =>
+    admin
+      .from("label_assignments")
+      .select("assigned_at, target_id")
+      .eq("workspace_id", workspaceId)
+      .eq("target_type", "thread")
+      .eq("label_id", labelRow.id)
+      .order("assigned_at", { ascending: false })
+      .range(from, to),
+  );
 
   if (assignmentList.length === 0) {
     return NextResponse.json({

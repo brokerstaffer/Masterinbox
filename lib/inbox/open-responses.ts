@@ -1,4 +1,5 @@
 import type { createServerSupabase } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/db/paginated-select";
 
 // "Open Responses" — a work-queue view scoped to threads where the
 // ball is in OUR court right now:
@@ -68,16 +69,18 @@ export async function openResponsesThreadIds(
   // expensive label + message walks.
   if (!interested) return new Set();
 
-  const { data: threadRows } = await supabase
-    .from("threads")
-    .select("id, last_message_at")
-    .eq("workspace_id", workspaceId)
-    .eq("status", "open")
-    .range(0, 49_999);
-  const threads = (threadRows ?? []) as Array<{
+  // Page past db-max-rows=1000 — see lib/db/paginated-select.ts.
+  const threads = await fetchAllRows<{
     id: string;
     last_message_at: string | null;
-  }>;
+  }>(({ from, to }) =>
+    supabase
+      .from("threads")
+      .select("id, last_message_at")
+      .eq("workspace_id", workspaceId)
+      .eq("status", "open")
+      .range(from, to),
+  );
   const ids = threads.map((t) => t.id);
   if (ids.length === 0) return new Set();
 
@@ -88,14 +91,20 @@ export async function openResponsesThreadIds(
   const CHUNK = 150;
   for (let i = 0; i < ids.length; i += CHUNK) {
     const slice = ids.slice(i, i + CHUNK);
-    const { data: assignments } = await supabase
-      .from("label_assignments")
-      .select("label_id, target_id")
-      .eq("workspace_id", workspaceId)
-      .eq("target_type", "thread")
-      .in("target_id", slice)
-      .range(0, 49_999);
-    for (const row of assignments ?? []) {
+    // Paginate — a 150-id chunk can still match >1000 assignments if
+    // threads carry many labels each, and db-max-rows would silently
+    // truncate.
+    const assignments = await fetchAllRows<{ label_id: string; target_id: string }>(
+      ({ from, to }) =>
+        supabase
+          .from("label_assignments")
+          .select("label_id, target_id")
+          .eq("workspace_id", workspaceId)
+          .eq("target_type", "thread")
+          .in("target_id", slice)
+          .range(from, to),
+    );
+    for (const row of assignments) {
       const r = row as { label_id: string; target_id: string };
       const set = labelsByThread.get(r.target_id) ?? new Set<string>();
       set.add(r.label_id);
@@ -126,14 +135,23 @@ export async function openResponsesThreadIds(
   const candidateIds = candidates.map((t) => t.id);
   for (let i = 0; i < candidateIds.length; i += CHUNK) {
     const slice = candidateIds.slice(i, i + CHUNK);
-    const { data: msgs } = await supabase
-      .from("messages")
-      .select("thread_id, direction, sent_at")
-      .eq("workspace_id", workspaceId)
-      .in("thread_id", slice)
-      .order("sent_at", { ascending: false })
-      .range(0, 49_999);
-    for (const row of msgs ?? []) {
+    // Paginate — 150 threads × all their messages can run into the
+    // thousands of rows. db-max-rows would silently truncate and we'd
+    // end up classifying late threads as having no last-message
+    // direction, dropping them from the result.
+    const msgs = await fetchAllRows<{
+      thread_id: string;
+      direction: "inbound" | "outbound";
+    }>(({ from, to }) =>
+      supabase
+        .from("messages")
+        .select("thread_id, direction, sent_at")
+        .eq("workspace_id", workspaceId)
+        .in("thread_id", slice)
+        .order("sent_at", { ascending: false })
+        .range(from, to),
+    );
+    for (const row of msgs) {
       const r = row as {
         thread_id: string;
         direction: "inbound" | "outbound";

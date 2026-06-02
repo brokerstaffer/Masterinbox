@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/db/paginated-select";
 import { env } from "@/lib/env";
 import { loadExternalIntrosByClient } from "@/lib/portals/external-intros";
 
@@ -63,15 +64,19 @@ async function loadAllIntroAssignments(
   const labelId = await resolveIntroLabelId(admin);
   if (!labelId) return [];
   const workspaceId = env.WORKSPACE_ID;
-  const { data } = await admin
-    .from("label_assignments")
-    .select("target_id, assigned_at")
-    .eq("workspace_id", workspaceId)
-    .eq("target_type", "thread")
-    .eq("label_id", labelId)
-    .order("assigned_at", { ascending: false })
-    .range(0, 49_999);
-  return (data ?? []) as Array<{ target_id: string; assigned_at: string }>;
+  // Page past db-max-rows=1000 — see lib/db/paginated-select.ts. The
+  // Intro label routinely sits at thousands of assignments.
+  return await fetchAllRows<{ target_id: string; assigned_at: string }>(
+    ({ from, to }) =>
+      admin
+        .from("label_assignments")
+        .select("target_id, assigned_at")
+        .eq("workspace_id", workspaceId)
+        .eq("target_type", "thread")
+        .eq("label_id", labelId)
+        .order("assigned_at", { ascending: false })
+        .range(from, to),
+  );
 }
 
 // Our Supabase Introduction leads for EVERY client in one pass, grouped

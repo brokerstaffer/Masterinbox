@@ -4,6 +4,7 @@ import {
   OPEN_RESPONSES_PRESET,
   openResponsesThreadIds,
 } from "@/lib/inbox/open-responses";
+import { fetchAllRows } from "@/lib/db/paginated-select";
 
 export type { CustomView } from "./views-shared";
 export { slugifyView } from "./views-shared";
@@ -103,16 +104,21 @@ export const loadViewCounts = cache(async function loadViewCounts(
     listClientId = (listRow?.client_id as string | null) ?? null;
   }
 
-  // Every OPEN thread with its seen flag (range defeats the implicit
-  // 1000-row cap).
-  let threadReq = supabase
-    .from("threads")
-    .select("id, seen")
-    .eq("workspace_id", workspaceId)
-    .eq("status", "open");
-  if (listClientId) threadReq = threadReq.eq("client_id", listClientId);
-  const threadRes = await threadReq.range(0, 49_999);
-  const threadRows = (threadRes.data ?? []) as Array<{ id: string; seen: boolean }>;
+  // Every OPEN thread with its seen flag. Page past db-max-rows=1000
+  // — a single .range(0, N) does NOT lift Supabase's server-side cap
+  // (Content-Range comes back 0-999/N regardless). Drain in 1000-row
+  // windows.
+  const threadRows = await fetchAllRows<{ id: string; seen: boolean }>(
+    ({ from, to }) => {
+      let req = supabase
+        .from("threads")
+        .select("id, seen")
+        .eq("workspace_id", workspaceId)
+        .eq("status", "open");
+      if (listClientId) req = req.eq("client_id", listClientId);
+      return req.range(from, to);
+    },
+  );
   const totalOpen = threadRows.length;
   const ids = threadRows.map((t) => t.id);
   const unseenSet = new Set(threadRows.filter((t) => !t.seen).map((t) => t.id));
@@ -133,20 +139,26 @@ export const loadViewCounts = cache(async function loadViewCounts(
   const CHUNK = 150;
   const slices: string[][] = [];
   for (let i = 0; i < ids.length; i += CHUNK) slices.push(ids.slice(i, i + CHUNK));
+  // Each chunk also pages — a 150-thread slice can match >1000 label
+  // assignments if those threads carry several labels each, and
+  // db-max-rows would silently truncate. fetchAllRows drains each
+  // chunk; the chunks themselves still run in parallel.
   const chunkResults = await Promise.all(
     slices.map((slice) =>
-      supabase
-        .from("label_assignments")
-        .select("label_id, target_id")
-        .eq("workspace_id", workspaceId)
-        .eq("target_type", "thread")
-        .in("target_id", slice)
-        .range(0, 49_999),
+      fetchAllRows<{ label_id: string; target_id: string }>(({ from, to }) =>
+        supabase
+          .from("label_assignments")
+          .select("label_id, target_id")
+          .eq("workspace_id", workspaceId)
+          .eq("target_type", "thread")
+          .in("target_id", slice)
+          .range(from, to),
+      ),
     ),
   );
-  for (const { data: assignments } of chunkResults) {
-    for (const row of assignments ?? []) {
-      const r = row as { label_id: string; target_id: string };
+  for (const assignments of chunkResults) {
+    for (const row of assignments) {
+      const r = row;
       const bucket = byLabel.get(r.label_id) ?? { all: new Set(), unseen: new Set() };
       bucket.all.add(r.target_id);
       if (unseenSet.has(r.target_id)) bucket.unseen.add(r.target_id);

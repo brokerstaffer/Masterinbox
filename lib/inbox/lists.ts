@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { ttlCache } from "@/lib/cache/ttl";
+import { fetchAllRows } from "@/lib/db/paginated-select";
 import type { ListRow } from "./lists-shared";
 
 export type { ListRow } from "./lists-shared";
@@ -55,16 +56,19 @@ export async function loadListUnseenCounts(
   ) as Array<{ id: string; client_id: string }>;
   if (clientLists.length === 0) return {};
 
-  const { data: threads } = await supabase
-    .from("threads")
-    .select("client_id")
-    .eq("workspace_id", workspaceId)
-    .eq("status", "open")
-    .eq("seen", false)
-    .range(0, 49_999);
+  // Page past db-max-rows=1000 — see lib/db/paginated-select.ts.
+  const threads = await fetchAllRows<{ client_id: string | null }>(({ from, to }) =>
+    supabase
+      .from("threads")
+      .select("client_id")
+      .eq("workspace_id", workspaceId)
+      .eq("status", "open")
+      .eq("seen", false)
+      .range(from, to),
+  );
 
   const unseenByClient = new Map<string, number>();
-  for (const t of threads ?? []) {
+  for (const t of threads) {
     const cid = t.client_id as string | null;
     if (cid) unseenByClient.set(cid, (unseenByClient.get(cid) ?? 0) + 1);
   }

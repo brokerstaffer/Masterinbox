@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/db/paginated-select";
 import { createInstantlyClient } from "@/lib/instantly/client";
 import { deriveClientIdFromCampaign } from "@/lib/clients/derive";
 import type { IntroLead } from "@/lib/portals/intro-leads";
@@ -211,17 +212,24 @@ export const loadExternalIntrosByClient = cache(
   async function loadExternalIntrosByClient(): Promise<Map<string, IntroLead[]>> {
     const admin = createAdminSupabase();
     // select("*") so this keeps working before migration 0020 adds
-    // lead_detail — the column is simply absent until then.
-    const { data, error } = await admin
-      .from("external_intros")
-      .select("*")
-      .not("client_id", "is", null)
-      .order("intro_at", { ascending: false })
-      .range(0, 49_999);
-    if (error || !data) return new Map();
+    // lead_detail — the column is simply absent until then. Page past
+    // db-max-rows=1000 — see lib/db/paginated-select.ts.
+    let rows: Array<Record<string, unknown>>;
+    try {
+      rows = await fetchAllRows<Record<string, unknown>>(({ from, to }) =>
+        admin
+          .from("external_intros")
+          .select("*")
+          .not("client_id", "is", null)
+          .order("intro_at", { ascending: false })
+          .range(from, to),
+      );
+    } catch {
+      return new Map();
+    }
 
     const byClient = new Map<string, IntroLead[]>();
-    for (const raw of data as Array<Record<string, unknown>>) {
+    for (const raw of rows) {
       const clientId = raw.client_id as string;
       const detail = (raw.lead_detail ?? {}) as {
         company?: string | null;

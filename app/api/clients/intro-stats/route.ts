@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/workspace";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/db/paginated-select";
 import { env } from "@/lib/env";
 
 // GET /api/clients/intro-stats[?label=Introduction]
@@ -92,19 +93,21 @@ export async function GET(request: Request) {
   // client_id with an `in()` lookup. The embedded `threads!inner(...)`
   // approach silently drops fields on some PostgREST shapes (same bug
   // that was hiding view-count pills) — explicit second query is robust.
-  const { data: rawAssignments } = await admin
-    .from("label_assignments")
-    .select("assigned_at, target_id")
-    .eq("workspace_id", workspaceId)
-    .eq("target_type", "thread")
-    .eq("label_id", labelRow.id)
-    .range(0, 49_999);
-
-  const buckets = new Map<string, { count: number; last: string | null }>();
-  const assignmentList = (rawAssignments ?? []) as Array<{
+  // Page past db-max-rows=1000 — see lib/db/paginated-select.ts.
+  const assignmentList = await fetchAllRows<{
     assigned_at: string;
     target_id: string;
-  }>;
+  }>(({ from, to }) =>
+    admin
+      .from("label_assignments")
+      .select("assigned_at, target_id")
+      .eq("workspace_id", workspaceId)
+      .eq("target_type", "thread")
+      .eq("label_id", labelRow.id)
+      .range(from, to),
+  );
+
+  const buckets = new Map<string, { count: number; last: string | null }>();
   if (assignmentList.length > 0) {
     const threadIds = Array.from(new Set(assignmentList.map((a) => a.target_id)));
     const threadClient = new Map<string, string | null>();
