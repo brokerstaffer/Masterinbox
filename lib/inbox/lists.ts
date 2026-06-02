@@ -8,15 +8,29 @@ export type { ListRow } from "./lists-shared";
 async function fetchLists(workspaceId: string): Promise<ListRow[]> {
   const supabase = await createServerSupabase();
 
-  // Pull the lists and the per-client recency aggregate in
-  // parallel. The view (migration 0044) returns one row per
-  // (workspace, client) with the max sent_at of any INBOUND
-  // message landed on that client's threads. Outbound replies
-  // don't reshuffle the list — that was the operator's pick.
-  const [listsResp, activityResp] = await Promise.all([
+  // Pull the lists + the two recency aggregates in parallel.
+  //
+  // Two tiers drive the order:
+  //   • TIER 1 — client_unseen_inbox_activity (migration 0045):
+  //     max sent_at of an inbound message on a thread that is
+  //     still UNSEEN. This is the operator's primary signal —
+  //     "which client has a reply I haven't opened yet?".
+  //   • TIER 2 — client_inbox_activity (migration 0044): max
+  //     sent_at of any inbound, seen or not. Used for clients
+  //     whose unread activity has all been triaged so they still
+  //     order by most-recently-active rather than dropping into
+  //     a flat alphabetical tail.
+  //
+  // Outbound replies deliberately don't reshuffle (operator's
+  // pick) — see view definitions.
+  const [listsResp, unseenResp, activityResp] = await Promise.all([
     supabase
       .from("lists")
       .select("id, name, icon, sort_order, shared, client_id")
+      .eq("workspace_id", workspaceId),
+    supabase
+      .from("client_unseen_inbox_activity")
+      .select("client_id, last_unseen_inbound_at")
       .eq("workspace_id", workspaceId),
     supabase
       .from("client_inbox_activity")
@@ -28,15 +42,28 @@ async function fetchLists(workspaceId: string): Promise<ListRow[]> {
     console.error("[loadLists] query failed", listsResp.error);
     return [];
   }
+  if (unseenResp.error) {
+    // Don't fail the whole sidebar if either view trips. We
+    // gracefully degrade to the next tier (and ultimately
+    // alphabetical) so the page still renders.
+    console.error("[loadLists] unseen-activity query failed", unseenResp.error);
+  }
   if (activityResp.error) {
-    // Don't fail the whole sidebar if the view query trips — fall
-    // back to alphabetical so the page still renders.
     console.error("[loadLists] activity query failed", activityResp.error);
   }
 
   type ListRowWithClient = ListRow & { client_id: string | null };
   const rows = (listsResp.data ?? []) as ListRowWithClient[];
 
+  const unseenByClient = new Map<string, string>();
+  for (const a of (unseenResp.data ?? []) as Array<{
+    client_id: string | null;
+    last_unseen_inbound_at: string | null;
+  }>) {
+    if (a.client_id && a.last_unseen_inbound_at) {
+      unseenByClient.set(a.client_id, a.last_unseen_inbound_at);
+    }
+  }
   const lastInboundByClient = new Map<string, string>();
   for (const a of (activityResp.data ?? []) as Array<{
     client_id: string | null;
@@ -47,16 +74,23 @@ async function fetchLists(workspaceId: string): Promise<ListRow[]> {
     }
   }
 
-  // Sort: most recent inbound first; lists with no inbound
-  // activity drop to the bottom alphabetised (deterministic tail).
-  // sort_order is no longer used here — drag-reorder was removed
-  // because auto-sort would override any manual move.
+  // Sort across the three tiers.
   rows.sort((a, b) => {
-    const aTs = a.client_id ? lastInboundByClient.get(a.client_id) ?? null : null;
-    const bTs = b.client_id ? lastInboundByClient.get(b.client_id) ?? null : null;
-    if (aTs && bTs) return aTs < bTs ? 1 : aTs > bTs ? -1 : 0;
-    if (aTs) return -1;
-    if (bTs) return 1;
+    const aUnseen = a.client_id ? unseenByClient.get(a.client_id) ?? null : null;
+    const bUnseen = b.client_id ? unseenByClient.get(b.client_id) ?? null : null;
+    // Tier 1: clients with at least one unread inbound reply,
+    // newest-unread-first.
+    if (aUnseen && bUnseen) return aUnseen < bUnseen ? 1 : aUnseen > bUnseen ? -1 : 0;
+    if (aUnseen) return -1;
+    if (bUnseen) return 1;
+    // Tier 2: no unread for either — fall back to most-recent
+    // inbound regardless of read state.
+    const aAny = a.client_id ? lastInboundByClient.get(a.client_id) ?? null : null;
+    const bAny = b.client_id ? lastInboundByClient.get(b.client_id) ?? null : null;
+    if (aAny && bAny) return aAny < bAny ? 1 : aAny > bAny ? -1 : 0;
+    if (aAny) return -1;
+    if (bAny) return 1;
+    // Tier 3: nothing ever inbound — deterministic alphabetical tail.
     return a.name.localeCompare(b.name);
   });
 
