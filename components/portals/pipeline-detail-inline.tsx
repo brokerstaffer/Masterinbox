@@ -158,11 +158,16 @@ function FieldStack({ label, value }: DetailField) {
       </div>
       <div className="mt-0.5 text-[13px] leading-snug">
         {link.href ? (
+          // Hyperlink styling: always-on underline with a comfortable
+          // offset (matches the default browser convention so it's
+          // unambiguous as a link), saturated blue, darker on hover.
+          // `title={value}` shows the FULL URL on hover even when the
+          // displayed text was shortened by prettyHost().
           <a
             href={link.href}
             target={link.external ? "_blank" : undefined}
             rel={link.external ? "noopener noreferrer" : undefined}
-            className="block truncate text-[#1565C0] hover:underline"
+            className="block max-w-full truncate text-[#1565C0] underline underline-offset-2 decoration-[#1565C0]/40 hover:text-[#0d4596] hover:decoration-[#1565C0]"
             title={value}
           >
             {link.display}
