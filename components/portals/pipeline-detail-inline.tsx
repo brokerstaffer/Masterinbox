@@ -167,7 +167,7 @@ function FieldStack({ label, value }: DetailField) {
             href={link.href}
             target={link.external ? "_blank" : undefined}
             rel={link.external ? "noopener noreferrer" : undefined}
-            className="block max-w-full truncate text-[#1565C0] underline underline-offset-2 decoration-[#1565C0]/40 hover:text-[#0d4596] hover:decoration-[#1565C0]"
+            className="block max-w-full truncate font-medium text-blue-600 underline underline-offset-2 hover:text-blue-800"
             title={value}
           >
             {link.display}
