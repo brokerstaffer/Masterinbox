@@ -13,25 +13,7 @@ import {
   LogOut,
   Search,
   MoreHorizontal,
-  GripVertical,
 } from "lucide-react";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -92,63 +74,12 @@ export function Sidebar({
   const [editingList, setEditingList] = useState<ListRow | null>(null);
   const [deletingList, setDeletingList] = useState<ListRow | null>(null);
   const router = useRouter();
-  // Local mirror of the lists prop so drag-reorder can update the
-  // ordering optimistically without waiting for the server. Same
-  // sticky-during-pending pattern as the tab-bar drag.
-  const [lists, setLists] = useState<ListRow[]>(initialLists);
-  const pendingListOrderRef = useRef<string | null>(null);
-  useEffect(() => {
-    const propOrder = initialLists.map((l) => l.id).join(",");
-    if (pendingListOrderRef.current && pendingListOrderRef.current !== propOrder) {
-      return; // server hasn't caught up; keep the optimistic order
-    }
-    pendingListOrderRef.current = null;
-    setLists(initialLists);
-  }, [initialLists]);
-  const dragSuppressClickRef = useRef(false);
-
-  // Sensors mirror the tab-bar setup: 4px activation distance keeps a
-  // regular click navigating to the list while a real drag triggers
-  // reorder. Keyboard support too.
-  const listSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
-  async function handleListDragEnd(event: DragEndEvent) {
-    // Hold click-suppression briefly past dragEnd — same trick as the
-    // tab-bar so the click event right after pointerup gets blocked
-    // by onClickCapture on each row.
-    setTimeout(() => { dragSuppressClickRef.current = false; }, 250);
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIndex = lists.findIndex((l) => l.id === active.id);
-    const newIndex = lists.findIndex((l) => l.id === over.id);
-    if (oldIndex < 0 || newIndex < 0) return;
-    const reordered = arrayMove(lists, oldIndex, newIndex);
-    pendingListOrderRef.current = reordered.map((l) => l.id).join(",");
-    const previous = lists;
-    setLists(reordered);
-    const results = await Promise.allSettled(
-      reordered.map((l, i) =>
-        fetch(`/api/lists/${l.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sort_order: i }),
-        }).then(async (r) => {
-          if (!r.ok) throw new Error(`${r.status}`);
-          return r;
-        }),
-      ),
-    );
-    if (results.some((r) => r.status === "rejected")) {
-      toast.error("Couldn't save the new list order");
-      pendingListOrderRef.current = null;
-      setLists(previous);
-      return;
-    }
-    router.refresh();
-  }
+  // Sidebar ordering is now SERVER-AUTHORITATIVE — `lib/inbox/lists.ts`
+  // sorts every list by the most recent inbound reply (view
+  // `client_inbox_activity`). Drag-reorder was removed because
+  // auto-sort would override any manual move. The list comes
+  // straight from the server prop.
+  const lists = initialLists;
   const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
   const [resizing, setResizing] = useState(false);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -294,53 +225,32 @@ export function Sidebar({
       {/* Scrollable lists area. flex-1 + overflow-y-auto so a long client
           catalog scrolls inside the sidebar rather than pushing
           Reminders/Archive/Trash/Logout off-screen.
-          Drag handle: each list is sortable; the user-supplied order is
-          persisted via sort_order PATCHes (same pattern as the view
-          tab bar). Sorting is only enabled when the search filter is
-          empty — otherwise dragging would reorder the filtered list,
-          not the full one. */}
+          Order is server-authoritative now: lib/inbox/lists.ts sorts
+          every list by max(sent_at) of inbound messages on that
+          client's threads (view `client_inbox_activity`). The realtime
+          refresher fires router.refresh() on every `messages` INSERT,
+          so a fresh reply bubbles its client to the top within ~250ms
+          without any client-side reordering. Search just filters the
+          server-sorted list in place. */}
       <nav className="px-2 flex flex-col gap-px overflow-y-auto flex-1 min-h-0">
-        {listSearch.trim().length === 0 ? (
-          <DndContext
-            sensors={listSensors}
-            collisionDetection={closestCenter}
-            onDragStart={() => { dragSuppressClickRef.current = true; }}
-            onDragEnd={handleListDragEnd}
-          >
-            <SortableContext items={lists.map((l) => l.id)} strategy={verticalListSortingStrategy}>
-              {lists.map((list) => {
-                const active = activeListId === list.id;
-                return (
-                  <SortableListRow
-                    key={list.id}
-                    list={list}
-                    active={active}
-                    unseen={listCounts[list.id] ?? 0}
-                    onEdit={() => setEditingList(list)}
-                    onDelete={() => setDeletingList(list)}
-                    suppressClickRef={dragSuppressClickRef}
-                  />
-                );
-              })}
-            </SortableContext>
-          </DndContext>
-        ) : (
-          lists
-            .filter((l) => l.name.toLowerCase().includes(listSearch.trim().toLowerCase()))
-            .map((list) => {
-              const active = activeListId === list.id;
-              return (
-                <ListRow
-                  key={list.id}
-                  list={list}
-                  active={active}
-                  unseen={listCounts[list.id] ?? 0}
-                  onEdit={() => setEditingList(list)}
-                  onDelete={() => setDeletingList(list)}
-                />
-              );
-            })
-        )}
+        {(listSearch.trim().length === 0
+          ? lists
+          : lists.filter((l) =>
+              l.name.toLowerCase().includes(listSearch.trim().toLowerCase()),
+            )
+        ).map((list) => {
+          const active = activeListId === list.id;
+          return (
+            <ListRow
+              key={list.id}
+              list={list}
+              active={active}
+              unseen={listCounts[list.id] ?? 0}
+              onEdit={() => setEditingList(list)}
+              onDelete={() => setDeletingList(list)}
+            />
+          );
+        })}
 
         <button
           type="button"
@@ -424,48 +334,6 @@ function WorkspaceBadge({ session }: { session: SessionContext }) {
   );
 }
 
-// Draggable wrapper around ListRow. Browsers fire a click event on
-// pointerup even after a drag (down/up share an ancestor), so the
-// parent flips suppressClickRef true on dragStart and clears it
-// ~250ms after dragEnd; onClickCapture here calls preventDefault
-// during that window so a successful drop doesn't ALSO navigate.
-function SortableListRow({
-  suppressClickRef,
-  ...props
-}: {
-  list: ListRow;
-  active: boolean;
-  unseen: number;
-  onEdit: () => void;
-  onDelete: () => void;
-  suppressClickRef: React.MutableRefObject<boolean>;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: props.list.id });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    zIndex: isDragging ? 10 : undefined,
-  };
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      onClickCapture={(e) => {
-        if (suppressClickRef.current) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      }}
-      {...attributes}
-      {...listeners}
-    >
-      <ListRow {...props} draggable />
-    </div>
-  );
-}
-
 // One sidebar row for a sales-list (per-client live list). Renders the
 // emoji + name as a Link; a hover-revealed kebab menu offers Rename
 // (which also covers emoji edit) and Delete. Parent owns the modal state
@@ -476,14 +344,12 @@ function ListRow({
   unseen,
   onEdit,
   onDelete,
-  draggable,
 }: {
   list: ListRow;
   active: boolean;
   unseen: number;
   onEdit: () => void;
   onDelete: () => void;
-  draggable?: boolean;
 }) {
   return (
     <div
@@ -499,12 +365,6 @@ function ListRow({
           active && "text-foreground",
         )}
       >
-        {draggable ? (
-          <GripVertical
-            className="size-3 text-muted-foreground/40 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-            aria-hidden="true"
-          />
-        ) : null}
         <span className="text-base leading-none shrink-0">{list.icon ?? "📁"}</span>
         <span className="truncate">{list.name}</span>
         {unseen > 0 ? (

@@ -1,6 +1,5 @@
 import { cache } from "react";
 import { createServerSupabase } from "@/lib/supabase/server";
-import { ttlCache } from "@/lib/cache/ttl";
 import { fetchAllRows } from "@/lib/db/paginated-select";
 import type { ListRow } from "./lists-shared";
 
@@ -8,20 +7,78 @@ export type { ListRow } from "./lists-shared";
 
 async function fetchLists(workspaceId: string): Promise<ListRow[]> {
   const supabase = await createServerSupabase();
-  const { data, error } = await supabase
-    .from("lists")
-    .select("id, name, icon, sort_order, shared")
-    .eq("workspace_id", workspaceId)
-    .order("sort_order", { ascending: true });
-  if (error) {
-    console.error("[loadLists] query failed", error);
+
+  // Pull the lists and the per-client recency aggregate in
+  // parallel. The view (migration 0044) returns one row per
+  // (workspace, client) with the max sent_at of any INBOUND
+  // message landed on that client's threads. Outbound replies
+  // don't reshuffle the list — that was the operator's pick.
+  const [listsResp, activityResp] = await Promise.all([
+    supabase
+      .from("lists")
+      .select("id, name, icon, sort_order, shared, client_id")
+      .eq("workspace_id", workspaceId),
+    supabase
+      .from("client_inbox_activity")
+      .select("client_id, last_inbound_at")
+      .eq("workspace_id", workspaceId),
+  ]);
+
+  if (listsResp.error) {
+    console.error("[loadLists] query failed", listsResp.error);
     return [];
   }
-  return (data ?? []) as ListRow[];
+  if (activityResp.error) {
+    // Don't fail the whole sidebar if the view query trips — fall
+    // back to alphabetical so the page still renders.
+    console.error("[loadLists] activity query failed", activityResp.error);
+  }
+
+  type ListRowWithClient = ListRow & { client_id: string | null };
+  const rows = (listsResp.data ?? []) as ListRowWithClient[];
+
+  const lastInboundByClient = new Map<string, string>();
+  for (const a of (activityResp.data ?? []) as Array<{
+    client_id: string | null;
+    last_inbound_at: string | null;
+  }>) {
+    if (a.client_id && a.last_inbound_at) {
+      lastInboundByClient.set(a.client_id, a.last_inbound_at);
+    }
+  }
+
+  // Sort: most recent inbound first; lists with no inbound
+  // activity drop to the bottom alphabetised (deterministic tail).
+  // sort_order is no longer used here — drag-reorder was removed
+  // because auto-sort would override any manual move.
+  rows.sort((a, b) => {
+    const aTs = a.client_id ? lastInboundByClient.get(a.client_id) ?? null : null;
+    const bTs = b.client_id ? lastInboundByClient.get(b.client_id) ?? null : null;
+    if (aTs && bTs) return aTs < bTs ? 1 : aTs > bTs ? -1 : 0;
+    if (aTs) return -1;
+    if (bTs) return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  // Strip client_id off the wire — ListRow doesn't carry it (it
+  // was only needed for the sort) and the consumer is downstream
+  // client components that don't need it.
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    icon: r.icon,
+    sort_order: r.sort_order,
+    shared: r.shared,
+  }));
 }
 
-// Sidebar lists very rarely change. 60s TTL.
-export const loadLists = cache(ttlCache(fetchLists, { ttlMs: 60_000 }));
+// React.cache only — dedupes within ONE render. No TTL cache
+// because the recency the sidebar surfaces changes on every
+// inbound webhook reply, and a stale 60s cache would defeat the
+// whole feature. The existing realtime-refresher fires
+// router.refresh() on `messages` INSERT events so each render
+// pulls a fresh ordering within ~250ms of any new reply.
+export const loadLists = cache(fetchLists);
 
 export async function loadListCounts(workspaceId: string): Promise<Map<string, number>> {
   const supabase = await createServerSupabase();
