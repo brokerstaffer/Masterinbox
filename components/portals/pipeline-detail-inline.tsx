@@ -84,8 +84,27 @@ export function PipelineDetailInline({
   // card stays consistent with the table.
   tryPush("Assigned", entry.assigned_team_member?.name, "assigned");
 
+  // Machine-readable keys that show up in Instantly custom_fields but
+  // read as noise to a brokerage user (raw UUIDs, sequence step
+  // counters, the email id, etc.). Hide them from the expanded card —
+  // they're never useful to surface, and rendering the UUID under a
+  // "Campaign" label confused the June 2026 client review.
+  const CF_SKIP = new Set([
+    "campaign",
+    "campaign_id",
+    "campaignid",
+    "step",
+    "variant",
+    "email_id",
+    "emailid",
+    "is_first",
+    "isfirst",
+    "unibox_url",
+    "uniboxurl",
+  ]);
   for (const [k, v] of Object.entries(cf)) {
     if (shown.has(k.toLowerCase())) continue;
+    if (CF_SKIP.has(k.toLowerCase())) continue;
     if (!hasValue(v)) continue;
     fields.push({ label: prettyKey(k), value: String(v).trim() });
   }
@@ -113,10 +132,9 @@ export function PipelineDetailInline({
         </div>
       )}
 
-      {introducedDate || entry.campaign_name ? (
+      {introducedDate ? (
         <div className="mt-7 grid grid-cols-1 gap-x-12 gap-y-3 border-t border-[#ebecf0] pt-6 md:grid-cols-[220px_1fr]">
-          {introducedDate ? <FieldStack label="Introduced" value={introducedDate} /> : null}
-          {entry.campaign_name ? <FieldStack label="Campaign" value={entry.campaign_name} /> : null}
+          <FieldStack label="Introduced" value={introducedDate} />
         </div>
       ) : null}
 
