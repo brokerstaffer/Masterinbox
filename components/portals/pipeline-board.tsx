@@ -18,7 +18,6 @@ import {
   Mail,
   Calendar,
   Workflow,
-  MapPin,
   X,
   Repeat,
 } from "lucide-react";
@@ -668,15 +667,6 @@ function PipelineRow({
                 <Repeat className="size-3.5" />
               </span>
             ) : null}
-            {entry.lead_location ? (
-              <span
-                title={entry.lead_location}
-                aria-label={`Location: ${entry.lead_location}`}
-                className="inline-flex size-4 shrink-0 items-center justify-center text-[#9aa0ab]"
-              >
-                <MapPin className="size-3.5" />
-              </span>
-            ) : null}
             <ChevronDown
               className={cn(
                 "size-3 shrink-0 text-[#9aa0ab] transition-transform",
@@ -819,15 +809,6 @@ function PipelineMobileCard({
                 className="inline-flex size-4 shrink-0 items-center justify-center text-[#9aa0ab]"
               >
                 <Repeat className="size-3.5" />
-              </span>
-            ) : null}
-            {entry.lead_location ? (
-              <span
-                title={entry.lead_location}
-                aria-label={`Location: ${entry.lead_location}`}
-                className="inline-flex size-4 shrink-0 items-center justify-center text-[#9aa0ab]"
-              >
-                <MapPin className="size-3.5" />
               </span>
             ) : null}
           </div>
@@ -1055,7 +1036,10 @@ function NotesSheet({
   // Detail row icons — uniform 32px gray-bg rounded squares to the
   // left of every fact so the sheet reads as a tidy list.
   const detailRows: Array<{
-    icon: typeof Mail;
+    // `null` icon → render the same 32px slot but blank, so the
+    // KV-list alignment matches the icon'd rows. Used by Location
+    // after the June 2026 request to drop the MapPin icon.
+    icon: typeof Mail | null;
     label: string;
     body: React.ReactNode;
     visible: boolean;
@@ -1137,7 +1121,11 @@ function NotesSheet({
       ) : null,
     },
     {
-      icon: MapPin,
+      // Location: no icon — request from June 2026 client review. The
+      // value still renders in the KV list as plain text, with a small
+      // bullet stand-in so the row alignment matches the icon'd rows
+      // above and below.
+      icon: null,
       label: "Location",
       visible: !!entry.lead_location,
       body: entry.lead_location,
@@ -1213,7 +1201,7 @@ function NotesSheet({
                   return (
                     <li key={r.label} className="flex items-start gap-3">
                       <span className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#f6f7f9] text-[#5b6472]">
-                        <Icon className="size-3.5" />
+                        {Icon ? <Icon className="size-3.5" /> : null}
                       </span>
                       <div
                         className={cn(
@@ -1321,7 +1309,11 @@ function NotesSheet({
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Add a note about this candidate…"
             rows={2}
-            className="resize-y text-[13px]"
+            // Cap at ~10 lines and scroll internally. Without this the
+            // shared <Textarea> has `field-sizing-content` so a long
+            // paste grows the field unboundedly and pushes the Save
+            // button below the viewport with no scroll escape.
+            className="max-h-40 overflow-y-auto text-[13px]"
           />
           <Button
             onClick={addNote}

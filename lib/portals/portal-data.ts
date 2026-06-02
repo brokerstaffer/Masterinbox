@@ -189,7 +189,21 @@ export const loadPipelineEntries = cache(
           "market",
           "Market",
         ),
-        lead_detail: ext?.lead_detail ?? null,
+        // Thread the MERGED custom_fields (leads.custom_fields ∪
+        // external_intros.lead_detail.custom_fields) so the expanded
+        // candidate card surfaces extras for BOTH lead sources:
+        //
+        //   • legacy external-intros feed → already carried them via
+        //     ext.lead_detail.custom_fields.
+        //   • Instantly-webhook leads → previously dropped here because
+        //     ext.lead_detail was null. Now they ride through.
+        //
+        // The expanded card's dedup loop skips email/phone/company/
+        // title/location, so City, State, LicenseNumber, AgencyZip,
+        // Last12Mos_*, etc., render automatically.
+        lead_detail: ext?.lead_detail
+          ? { ...ext.lead_detail, custom_fields: merged }
+          : { custom_fields: merged },
         campaign_name: ext?.campaign_name ?? null,
         notes_log: notesByEntry.get(rest.id) ?? [],
       } satisfies PipelineEntry;
