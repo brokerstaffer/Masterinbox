@@ -3,22 +3,25 @@ import { createServerClient } from "@supabase/ssr";
 
 // Hostname routing: portal.brokerstaffer.com serves client portals
 // ONLY. MasterInbox + admin tooling stays on the canonical Railway
-// URL — clients who land on /inbox / /login / /portals etc. via the
-// portal subdomain get bounced back to the Railway address.
+// URL — and disallowed paths on the portal subdomain must NEVER
+// expose MasterInbox.
 //
-// The Railway URL keeps every route working (no redirects there) so
-// staff bookmarks and Railway preview deploys are unaffected.
+// Previous implementation 302'd disallowed paths to the Railway URL,
+// which leaked the staff app to anyone hitting portal.brokerstaffer.com/
+// (the root then bounced to /inbox/all-email via the auth redirect).
+// Fixed by REWRITING (internal serve, URL unchanged in the address
+// bar) to a branded /portal-locked page that explains the user needs
+// their unique link.
 const PORTAL_HOSTS = new Set(["portal.brokerstaffer.com"]);
-const CANONICAL_RAILWAY_HOST =
-  "alluring-ambition-production-d0b0.up.railway.app";
 // Paths the portal subdomain is allowed to serve. Anything outside
-// this list 302s to the Railway URL.
+// this list silently rewrites to /portal-locked.
 const PORTAL_ALLOWED_PREFIXES = [
   "/portal", // /portal/<token>/*
   "/api/portal", // /api/portal/<token>/*
   "/_next", // Next.js bundle + static assets
   "/favicon", // /favicon.ico, /favicon-*
   "/portal-logo", // public portal assets
+  "/portal-locked", // the fail-closed landing page itself
 ];
 
 // Next.js 16 — the request "proxy" (formerly middleware). Refreshes the
@@ -27,19 +30,20 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const host = request.headers.get("host")?.toLowerCase() ?? "";
 
-  // Portal subdomain: redirect every non-portal path to the Railway
-  // URL so the brokerage subdomain can never reach /inbox / /login /
-  // /portals etc. This runs BEFORE auth so even unauthenticated
-  // requests don't leak the login surface on this host.
+  // Portal subdomain: every non-portal path REWRITES to the branded
+  // /portal-locked page so the URL bar stays on portal.brokerstaffer.com
+  // and MasterInbox is never reachable from this host. Runs BEFORE
+  // auth so unauthenticated requests don't leak the login surface
+  // either.
   if (PORTAL_HOSTS.has(host)) {
     const allowed = PORTAL_ALLOWED_PREFIXES.some(
       (p) => pathname === p || pathname.startsWith(`${p}/`),
     );
     if (!allowed) {
-      const target = new URL(
-        `https://${CANONICAL_RAILWAY_HOST}${pathname}${request.nextUrl.search}`,
-      );
-      return NextResponse.redirect(target, 302);
+      const url = request.nextUrl.clone();
+      url.pathname = "/portal-locked";
+      url.search = "";
+      return NextResponse.rewrite(url);
     }
     // Allowed path — fall through to the rest of the proxy. The /portal
     // bypass below already short-circuits auth for these routes.
@@ -136,7 +140,13 @@ export async function proxy(request: NextRequest) {
   // credential. Note: the admin page lives at /portals (plural) and does
   // NOT match "/portal/", so it stays auth-gated.
   const isPortalRoute = pathname === "/portal" || pathname.startsWith("/portal/");
-  const isPublicRoute = isAuthRoute || isPortalRoute || pathname === "/";
+  // /portal-locked is the fail-closed landing the host gate above
+  // rewrites disallowed paths to. Reachable by anyone — must not
+  // trigger the auth redirect, otherwise the portal subdomain
+  // would bounce between /login and /portal-locked forever.
+  const isPortalLocked = pathname === "/portal-locked";
+  const isPublicRoute =
+    isAuthRoute || isPortalRoute || isPortalLocked || pathname === "/";
 
   if (!user && !isPublicRoute) {
     const url = request.nextUrl.clone();
