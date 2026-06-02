@@ -109,19 +109,20 @@ export async function labelInboundMessage(input: LabelInboundInput): Promise<Lab
     labelRow = fallback;
   }
 
-  // AI defers to user. If the thread already has a user-assigned
-  // label, the AI keeps quiet — its classification stays out of the
-  // way of a manual decision. Without this, AI re-labels of an
-  // already-classified thread silently overwrote the operator's
-  // intent and surfaced as "double labeling" because the wipe-then-
-  // upsert ran with assigned_by='ai' on top of an existing user row.
-  const { count: userLabeled } = await admin
+  // AI never touches a thread that already has a label. Covers two
+  // cases at once:
+  //   • assigned_by='user' — operator already decided, AI defers.
+  //   • assigned_by='system' — pinned labels like Introduction (the
+  //     "lead has been introduced" marker we don't ever want
+  //     auto-relabeled away). The June 2026 Introduction-wipe
+  //     incident was caused by AI re-classifying these out.
+  // Only manual UI actions can change a labeled thread now.
+  const { count: anyLabel } = await admin
     .from("label_assignments")
     .select("id", { head: true, count: "exact" })
     .eq("target_type", "thread")
-    .eq("target_id", input.threadId)
-    .eq("assigned_by", "user");
-  if ((userLabeled ?? 0) > 0) {
+    .eq("target_id", input.threadId);
+  if ((anyLabel ?? 0) > 0) {
     return { status: "skipped_user_labeled" };
   }
 
@@ -283,12 +284,15 @@ export async function backfillLabelsForWorkspace(
     .eq("status", "open");
   const openThreads = (openRows ?? []) as Array<{ id: string; subject: string | null }>;
 
+  // Skip threads with ANY existing label — drops the assigned_by='ai'
+  // filter so that user-assigned AND system-assigned (e.g. pinned
+  // Introduction) labels are protected from re-classification. The
+  // backfill only fires on truly unlabeled threads now.
   const { data: existingRows } = await admin
     .from("label_assignments")
     .select("target_id")
     .eq("workspace_id", workspaceId)
-    .eq("target_type", "thread")
-    .eq("assigned_by", "ai");
+    .eq("target_type", "thread");
   const alreadyLabeled = new Set(
     ((existingRows ?? []) as Array<{ target_id: string }>).map((r) => r.target_id),
   );
@@ -373,17 +377,16 @@ export async function backfillLabelsForWorkspace(
       labelRow = fallbackLabel;
     }
 
-    // AI defers to user — see the single-thread path for the full
-    // explanation. If a manual user assignment exists on this
-    // thread, the AI keeps quiet so the operator's classification
-    // stays the source of truth.
-    const { count: userLabeled } = await admin
+    // AI never touches a thread that already has ANY label — same
+    // guard as the single-thread path. Protects user-assigned AND
+    // system-assigned (pinned Introduction) labels from being
+    // overwritten.
+    const { count: anyLabel } = await admin
       .from("label_assignments")
       .select("id", { head: true, count: "exact" })
       .eq("target_type", "thread")
-      .eq("target_id", t.id)
-      .eq("assigned_by", "user");
-    if ((userLabeled ?? 0) > 0) {
+      .eq("target_id", t.id);
+    if ((anyLabel ?? 0) > 0) {
       return {
         kind: "result",
         threadId: t.id,
