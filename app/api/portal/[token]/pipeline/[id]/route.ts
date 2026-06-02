@@ -32,6 +32,10 @@ const schema = z.object({
   current_brokerage: z.string().max(200).nullable().optional(),
   agent_profile_url: z.string().max(500).nullable().optional(),
   introduced_at: z.string().datetime().nullable().optional(),
+  // Recruiter ownership — points at a client_team_members row.
+  // null clears the assignment. FK is ON DELETE SET NULL so a deleted
+  // team member unassigns automatically.
+  assigned_team_member_id: z.string().uuid().nullable().optional(),
 });
 
 export async function PATCH(

@@ -47,6 +47,7 @@ import { cn } from "@/lib/utils";
 import {
   type PipelineEntry,
   type PipelineStage,
+  type TeamMember,
   STAGE_LABELS,
   STAGE_ORDER,
 } from "@/lib/portals/portal-data";
@@ -78,9 +79,15 @@ type EditTarget = { mode: "create" } | { mode: "edit"; entry: PipelineEntry };
 export function PipelineBoard({
   token,
   entries: initial,
+  teamMembers,
 }: {
   token: string;
   entries: PipelineEntry[];
+  // Pulled from client_team_members for this client. Powers the
+  // row-level "Assigned" pill + the bulk "Assign to…" dropdown.
+  // Passed in (not fetched here) so the page can dedupe with other
+  // surfaces and stay fully server-rendered.
+  teamMembers: TeamMember[];
 }) {
   const router = useRouter();
   const mounted = useMounted();
@@ -257,6 +264,78 @@ export function PipelineBoard({
     toast.success(`Moved ${ids.length.toLocaleString()} to ${STAGE_LABELS[stage]}`);
   }
 
+  // Per-row assignment mutation: optimistic local update + single
+  // PATCH. Same shape the stage picker uses. Pass null to unassign.
+  async function assignOne(entry: PipelineEntry, memberId: string | null) {
+    const member = memberId ? teamMembers.find((m) => m.id === memberId) ?? null : null;
+    setEntries((cur) =>
+      cur.map((e) =>
+        e.id === entry.id
+          ? {
+              ...e,
+              assigned_team_member_id: memberId,
+              assigned_team_member: member ? { id: member.id, name: member.name } : null,
+            }
+          : e,
+      ),
+    );
+    const res = await fetch(`/api/portal/${token}/pipeline/${entry.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assigned_team_member_id: memberId }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      toast.error(j.error ?? "Assignment failed");
+      router.refresh();
+    }
+  }
+
+  // Bulk assignment — same chunked pattern as bulkStage.
+  async function bulkAssign(memberId: string | null) {
+    if (selected.size === 0) return;
+    setBulkBusy(true);
+    const ids = Array.from(selected);
+    const member = memberId ? teamMembers.find((m) => m.id === memberId) ?? null : null;
+    setEntries((cur) =>
+      cur.map((e) =>
+        selected.has(e.id)
+          ? {
+              ...e,
+              assigned_team_member_id: memberId,
+              assigned_team_member: member ? { id: member.id, name: member.name } : null,
+            }
+          : e,
+      ),
+    );
+    setSelected(new Set());
+    for (let i = 0; i < ids.length; i += BULK_CHUNK) {
+      const slice = ids.slice(i, i + BULK_CHUNK);
+      const res = await fetch(`/api/portal/${token}/pipeline`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "assign",
+          ids: slice,
+          assigned_team_member_id: memberId,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        toast.error(j.error ?? "Bulk assignment failed");
+        setBulkBusy(false);
+        router.refresh();
+        return;
+      }
+    }
+    setBulkBusy(false);
+    toast.success(
+      memberId
+        ? `Assigned ${ids.length.toLocaleString()} to ${member?.name ?? "team member"}`
+        : `Unassigned ${ids.length.toLocaleString()}`,
+    );
+  }
+
   function bulkExport() {
     const rows = selected.size > 0
       ? entries.filter((e) => selected.has(e.id))
@@ -270,6 +349,7 @@ export function PipelineBoard({
       "Agent profile",
       "Location",
       "Stage",
+      "Assigned",
       "Introduced",
     ];
     const lines = [cols.join(",")];
@@ -282,6 +362,7 @@ export function PipelineBoard({
         r.agent_profile_url ?? "",
         r.lead_location ?? "",
         STAGE_LABELS[r.stage],
+        r.assigned_team_member?.name ?? "",
         r.introduced_at ? new Date(r.introduced_at).toISOString().slice(0, 10) : "",
       ];
       lines.push(row.map(csvCell).join(","));
@@ -424,6 +505,40 @@ export function PipelineBoard({
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+              {/* Bulk-assign: shows the active team-member roster.
+                  "Unassigned" at the top clears the field. Hidden
+                  entirely when the brokerage has no team members yet
+                  (avoids dangling an empty dropdown). */}
+              {teamMembers.length > 0 ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={bulkBusy || selected.size === 0}
+                      >
+                        Assign to… <ChevronDown className="ml-1 size-3.5" />
+                      </Button>
+                    }
+                  />
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuItem onClick={() => bulkAssign(null)}>
+                      <span className="text-[#9aa0ab]">Unassigned</span>
+                    </DropdownMenuItem>
+                    {teamMembers
+                      .filter((m) => m.active)
+                      .map((m) => (
+                        <DropdownMenuItem
+                          key={m.id}
+                          onClick={() => bulkAssign(m.id)}
+                        >
+                          {m.name}
+                        </DropdownMenuItem>
+                      ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
               <Button
                 size="sm"
                 variant="outline"
@@ -504,6 +619,8 @@ export function PipelineBoard({
                         selected={selected.has(e.id)}
                         onToggleSelect={() => toggleSelect(e.id)}
                         onStage={(s) => changeStage(e.id, s)}
+                        onAssign={(memberId) => assignOne(e, memberId)}
+                        teamMembers={teamMembers}
                         onOpenNotes={() => setOpenNotes(e)}
                         onEdit={() => setEditTarget({ mode: "edit", entry: e })}
                         onToggleExpand={() =>
@@ -541,6 +658,8 @@ export function PipelineBoard({
                   selected={selected.has(e.id)}
                   onToggleSelect={() => toggleSelect(e.id)}
                   onStage={(s) => changeStage(e.id, s)}
+                  onAssign={(memberId) => assignOne(e, memberId)}
+                  teamMembers={teamMembers}
                   onOpenNotes={() => setOpenNotes(e)}
                   onEdit={() => setEditTarget({ mode: "edit", entry: e })}
                   onToggleExpand={() =>
@@ -596,6 +715,8 @@ function PipelineRow({
   selected,
   onToggleSelect,
   onStage,
+  onAssign,
+  teamMembers,
   onOpenNotes,
   onEdit,
   onToggleExpand,
@@ -605,6 +726,8 @@ function PipelineRow({
   selected: boolean;
   onToggleSelect: () => void;
   onStage: (s: PipelineStage) => void;
+  onAssign: (memberId: string | null) => void;
+  teamMembers: TeamMember[];
   onOpenNotes: () => void;
   onEdit: () => void;
   onToggleExpand: () => void;
@@ -727,6 +850,11 @@ function PipelineRow({
       <div className="text-[12.5px] text-[#5b6472]">{fmtDate(entry.introduced_at)}</div>
       <div className="flex flex-col items-start gap-1.5">
         <StageSelector value={entry.stage} onChange={onStage} />
+        <AssignedSelector
+          value={entry.assigned_team_member}
+          members={teamMembers}
+          onChange={onAssign}
+        />
         <button
           type="button"
           onClick={onEdit}
@@ -763,6 +891,8 @@ function PipelineMobileCard({
   selected,
   onToggleSelect,
   onStage,
+  onAssign,
+  teamMembers,
   onOpenNotes,
   onEdit,
   onToggleExpand,
@@ -774,6 +904,8 @@ function PipelineMobileCard({
   selected: boolean;
   onToggleSelect: () => void;
   onStage: (s: PipelineStage) => void;
+  onAssign: (memberId: string | null) => void;
+  teamMembers: TeamMember[];
   onOpenNotes: () => void;
   onEdit: () => void;
   onToggleExpand: () => void;
@@ -834,6 +966,11 @@ function PipelineMobileCard({
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <StageSelector value={entry.stage} onChange={onStage} />
+        <AssignedSelector
+          value={entry.assigned_team_member}
+          members={teamMembers}
+          onChange={onAssign}
+        />
         {phone ? (
           <div className="inline-flex h-8 items-center gap-1 rounded-md border border-[#ebecf0] bg-white pl-2 pr-1 text-[12px] text-[#5b6472]">
             <span className="tabular-nums">{formatPhoneDisplay(phone)}</span>
@@ -901,6 +1038,73 @@ function PipelineMobileCard({
         </div>
       ) : null}
     </div>
+  );
+}
+
+// Recruiter-ownership picker — mirrors StageSelector's pill+dropdown
+// look so the two pills sit cleanly side-by-side. Empty state ("Assign…")
+// uses a muted outline; filled state ("Sarah ▾") gets the same blue
+// accent the Edit pill uses so all "edit my row" affordances read as
+// one family.
+function AssignedSelector({
+  value,
+  members,
+  onChange,
+}: {
+  value: { id: string; name: string } | null;
+  members: TeamMember[];
+  onChange: (memberId: string | null) => void;
+}) {
+  const active = members.filter((m) => m.active);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            className={cn(
+              "inline-flex h-7 max-w-[140px] items-center gap-1 rounded-md border px-2 text-[11.5px] font-medium transition-colors",
+              value
+                ? "border-[#d4e4f8] bg-[#eaf2fd] text-[#1565C0] hover:bg-[#dbe9fa]"
+                : "border-[#ebecf0] bg-white text-[#9aa0ab] hover:bg-[#f6f7f9]",
+            )}
+            title={value ? `Assigned to ${value.name}` : "Assign a recruiter"}
+          >
+            <span className="truncate">{value ? value.name : "Assign…"}</span>
+            <ChevronDown className="size-3 shrink-0 opacity-70" />
+          </button>
+        }
+      />
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuItem
+          onClick={() => onChange(null)}
+          className="flex items-center justify-between gap-2"
+        >
+          <span className="text-[#9aa0ab]">Unassigned</span>
+          {!value ? <Check className="size-3.5 text-[#1565C0]" /> : null}
+        </DropdownMenuItem>
+        {active.length === 0 ? (
+          <DropdownMenuItem disabled>
+            <span className="text-[11.5px] text-[#9aa0ab]">
+              No active team members
+            </span>
+          </DropdownMenuItem>
+        ) : (
+          active.map((m) => (
+            <DropdownMenuItem
+              key={m.id}
+              onClick={() => onChange(m.id)}
+              className="flex items-center justify-between gap-2"
+            >
+              <span className="truncate text-[13px]">{m.name}</span>
+              {value?.id === m.id ? (
+                <Check className="size-3.5 text-[#1565C0]" />
+              ) : null}
+            </DropdownMenuItem>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -1407,6 +1611,10 @@ function EditLeadDialog({
         lead_detail: null,
         campaign_name: null,
         notes_log: [],
+        // Manual adds start unassigned — recruiter picks via the
+        // row pill once the row appears.
+        assigned_team_member_id: null,
+        assigned_team_member: null,
       };
       onApply(j.id, {}, newRow);
       toast.success("Candidate added");

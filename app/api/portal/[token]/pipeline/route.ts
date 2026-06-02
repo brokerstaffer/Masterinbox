@@ -32,11 +32,14 @@ const createSchema = z.object({
 });
 
 const bulkSchema = z.object({
-  action: z.enum(["delete", "stage"]),
+  action: z.enum(["delete", "stage", "assign"]),
   // 5000 ceiling — UI also chunks client-side to keep individual
   // requests well under any infrastructure timeout.
   ids: z.array(z.string().uuid()).min(1).max(5000),
   stage: z.enum(STAGES).optional(),
+  // `assign` only — null clears the assignment on every id in the
+  // batch; a uuid sets the same recruiter on all of them.
+  assigned_team_member_id: z.string().uuid().nullable().optional(),
 });
 
 export async function POST(
@@ -115,6 +118,28 @@ export async function PATCH(
     const { error } = await admin
       .from("client_pipeline_entries")
       .update({ stage: parsed.data.stage, updated_at: new Date().toISOString() })
+      .eq("client_id", client.id)
+      .in("id", parsed.data.ids);
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    return NextResponse.json({ ok: true });
+  }
+  if (parsed.data.action === "assign") {
+    // null is a valid value — it clears the assignment. zod's
+    // optional+nullable lets `assigned_team_member_id` be undefined
+    // OR explicitly null; treat undefined as "field missing" since
+    // the caller has to be explicit about clearing.
+    if (parsed.data.assigned_team_member_id === undefined) {
+      return NextResponse.json(
+        { error: "assigned_team_member_id required (use null to clear)" },
+        { status: 400 },
+      );
+    }
+    const { error } = await admin
+      .from("client_pipeline_entries")
+      .update({
+        assigned_team_member_id: parsed.data.assigned_team_member_id,
+        updated_at: new Date().toISOString(),
+      })
       .eq("client_id", client.id)
       .in("id", parsed.data.ids);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });

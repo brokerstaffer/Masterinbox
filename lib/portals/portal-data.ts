@@ -42,6 +42,12 @@ export interface PipelineEntry {
   campaign_name: string | null;
   // Timestamped notes (newest first). Backed by client_pipeline_notes.
   notes_log: PipelineNote[];
+  // Recruiter ownership — points at a row in client_team_members
+  // (the intro-notification roster). null = unassigned.
+  // assigned_team_member is the joined display tuple, fetched in the
+  // same SELECT so the row UI doesn't need a second hop.
+  assigned_team_member_id: string | null;
+  assigned_team_member: { id: string; name: string } | null;
 }
 
 export interface DncEntry {
@@ -106,7 +112,7 @@ export const loadPipelineEntries = cache(
     const { data, error } = await admin
       .from("client_pipeline_entries")
       .select(
-        "id, stage, needs_replacement, lead_name, lead_email, lead_phone, current_brokerage, agent_profile_url, introduced_at, external_intros:external_intro_id (lead_detail, campaign_name), leads:lead_id (custom_fields, company)",
+        "id, stage, needs_replacement, lead_name, lead_email, lead_phone, current_brokerage, agent_profile_url, introduced_at, assigned_team_member_id, assigned_team_member:assigned_team_member_id (id, name), external_intros:external_intro_id (lead_detail, campaign_name), leads:lead_id (custom_fields, company)",
       )
       .eq("client_id", clientId)
       .order("introduced_at", { ascending: false })
@@ -134,7 +140,11 @@ export const loadPipelineEntries = cache(
     return (data as unknown as Array<
       Omit<
         PipelineEntry,
-        "lead_detail" | "campaign_name" | "notes_log" | "lead_location"
+        | "lead_detail"
+        | "campaign_name"
+        | "notes_log"
+        | "lead_location"
+        | "assigned_team_member"
       > & {
         external_intros:
           | { lead_detail: Record<string, unknown> | null; campaign_name: string | null }
@@ -143,6 +153,10 @@ export const loadPipelineEntries = cache(
         leads:
           | { custom_fields: Record<string, unknown> | null; company: string | null }
           | { custom_fields: Record<string, unknown> | null; company: string | null }[]
+          | null;
+        assigned_team_member:
+          | { id: string; name: string }
+          | { id: string; name: string }[]
           | null;
       }
     >).map((r) => {
@@ -166,9 +180,17 @@ export const loadPipelineEntries = cache(
         return null;
       };
 
-      const { external_intros: _ignore1, leads: _ignore2, ...rest } = r;
+      const {
+        external_intros: _ignore1,
+        leads: _ignore2,
+        assigned_team_member: assignedRaw,
+        ...rest
+      } = r;
       void _ignore1;
       void _ignore2;
+      const assignedTeamMember = Array.isArray(assignedRaw)
+        ? assignedRaw[0] ?? null
+        : assignedRaw;
 
       return {
         ...rest,
@@ -206,6 +228,7 @@ export const loadPipelineEntries = cache(
           : { custom_fields: merged },
         campaign_name: ext?.campaign_name ?? null,
         notes_log: notesByEntry.get(rest.id) ?? [],
+        assigned_team_member: assignedTeamMember,
       } satisfies PipelineEntry;
     });
   },

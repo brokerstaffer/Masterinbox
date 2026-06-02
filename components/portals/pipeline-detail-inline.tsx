@@ -54,6 +54,10 @@ export function PipelineDetailInline({
 
   tryPush("Location", entry.lead_location, "location");
 
+  // Recruiter ownership — mirrors the row-header pill so the expanded
+  // card stays consistent with the table.
+  tryPush("Assigned", entry.assigned_team_member?.name, "assigned");
+
   for (const [k, v] of Object.entries(cf)) {
     if (shown.has(k.toLowerCase())) continue;
     if (!hasValue(v)) continue;

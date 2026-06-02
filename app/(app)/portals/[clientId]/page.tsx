@@ -3,7 +3,11 @@ import { notFound } from "next/navigation";
 import { ChevronLeft, ExternalLink, Workflow, UserCheck, Ban, Users } from "lucide-react";
 import { requireSession } from "@/lib/auth/workspace";
 import { createAdminSupabase } from "@/lib/supabase/admin";
-import { loadPipelineEntries, loadPortalCounts } from "@/lib/portals/portal-data";
+import {
+  loadPipelineEntries,
+  loadPortalCounts,
+  loadTeamMembers,
+} from "@/lib/portals/portal-data";
 import {
   PipelineHeader,
   PipelineFooterInfo,
@@ -33,9 +37,10 @@ export default async function PortalDrilldownPage(props: {
     .maybeSingle();
   if (!client || client.slug === "unknown") notFound();
 
-  const [entries, counts] = await Promise.all([
+  const [entries, counts, teamMembers] = await Promise.all([
     loadPipelineEntries(client.id as string),
     loadPortalCounts(client.id as string),
+    loadTeamMembers(client.id as string),
   ]);
   const portalPath = client.portal_token ? `/portal/${client.portal_token}` : null;
 
@@ -88,6 +93,7 @@ export default async function PortalDrilldownPage(props: {
             <PipelineBoard
               token={client.portal_token as string}
               entries={entries}
+              teamMembers={teamMembers}
             />
             <PipelineFooterInfo />
           </>
