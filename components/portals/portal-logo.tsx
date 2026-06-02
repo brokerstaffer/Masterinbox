@@ -1,18 +1,24 @@
-// The house mark used across the client portal surfaces.
+import Image from "next/image";
+
+// The BrokerStaffer wordmark + house mark, used across the client
+// portal surfaces. Source file is /public/portal/brokerstafferlogo.webp
+// at 160x55 (≈2.9:1 aspect). Callers must pass a HEIGHT-based class
+// (h-7, h-10, etc.) plus w-auto — using a square `size-N` will
+// distort the aspect.
 export function PortalLogo({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 48 48"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
+    <Image
+      src="/portal/brokerstafferlogo.webp"
+      alt="BrokerStaffer"
+      // Intrinsic size — the className overrides the visual height.
+      // Next.js Image needs both width + height so the layout
+      // shift is zero before the image is decoded.
+      width={160}
+      height={55}
+      // Eager-load so the header isn't a flash-of-no-logo on the
+      // first paint of every portal page.
+      priority
       className={className}
-      aria-hidden
-    >
-      <rect width="48" height="48" rx="10" fill="#E3F0FF" />
-      <path
-        d="M24 10L10 22H14V38H22V30H26V38H34V22H38L24 10Z"
-        fill="#1565C0"
-      />
-    </svg>
+    />
   );
 }

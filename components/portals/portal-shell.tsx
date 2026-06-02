@@ -61,7 +61,7 @@ export function PortalShell({ token, clientName, counts, children }: Props) {
         >
           <Menu className="size-5" />
         </button>
-        <PortalLogo className="size-6" />
+        <PortalLogo className="h-6 w-auto" />
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-semibold leading-tight">{clientName}</div>
           <div className="truncate text-[10.5px] uppercase tracking-wider text-[#9aa0ab]">
@@ -88,7 +88,7 @@ export function PortalShell({ token, clientName, counts, children }: Props) {
         )}
       >
         <div className="flex items-center gap-2.5 border-b border-[#ebecf0] px-5 py-4">
-          <PortalLogo className="size-7" />
+          <PortalLogo className="h-7 w-auto" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[13px] font-semibold leading-tight tracking-tight">
               {clientName}

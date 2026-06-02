@@ -79,7 +79,7 @@ export function PortalsAdmin({ rows }: { rows: PortalClientRow[] }) {
         {/* ---- Header ---- */}
         <div className="flex items-start gap-3.5">
           <div className="rounded-xl border border-[#ebecf0] bg-white p-2 shadow-sm">
-            <PortalLogo className="size-8" />
+            <PortalLogo className="h-8 w-auto" />
           </div>
           <div>
             <h1 className="text-[22px] font-semibold tracking-tight">Client Portals</h1>

@@ -55,7 +55,7 @@ export function PortalEmpty({
 }) {
   return (
     <div className="rounded-2xl border border-dashed border-[#dde0e5] bg-white p-12 text-center">
-      <PortalLogo className="mx-auto size-10 opacity-60" />
+      <PortalLogo className="mx-auto h-10 w-auto opacity-60" />
       <p className="mt-3 text-sm font-medium">{title}</p>
       {hint ? <p className="mt-1 text-xs text-[#9aa0ab]">{hint}</p> : null}
       {action ? <div className="mt-4 flex justify-center">{action}</div> : null}

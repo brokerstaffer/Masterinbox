@@ -41,7 +41,7 @@ export function ClientPortalView({ clientName, leads, metrics, adminPreview }: P
       {/* ===================== TOP BAR ===================== */}
       <div className="sticky top-0 z-20 border-b border-[#ebecf0] bg-white/85 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-5xl items-center gap-3 px-6">
-          <PortalLogo className="size-7" />
+          <PortalLogo className="h-7 w-auto" />
           <div className="leading-tight">
             <div className="text-[13px] font-semibold tracking-tight">{clientName}</div>
             <div className="text-[11px] text-[#9aa0ab]">Introductions Portal</div>
@@ -155,9 +155,11 @@ export function ClientPortalView({ clientName, leads, metrics, adminPreview }: P
         {/* Leads */}
         <LeadsSection leads={leads} />
 
+        {/* Wordmark already says "BROKERSTAFFER" — drop the trailing
+            "Powered by BrokerStaffer" text so it doesn't read twice. */}
         <footer className="mt-12 flex items-center justify-center gap-1.5 pb-4 text-xs text-[#9aa0ab]">
-          <PortalLogo className="size-4" />
-          Powered by BrokerStaffer
+          <span className="text-[#9aa0ab]">Powered by</span>
+          <PortalLogo className="h-4 w-auto" />
         </footer>
       </main>
     </div>
@@ -568,7 +570,7 @@ function LeadsSection({ leads }: { leads: IntroLead[] }) {
 
       {leads.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-[#dde0e5] bg-white p-14 text-center">
-          <PortalLogo className="mx-auto size-10 opacity-60" />
+          <PortalLogo className="mx-auto h-10 w-auto opacity-60" />
           <p className="mt-3 text-sm font-medium">No introductions yet</p>
           <p className="mt-1 text-xs text-[#9aa0ab]">
             New introductions appear here automatically as they happen.

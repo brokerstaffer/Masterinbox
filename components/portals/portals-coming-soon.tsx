@@ -7,7 +7,7 @@ export function PortalsComingSoon() {
     <div className="flex-1 overflow-y-auto bg-[#f4f7fb]">
       <div className="max-w-md mx-auto px-8 py-24 text-center">
         <div className="inline-flex rounded-2xl bg-white border border-[#e3e8ef] p-3 shadow-sm">
-          <PortalLogo className="size-10" />
+          <PortalLogo className="h-10 w-auto" />
         </div>
         <h1 className="mt-6 text-2xl font-semibold tracking-tight text-[#15181e]">
           Client Portals

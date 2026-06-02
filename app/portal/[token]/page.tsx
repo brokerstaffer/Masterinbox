@@ -55,7 +55,7 @@ function PortalNotFound() {
   return (
     <div className="min-h-screen bg-[#f4f7fb] flex items-center justify-center px-6">
       <div className="text-center max-w-sm">
-        <PortalLogo className="size-14 mx-auto" />
+        <PortalLogo className="h-12 w-auto mx-auto" />
         <h1 className="mt-5 text-lg font-semibold text-[#15181e]">
           Portal not found
         </h1>
