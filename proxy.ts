@@ -1,10 +1,49 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
+// Hostname routing: portal.brokerstaffer.com serves client portals
+// ONLY. MasterInbox + admin tooling stays on the canonical Railway
+// URL — clients who land on /inbox / /login / /portals etc. via the
+// portal subdomain get bounced back to the Railway address.
+//
+// The Railway URL keeps every route working (no redirects there) so
+// staff bookmarks and Railway preview deploys are unaffected.
+const PORTAL_HOSTS = new Set(["portal.brokerstaffer.com"]);
+const CANONICAL_RAILWAY_HOST =
+  "alluring-ambition-production-d0b0.up.railway.app";
+// Paths the portal subdomain is allowed to serve. Anything outside
+// this list 302s to the Railway URL.
+const PORTAL_ALLOWED_PREFIXES = [
+  "/portal", // /portal/<token>/*
+  "/api/portal", // /api/portal/<token>/*
+  "/_next", // Next.js bundle + static assets
+  "/favicon", // /favicon.ico, /favicon-*
+  "/portal-logo", // public portal assets
+];
+
 // Next.js 16 — the request "proxy" (formerly middleware). Refreshes the
 // Supabase session cookie and gates the (app) tree behind authentication.
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const host = request.headers.get("host")?.toLowerCase() ?? "";
+
+  // Portal subdomain: redirect every non-portal path to the Railway
+  // URL so the brokerage subdomain can never reach /inbox / /login /
+  // /portals etc. This runs BEFORE auth so even unauthenticated
+  // requests don't leak the login surface on this host.
+  if (PORTAL_HOSTS.has(host)) {
+    const allowed = PORTAL_ALLOWED_PREFIXES.some(
+      (p) => pathname === p || pathname.startsWith(`${p}/`),
+    );
+    if (!allowed) {
+      const target = new URL(
+        `https://${CANONICAL_RAILWAY_HOST}${pathname}${request.nextUrl.search}`,
+      );
+      return NextResponse.redirect(target, 302);
+    }
+    // Allowed path — fall through to the rest of the proxy. The /portal
+    // bypass below already short-circuits auth for these routes.
+  }
 
   // Public API endpoints — webhook receivers and bootstrap helpers — must be
   // reachable without a session. They have their own auth (provider tokens /
