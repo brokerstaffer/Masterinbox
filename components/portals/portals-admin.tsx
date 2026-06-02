@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { PortalLogo } from "@/components/portals/portal-logo";
+import { publicPortalUrl } from "@/lib/portals/public-url";
 import type { PortalClientRow } from "@/app/(app)/portals/page";
 
 // Absolute date for the "last intro" column — client asked for an
@@ -248,12 +249,15 @@ function PortalRow({
 }) {
   const [copied, setCopied] = useState(false);
   const portalPath = row.portal_token ? `/portal/${row.portal_token}` : null;
-  const isLive = Boolean(row.portal_enabled && portalPath);
+  // Brokerage-facing URL on the custom domain. Used for the row's
+  // copy + open actions — staff share the portal.brokerstaffer.com
+  // URL, NOT the Railway host.
+  const portalAbsoluteUrl = publicPortalUrl(row.portal_token);
+  const isLive = Boolean(row.portal_enabled && portalAbsoluteUrl);
 
   function copyLink() {
-    if (!portalPath) return;
-    const url = `${window.location.origin}${portalPath}`;
-    navigator.clipboard.writeText(url).then(
+    if (!portalAbsoluteUrl) return;
+    navigator.clipboard.writeText(portalAbsoluteUrl).then(
       () => {
         setCopied(true);
         toast.success("Portal link copied");
@@ -318,12 +322,12 @@ function PortalRow({
           icon={copied ? Check : Copy}
           label="Copy link"
           onClick={copyLink}
-          disabled={!portalPath}
+          disabled={!portalAbsoluteUrl}
         />
         <IconAction icon={Pencil} label="Edit URL" onClick={onEdit} />
-        {isLive && portalPath ? (
+        {isLive && portalAbsoluteUrl ? (
           <a
-            href={portalPath}
+            href={portalAbsoluteUrl}
             target="_blank"
             rel="noopener"
             className="inline-flex size-8 items-center justify-center rounded-lg text-[#9aa0ab] transition-all hover:bg-[#eaf2fd] hover:text-[#1565C0]"

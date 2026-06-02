@@ -8,6 +8,7 @@ import {
   loadPortalCounts,
   loadTeamMembers,
 } from "@/lib/portals/portal-data";
+import { publicPortalUrl } from "@/lib/portals/public-url";
 import {
   PipelineHeader,
   PipelineFooterInfo,
@@ -42,7 +43,9 @@ export default async function PortalDrilldownPage(props: {
     loadPortalCounts(client.id as string),
     loadTeamMembers(client.id as string),
   ]);
-  const portalPath = client.portal_token ? `/portal/${client.portal_token}` : null;
+  // "Open live portal" must point at the brokerage-facing custom
+  // domain so staff click-throughs land on the same URL clients see.
+  const portalPublicUrl = publicPortalUrl(client.portal_token as string | null);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-[#f6f7f9]">
@@ -73,9 +76,9 @@ export default async function PortalDrilldownPage(props: {
             {counts.team} team
           </span>
         </div>
-        {portalPath ? (
+        {portalPublicUrl ? (
           <a
-            href={portalPath}
+            href={portalPublicUrl}
             target="_blank"
             rel="noopener"
             className="inline-flex items-center gap-1.5 text-sm font-medium text-[#1565C0] hover:underline"
