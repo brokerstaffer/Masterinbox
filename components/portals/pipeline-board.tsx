@@ -57,6 +57,7 @@ import {
   useMounted,
   PaginationFooter,
   PORTAL_PAGE_SIZE,
+  SelectAllAcrossPagesBanner,
 } from "@/components/portals/portal-ui";
 import { PipelineDetailInline } from "@/components/portals/pipeline-detail-inline";
 import { formatPhoneDisplay } from "@/lib/portals/phone";
@@ -448,6 +449,21 @@ export function PipelineBoard({
               ) : null}
             </div>
           </div>
+
+          {/* Cross-page select-all CTA. Acts on the filtered set
+              (which already reflects search + stage filters), so
+              "Select all 336 leads" excludes anyone the user has
+              filtered out. */}
+          <SelectAllAcrossPagesBanner
+            visiblePageFullySelected={
+              pageItems.length > 0 && pageItems.every((e) => selected.has(e.id))
+            }
+            selectedCount={selected.size}
+            totalCount={filtered.length}
+            noun="leads"
+            onSelectAll={() => setSelected(new Set(filtered.map((e) => e.id)))}
+            onClear={() => setSelected(new Set())}
+          />
 
           {/* Table (md+) — scrolls horizontally if container shrinks. */}
           <div

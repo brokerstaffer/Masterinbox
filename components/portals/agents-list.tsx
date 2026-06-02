@@ -39,6 +39,7 @@ import {
   useMounted,
   PaginationFooter,
   PORTAL_PAGE_SIZE,
+  SelectAllAcrossPagesBanner,
 } from "@/components/portals/portal-ui";
 import { cn } from "@/lib/utils";
 
@@ -311,6 +312,21 @@ export function AgentsList({
               ) : null}
             </div>
           </div>
+
+          {/* Cross-page select-all CTA: only appears when the visible
+              page is fully ticked (or everything's already selected)
+              AND there's data beyond this page. Lets the operator
+              escalate from page-scope to full-list-scope. */}
+          <SelectAllAcrossPagesBanner
+            visiblePageFullySelected={
+              pageItems.length > 0 && pageItems.every((e) => selected.has(e.id))
+            }
+            selectedCount={selected.size}
+            totalCount={filtered.length}
+            noun="agents"
+            onSelectAll={() => setSelected(new Set(filtered.map((e) => e.id)))}
+            onClear={clearSelection}
+          />
 
           <div
             className={cn(

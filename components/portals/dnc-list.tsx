@@ -43,6 +43,7 @@ import {
   useMounted,
   PaginationFooter,
   PORTAL_PAGE_SIZE,
+  SelectAllAcrossPagesBanner,
 } from "@/components/portals/portal-ui";
 
 export function DncList({
@@ -344,6 +345,14 @@ export function DncList({
             selected={selected}
             onToggleOne={toggleOne}
             onToggleAllVisible={toggleAllVisibleIn}
+            onSelectAllAcrossPages={(rows) =>
+              setSelected((cur) => {
+                const next = new Set(cur);
+                for (const r of rows) next.add(r.id);
+                return next;
+              })
+            }
+            onClearSelection={clearSelection}
             page={agentPage}
             onPageChange={setAgentPage}
           />
@@ -360,6 +369,14 @@ export function DncList({
                 selected={selected}
                 onToggleOne={toggleOne}
                 onToggleAllVisible={toggleAllVisibleIn}
+                onSelectAllAcrossPages={(rows) =>
+                  setSelected((cur) => {
+                    const next = new Set(cur);
+                    for (const r of rows) next.add(r.id);
+                    return next;
+                  })
+                }
+                onClearSelection={clearSelection}
                 companyStyle
                 page={companyPage}
                 onPageChange={setCompanyPage}
@@ -461,6 +478,8 @@ function DncSection({
   selected,
   onToggleOne,
   onToggleAllVisible,
+  onSelectAllAcrossPages,
+  onClearSelection,
   companyStyle,
   page,
   onPageChange,
@@ -474,6 +493,8 @@ function DncSection({
   selected: Set<string>;
   onToggleOne: (id: string) => void;
   onToggleAllVisible: (rows: DncEntry[]) => void;
+  onSelectAllAcrossPages: (rows: DncEntry[]) => void;
+  onClearSelection: () => void;
   companyStyle?: boolean;
   page: number;
   onPageChange: (next: number) => void;
@@ -485,6 +506,13 @@ function DncSection({
     const start = (page - 1) * PORTAL_PAGE_SIZE;
     return entries.slice(start, start + PORTAL_PAGE_SIZE);
   }, [entries, page]);
+  // Section-scoped selection stats so the cross-page banner only
+  // counts rows in THIS section (Agents and Companies have their own
+  // pagers and their own "all" target).
+  const sectionSelectedCount = useMemo(
+    () => entries.filter((e) => selected.has(e.id)).length,
+    [entries, selected],
+  );
   return (
     <>
       <div className="mb-2 flex items-center gap-2">
@@ -493,6 +521,20 @@ function DncSection({
           {count.toLocaleString()}
         </span>
       </div>
+      {/* Section-scoped cross-page select-all CTA. Shows when this
+          section's visible page is fully ticked AND the section has
+          more rows past it. Acts on this section's filtered entries
+          only — the other section stays untouched. */}
+      <SelectAllAcrossPagesBanner
+        visiblePageFullySelected={
+          pageItems.length > 0 && pageItems.every((e) => selected.has(e.id))
+        }
+        selectedCount={sectionSelectedCount}
+        totalCount={entries.length}
+        noun={companyStyle ? "companies" : "agents"}
+        onSelectAll={() => onSelectAllAcrossPages(entries)}
+        onClear={onClearSelection}
+      />
       <div
         className={cn(
           "overflow-x-auto rounded-2xl border border-[#ebecf0] bg-white shadow-sm transition-opacity duration-500",

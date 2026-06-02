@@ -165,6 +165,74 @@ export function PaginationFooter({
 // every list at once.
 export const PORTAL_PAGE_SIZE = 50;
 
+// Cross-page "select all" banner — the Gmail/Notion pattern. Ticking
+// the header checkbox only selects the visible page slice (so users
+// can build cross-page selections by paging + ticking). The moment a
+// page is fully ticked AND there's more data beyond it, this banner
+// renders the upgrade path:
+//   "All 50 on this page are selected.  Select all 336 agents"
+// and once everything is selected:
+//   "All 336 agents are selected.  Clear selection"
+//
+// Self-contained — pass in counts + handlers and reuse across every
+// paged portal list (Agents, DNC, Pipeline).
+export function SelectAllAcrossPagesBanner({
+  visiblePageFullySelected,
+  selectedCount,
+  totalCount,
+  noun,
+  onSelectAll,
+  onClear,
+}: {
+  visiblePageFullySelected: boolean;
+  selectedCount: number;
+  totalCount: number;
+  noun: string;
+  onSelectAll: () => void;
+  onClear: () => void;
+}) {
+  // Single page — never show; the bulk bar already explains
+  // "N selected" and there's no "all pages" to escalate to.
+  if (totalCount <= PORTAL_PAGE_SIZE) return null;
+
+  const allSelected = selectedCount >= totalCount;
+  if (!visiblePageFullySelected && !allSelected) return null;
+
+  return (
+    <div className="-mt-2 mb-4 flex items-center justify-center gap-1 rounded-lg border border-[#bcd5f1] bg-[#eaf2fd]/60 px-3 py-2 text-[12.5px] text-[#1565C0]">
+      {allSelected ? (
+        <>
+          <span>
+            All <span className="font-semibold">{totalCount.toLocaleString()}</span>{" "}
+            {noun} are selected.
+          </span>
+          <button
+            type="button"
+            onClick={onClear}
+            className="ml-1 font-semibold underline-offset-2 hover:underline"
+          >
+            Clear selection
+          </button>
+        </>
+      ) : (
+        <>
+          <span>
+            All <span className="font-semibold">{PORTAL_PAGE_SIZE}</span> {noun} on
+            this page are selected.
+          </span>
+          <button
+            type="button"
+            onClick={onSelectAll}
+            className="ml-1 font-semibold underline-offset-2 hover:underline"
+          >
+            Select all {totalCount.toLocaleString()} {noun}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 // Initials avatar — used in the Team and DNC lists.
 export function Avatar({
   name,
