@@ -218,6 +218,51 @@ export function csvRowToDnc(row: CsvRow): DncRow | null {
   };
 }
 
+// Maps a parsed CSV row to a Team-member insert payload. Email is
+// required (server schema enforces .email()); the other columns are
+// best-effort. Same fuzzy header matching as the Agents importer so
+// "Full Name" / "Email Address" / "Job Title" all flow without a
+// manual mapping step.
+export interface TeamRow {
+  name: string;
+  email: string;
+  title: string | null;
+  phone: string | null;
+}
+
+export function csvRowToTeam(row: CsvRow): TeamRow | null {
+  const first = pickFuzzy(row, ["first_name", "firstname", "first"], []);
+  const last = pickFuzzy(row, ["last_name", "lastname", "last"], []);
+  const name =
+    pickFuzzy(
+      row,
+      ["name", "full_name", "fullname", "team_member", "member_name"],
+      ["name", "member"],
+    ) ?? (first && last ? `${first} ${last}` : first ?? last);
+  const email = pickFuzzy(
+    row,
+    ["email", "email_address", "work_email"],
+    ["email"],
+  );
+  // Team requires email — the server schema does too. Drop rows
+  // without one before they hit the network.
+  if (!name || !email) return null;
+  return {
+    name,
+    email,
+    title: pickFuzzy(
+      row,
+      ["title", "job_title", "role", "position"],
+      ["title", "role", "position"],
+    ),
+    phone: pickFuzzy(
+      row,
+      ["phone", "phone_number", "mobile", "cell"],
+      ["phone", "mobile", "cell"],
+    ),
+  };
+}
+
 // Pull the host out of an email — last-resort domain extraction when
 // a company-kind CSV row only includes an email column.
 function deriveDomainFromEmail(email: string | null): string | null {

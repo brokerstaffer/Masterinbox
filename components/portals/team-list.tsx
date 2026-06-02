@@ -1,8 +1,18 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Loader2, Pencil, Mail } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  Loader2,
+  Pencil,
+  Mail,
+  Upload,
+  Download,
+  Search,
+  FileText,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -18,10 +28,20 @@ import { cn } from "@/lib/utils";
 import type { TeamMember } from "@/lib/portals/portal-data";
 import { formatPhoneDisplay } from "@/lib/portals/phone";
 import {
+  parseCsv,
+  csvRowToTeam,
+  toCsv,
+  downloadCsv,
+  type TeamRow,
+} from "@/lib/portals/csv";
+import {
   PortalPageHeader,
   PortalEmpty,
   Avatar,
   useMounted,
+  PaginationFooter,
+  PORTAL_PAGE_SIZE,
+  SelectAllAcrossPagesBanner,
 } from "@/components/portals/portal-ui";
 
 // Team is the intro-notification roster — NOT a blocklist (that's
@@ -50,6 +70,25 @@ export function TeamList({
   useEffect(() => setMembers(initial), [initial]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editing, setEditing] = useState<TeamMember | null>(null);
+  const [openCsv, setOpenCsv] = useState(false);
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return members;
+    const q = search.trim().toLowerCase();
+    return members.filter((m) =>
+      [m.name, m.email, m.title]
+        .filter((v): v is string => Boolean(v))
+        .some((v) => v.toLowerCase().includes(q)),
+    );
+  }, [members, search]);
+  useEffect(() => setPage(1), [search]);
+  const pageItems = useMemo(() => {
+    const start = (page - 1) * PORTAL_PAGE_SIZE;
+    return filtered.slice(start, start + PORTAL_PAGE_SIZE);
+  }, [filtered, page]);
 
   async function patch(id: string, body: Partial<TeamMember>) {
     const res = await fetch(`/api/portal/${token}/team/${id}`, {
@@ -83,16 +122,113 @@ export function TeamList({
     router.refresh();
   }
 
+  // Bulk-select helpers — same shape as the Agents list so the JSX
+  // for the bulk-action bar / banner / per-row checkbox stays
+  // copy-pasteable and behaves identically.
+  function toggleOne(id: string) {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleAllVisible() {
+    setSelected((cur) => {
+      const visibleIds = pageItems.map((m) => m.id);
+      const allSelected = visibleIds.every((id) => cur.has(id));
+      const next = new Set(cur);
+      if (allSelected) for (const id of visibleIds) next.delete(id);
+      else for (const id of visibleIds) next.add(id);
+      return next;
+    });
+  }
+  function clearSelection() {
+    setSelected(new Set());
+  }
+
+  function exportRows(rows: TeamMember[], filenameSuffix: string) {
+    if (rows.length === 0) {
+      toast.info("Nothing to export");
+      return;
+    }
+    const csv = toCsv(
+      rows.map((m) => ({
+        name: m.name,
+        email: m.email,
+        title: m.title ?? "",
+        phone: m.phone ?? "",
+      })),
+      ["name", "email", "title", "phone"],
+    );
+    const today = new Date().toISOString().slice(0, 10);
+    downloadCsv(`team-${filenameSuffix}-${today}.csv`, csv);
+  }
+  function exportCsv() {
+    exportRows(filtered, "all");
+  }
+  function bulkExport() {
+    exportRows(
+      members.filter((m) => selected.has(m.id)),
+      "selected",
+    );
+  }
+  async function bulkDelete() {
+    if (selected.size === 0) return;
+    if (!confirm(`Remove ${selected.size} team member(s)?`)) return;
+    const ids = Array.from(selected);
+    // Optimistic — drop the rows now so the table updates immediately.
+    setMembers((cur) => cur.filter((m) => !selected.has(m.id)));
+    clearSelection();
+    // Same 300-id chunk size the Agents list uses — keeps every
+    // PostgREST .in("id", …) URL under Node's 16 KB header cap.
+    const CHUNK = 300;
+    let deleted = 0;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK);
+      const res = await fetch(`/api/portal/${token}/team/bulk-delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: slice }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        toast.error(j.error ?? "Bulk delete failed");
+        router.refresh();
+        return;
+      }
+      const j = await res.json().catch(() => ({}));
+      deleted += (j.deleted as number | undefined) ?? slice.length;
+    }
+    toast.success(`Removed ${deleted.toLocaleString()}`);
+    router.refresh();
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-8">
       <PortalPageHeader
         title="Team"
         subtitle="Who receives intro notifications and how."
         actions={
-          <Button onClick={() => setShowAddForm((v) => !v)} className="gap-1.5">
-            <Plus className="size-4" />
-            Add member
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              onClick={exportCsv}
+              className="gap-1.5"
+              disabled={members.length === 0}
+            >
+              <Download className="size-4" />
+              Export CSV
+            </Button>
+            <Button variant="outline" onClick={() => setOpenCsv(true)} className="gap-1.5">
+              <Upload className="size-4" />
+              Import CSV
+            </Button>
+            <Button onClick={() => setShowAddForm((v) => !v)} className="gap-1.5">
+              <Plus className="size-4" />
+              Add member
+            </Button>
+          </>
         }
       />
 
@@ -132,35 +268,147 @@ export function TeamList({
           title="No team members yet"
           hint="Add the people who should hear about every introduction."
           action={
-            <Button onClick={() => setShowAddForm(true)} className="gap-1.5">
-              <Plus className="size-4" />
-              Add the first member
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setOpenCsv(true)} className="gap-1.5">
+                <Upload className="size-4" />
+                Import CSV
+              </Button>
+              <Button onClick={() => setShowAddForm(true)} className="gap-1.5">
+                <Plus className="size-4" />
+                Add the first member
+              </Button>
+            </div>
           }
         />
       ) : (
+        <>
+          <div className="mb-4 flex items-center gap-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[#9aa0ab]" />
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search team…"
+                className="h-9 w-64 rounded-lg border border-[#ebecf0] bg-white pl-8 pr-3 text-[13px] placeholder:text-[#9aa0ab] focus:border-[#bcd5f1] focus:outline-none focus:ring-2 focus:ring-[#eaf2fd]"
+              />
+            </div>
+            <span className="ml-auto text-[12px] text-[#9aa0ab]">
+              {filtered.length.toLocaleString()} of {members.length.toLocaleString()}
+            </span>
+          </div>
+
+          {/* Bulk-action bar — same shape as the Agents list so the
+              UX stays uniform across portal pages. */}
+          <div
+            className={cn(
+              "mb-4 flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2",
+              selected.size > 0 ? "border-[#bcd5f1] bg-[#eaf2fd]/60" : "border-[#ebecf0] bg-white",
+            )}
+          >
+            <span
+              className={cn(
+                "text-[13px] font-medium",
+                selected.size > 0 ? "text-[#1565C0]" : "text-[#5b6472]",
+              )}
+            >
+              {selected.size > 0
+                ? `${selected.size} selected`
+                : "Bulk actions — tick rows below to enable"}
+            </span>
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={bulkExport}
+                disabled={selected.size === 0}
+                className="gap-1.5 h-8"
+              >
+                <Download className="size-3.5" />
+                Export selected
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={bulkDelete}
+                disabled={selected.size === 0}
+                className={cn(
+                  "gap-1.5 h-8",
+                  selected.size > 0
+                    ? "border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                    : "",
+                )}
+              >
+                <Trash2 className="size-3.5" />
+                Delete selected
+              </Button>
+              {selected.size > 0 ? (
+                <Button variant="ghost" size="sm" onClick={clearSelection} className="h-8">
+                  Cancel
+                </Button>
+              ) : null}
+            </div>
+          </div>
+
+          <SelectAllAcrossPagesBanner
+            visiblePageFullySelected={
+              pageItems.length > 0 && pageItems.every((m) => selected.has(m.id))
+            }
+            selectedCount={selected.size}
+            totalCount={filtered.length}
+            noun="members"
+            onSelectAll={() => setSelected(new Set(filtered.map((m) => m.id)))}
+            onClear={clearSelection}
+          />
+
         <div
           className={cn(
             "overflow-x-auto rounded-2xl border border-[#ebecf0] bg-white shadow-sm transition-opacity duration-500",
             mounted ? "opacity-100" : "opacity-0",
           )}
         >
-          <div className="grid min-w-[680px] grid-cols-[1.4fr_1.1fr_1.6fr_72px_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+          <div className="grid min-w-[680px] grid-cols-[36px_1.4fr_1.1fr_1.6fr_72px_84px] items-center gap-3 border-b border-[#ebecf0] bg-[#fafbfc] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+            <div className="flex items-center justify-center">
+              <input
+                type="checkbox"
+                aria-label="Select all visible"
+                checked={
+                  pageItems.length > 0 && pageItems.every((m) => selected.has(m.id))
+                }
+                onChange={toggleAllVisible}
+                className="size-3.5 cursor-pointer accent-[#1565C0]"
+              />
+            </div>
             <div>Member</div>
             <div>Title</div>
             <div>Email / Phone</div>
             <div className="text-center">Active</div>
             <div></div>
           </div>
+          {filtered.length === 0 ? (
+            <div className="px-4 py-8 text-center text-[12.5px] text-[#9aa0ab]">
+              No members match your search.
+            </div>
+          ) : (
           <div className="divide-y divide-[#f0f1f4]">
-            {members.map((m) => (
+            {pageItems.map((m) => (
               <div
                 key={m.id}
                 className={cn(
-                  "grid min-w-[680px] grid-cols-[1.4fr_1.1fr_1.6fr_72px_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]",
+                  "grid min-w-[680px] grid-cols-[36px_1.4fr_1.1fr_1.6fr_72px_84px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#fafbfc]",
                   !m.active && "opacity-60",
+                  selected.has(m.id) && "bg-[#eaf2fd]/40 hover:bg-[#eaf2fd]/60",
                 )}
               >
+                <div className="flex items-center justify-center">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${m.name}`}
+                    checked={selected.has(m.id)}
+                    onChange={() => toggleOne(m.id)}
+                    className="size-3.5 cursor-pointer accent-[#1565C0]"
+                  />
+                </div>
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="relative shrink-0">
                     <Avatar name={m.name} />
@@ -216,7 +464,17 @@ export function TeamList({
               </div>
             ))}
           </div>
+          )}
         </div>
+
+        <PaginationFooter
+          page={page}
+          pageSize={PORTAL_PAGE_SIZE}
+          total={filtered.length}
+          onPageChange={setPage}
+          label="members"
+        />
+        </>
       )}
 
       {editing ? (
@@ -226,6 +484,16 @@ export function TeamList({
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
+            router.refresh();
+          }}
+        />
+      ) : null}
+      {openCsv ? (
+        <TeamCsvImportDialog
+          token={token}
+          onClose={() => setOpenCsv(false)}
+          onImported={() => {
+            setOpenCsv(false);
             router.refresh();
           }}
         />
@@ -434,6 +702,166 @@ function EditMemberDialog({
           <Button onClick={save} disabled={pending || !name.trim() || !email.trim()}>
             {pending ? <Loader2 className="size-4 animate-spin" /> : "Save changes"}
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// CSV import for Team — same UX shape the Agents importer uses
+// (parse client-side, preview the first 50 rows, post the whole set
+// to /team/csv in a single request). Server-side dedup happens on
+// (client_id, lower(email)) via the unique index added in 0042.
+function TeamCsvImportDialog({
+  token,
+  onClose,
+  onImported,
+}: {
+  token: string;
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [rows, setRows] = useState<TeamRow[] | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [importedCount, setImportedCount] = useState<number | null>(null);
+
+  function handleFile(file: File | undefined | null) {
+    if (!file) return;
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result ?? "");
+      const parsed = parseCsv(text);
+      const mapped = parsed.map(csvRowToTeam).filter((r): r is TeamRow => Boolean(r));
+      setRows(mapped);
+    };
+    reader.readAsText(file);
+  }
+
+  async function submit() {
+    if (!rows || rows.length === 0) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/portal/${token}/team/csv`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(j.error ?? "Import failed");
+        setSubmitting(false);
+        return;
+      }
+      setImportedCount(j.inserted ?? rows.length);
+      toast.success(`${j.inserted ?? rows.length} members imported`);
+      onImported();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Import team members from CSV</DialogTitle>
+        </DialogHeader>
+        {!rows ? (
+          <div>
+            <div
+              onClick={() => fileRef.current?.click()}
+              className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#ebecf0] bg-[#fafbfc] px-6 py-12 text-center transition-colors hover:border-[#bcd5f1] hover:bg-[#f4f8fd]"
+            >
+              <FileText className="size-7 text-[#aab0ba]" />
+              <div className="text-sm font-medium">Click to choose a CSV file</div>
+              <div className="text-[12px] text-[#9aa0ab]">
+                Columns we recognise: <code>name</code>, <code>email</code>,{" "}
+                <code>title</code>, <code>phone</code>
+                <br />
+                Headers don&apos;t need to match exactly — e.g.{" "}
+                <code>Full Name</code>, <code>Email Address</code>,{" "}
+                <code>Job Title</code>, <code>Phone Number</code> all work.
+              </div>
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(e) => handleFile(e.target.files?.[0])}
+            />
+          </div>
+        ) : (
+          <div>
+            <div className="mb-2 flex items-center justify-between text-[12px]">
+              <span className="font-medium">
+                {fileName} —{" "}
+                <span className="text-[#5b6472]">{rows.length} ready to import</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setRows(null);
+                  setFileName(null);
+                }}
+                className="text-[#1565C0] hover:underline"
+              >
+                Choose a different file
+              </button>
+            </div>
+            <div className="max-h-72 overflow-y-auto rounded-lg border border-[#ebecf0]">
+              <div className="grid grid-cols-[1.4fr_1.4fr_1fr_140px] border-b border-[#ebecf0] bg-[#fafbfc] px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+                <div>Name</div>
+                <div>Email</div>
+                <div>Title</div>
+                <div>Phone</div>
+              </div>
+              {rows.slice(0, 50).map((r, i) => (
+                <div
+                  key={i}
+                  className="grid grid-cols-[1.4fr_1.4fr_1fr_140px] gap-2 border-b border-[#f0f1f4] px-3 py-1.5 text-[12.5px] last:border-0"
+                >
+                  <div className="truncate font-medium">{r.name}</div>
+                  <div className="truncate text-[#5b6472]">{r.email}</div>
+                  <div className="truncate text-[#5b6472]">{r.title ?? "—"}</div>
+                  <div className="truncate text-[#5b6472]">{r.phone ? formatPhoneDisplay(r.phone) : "—"}</div>
+                </div>
+              ))}
+              {rows.length > 50 ? (
+                <div className="px-3 py-1.5 text-center text-[11.5px] text-[#9aa0ab]">
+                  …and {rows.length - 50} more
+                </div>
+              ) : null}
+            </div>
+            {importedCount !== null ? (
+              <p className="mt-3 rounded-md bg-[#e9f7ef] px-3 py-2 text-[12px] text-[#0c8a4e]">
+                Imported {importedCount.toLocaleString()} members. Duplicates
+                were skipped automatically.
+              </p>
+            ) : (
+              <p className="mt-3 text-[11.5px] leading-relaxed text-[#9aa0ab]">
+                Re-uploading the same file is safe — members with the same
+                email are skipped automatically.
+              </p>
+            )}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {importedCount !== null ? "Close" : "Cancel"}
+          </Button>
+          {rows && importedCount === null ? (
+            <Button onClick={submit} disabled={submitting || rows.length === 0}>
+              {submitting ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                `Import ${rows.length} members`
+              )}
+            </Button>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>
