@@ -27,6 +27,23 @@ import { createClient } from "@/lib/supabase/client";
 
 const POLL_MS = 30_000;
 
+// Coalesce window for realtime-driven router.refresh() calls.
+//
+// Was 250 ms. A typical inbound reply fires 2-4 INSERTs in quick
+// succession (messages + label_assignments + maybe a thread row),
+// and webhooks for cross-provider conversations can land within a
+// few hundred ms of each other. At 250 ms the refresh fires
+// repeatedly back-to-back; each one re-runs all 9 inbox-page
+// loaders (loadThreads, loadViewCounts, loadLists × 3 view
+// queries, loadLabels, loadChannels, loadCampaigns, loadClients,
+// loadViewBySlug), causing the multi-second freezes operators
+// reported.
+//
+// Bumping to 2000 ms collapses a burst into a single refresh ~2 s
+// after the last event. New content still surfaces fast (real-time
+// from the user's perspective) and the UI stops thrashing.
+const REFRESH_DEBOUNCE_MS = 2000;
+
 export function RealtimeRefresher({ workspaceId }: { workspaceId: string }) {
   const router = useRouter();
   // Coalesce a burst of changes into one router.refresh() call so we don't
@@ -40,7 +57,7 @@ export function RealtimeRefresher({ workspaceId }: { workspaceId: string }) {
       if (pending.current) clearTimeout(pending.current);
       pending.current = setTimeout(() => {
         router.refresh();
-      }, 250);
+      }, REFRESH_DEBOUNCE_MS);
     }
 
     const poll = setInterval(() => {

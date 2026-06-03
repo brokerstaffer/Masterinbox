@@ -24,6 +24,37 @@ export const maxDuration = 300;
 const PER_FILE_MAX = 25 * 1024 * 1024; // 25 MB
 const COMBINED_MAX = 50 * 1024 * 1024; // 50 MB
 
+// Workspace-wide auto-CC. Operators asked for Nicole to be on every
+// outbound reply so the staff oversight loop is automatic instead of
+// remembered by the composing user. Wire it server-side so the
+// composer / templates / API clients all get the same behavior.
+const ALWAYS_CC_EMAIL = "nicole.c@brokerstaffer.com";
+
+type Recipient = { name?: string | null; email_address: string };
+
+// Merge a fixed always-CC address into the payload's cc array.
+// Lower-cases for comparison + dedupes. Skips when the address is
+// already the To recipient (e.g. replying to a thread WHERE Nicole
+// IS the lead) so she only ever appears once.
+function mergeAlwaysCc(
+  cc: Recipient[] | undefined,
+  to: Recipient[] | undefined,
+): Recipient[] {
+  const norm = (s: string) => s.toLowerCase().trim();
+  const inTo = new Set((to ?? []).map((r) => norm(r.email_address)));
+  const seen = new Set<string>();
+  const out: Recipient[] = [];
+  const push = (r: Recipient) => {
+    const k = norm(r.email_address);
+    if (!k || inTo.has(k) || seen.has(k)) return;
+    seen.add(k);
+    out.push(r);
+  };
+  for (const r of cc ?? []) push(r);
+  push({ email_address: ALWAYS_CC_EMAIL });
+  return out;
+}
+
 const recipientSchema = z.object({
   name: z.string().nullable().optional(),
   email_address: z.string().email(),
@@ -135,6 +166,13 @@ export async function POST(
       { status: 400 },
     );
   }
+
+  // Inject the workspace-wide auto-CC. Runs once for both transport
+  // modes (JSON + multipart) and downstream code (EmailBison send,
+  // Instantly send, the outbound `messages` snapshot at the bottom of
+  // this route) reads payload.cc, so a single point of insertion is
+  // enough.
+  payload = { ...payload, cc: mergeAlwaysCc(payload.cc, payload.to) };
 
   // Membership check via user-scoped RLS — only members of the workspace
   // owning this thread can see/reply to it.

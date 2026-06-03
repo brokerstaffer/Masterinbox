@@ -534,89 +534,98 @@ export async function handleEmailBisonEvent(envelope: EmailBisonWebhookEnvelope)
     raw_payload: envelope,
   });
 
-  // Now backfill the rest of the conversation. Synchronous so the DB is
-  // complete by the time the user opens the thread. Cost: 2-3 EmailBison
-  // calls per webhook (switch + sent-emails + conversation-thread).
-  await backfillConversation(
-    ctx,
-    threadId,
-    payload.lead.id,
-    payload.reply.id,
-    payload.campaign?.id,
-    payload.lead.email,
-    eventBlock?.workspace_id,
+  // Background pipeline — webhook returns 200 the moment the lead /
+  // thread / message rows are committed. Backfill of the full
+  // conversation history (2-3 EmailBison API calls), AI labeling
+  // and agent-draft generation all continue asynchronously and
+  // write their results when ready. The realtime channel surfaces
+  // those writes to any open inbox tab on its own debounce.
+  //
+  // Previously these steps awaited inline, holding the webhook
+  // response on ~1-2 s of EmailBison + OpenAI latency. Concurrent
+  // user navigation contended for the same Node worker / DB pool
+  // and surfaced as the multi-second UI freeze operators reported.
+  //
+  // Capture the narrowed references in locals so TS knows they're
+  // defined inside the closure — the IIFE is a new function scope
+  // and loses the synchronous narrowing the outer guards gave us.
+  const lead = payload.lead;
+  const reply = payload.reply;
+  const campaignId = payload.campaign?.id ?? null;
+  const senderEmail =
     payload.sender_email?.id && payload.sender_email.email
       ? { id: payload.sender_email.id, email: payload.sender_email.email }
-      : null,
-  );
-
-  // Fire AI labeling on this inbound reply. No-ops if the workspace hasn't
-  // enabled AI labeling or set an API key. Errors are swallowed — we never
-  // want labeling failures to block a webhook ack.
-  try {
-    const r = await labelInboundMessage({
-      workspaceId: ctx.workspaceId,
-      threadId,
-      messageId: msg.externalMessageId,
-      subject: msg.subject,
-      bodyText: msg.body_text,
-      bodyHtml: msg.body_html,
-    });
-    if (r.status === "labeled") {
-      console.log(`[ai] thread ${threadId} -> ${r.label}`);
-    } else if (r.status === "errored") {
-      console.error(`[ai] thread ${threadId} errored: ${r.error}`);
+      : null;
+  const senderEmailName = payload.sender_email?.name ?? null;
+  const senderEmailAddr = payload.sender_email?.email ?? null;
+  const eventBlockWorkspaceId = eventBlock?.workspace_id;
+  void (async () => {
+    try {
+      await backfillConversation(
+        ctx,
+        threadId,
+        lead.id,
+        reply.id,
+        campaignId ?? undefined,
+        lead.email,
+        eventBlockWorkspaceId,
+        senderEmail,
+      );
+    } catch (err) {
+      console.error("[emailbison] async backfill failed", err);
     }
-  } catch (err) {
-    console.error("[ai] labelInboundMessage failed", err);
-  }
+    try {
+      const r = await labelInboundMessage({
+        workspaceId: ctx.workspaceId,
+        threadId,
+        messageId: msg.externalMessageId,
+        subject: msg.subject,
+        bodyText: msg.body_text,
+        bodyHtml: msg.body_html,
+      });
+      if (r.status === "labeled") {
+        console.log(`[ai] thread ${threadId} -> ${r.label}`);
+      } else if (r.status === "errored") {
+        console.error(`[ai] thread ${threadId} errored: ${r.error}`);
+      }
+    } catch (err) {
+      console.error("[ai] labelInboundMessage failed", err);
+    }
+    try {
+      const channelType = "email" as const;
+      const candidate = (await loadAgents(ctx.workspaceId))
+        .filter((a) => a.active)
+        .filter((a) => a.channel_filter === "both" || a.channel_filter === channelType)
+        .filter((a) => {
+          if (a.channel_ids.length === 0) return true;
+          return ctx.channelId !== null && a.channel_ids.includes(ctx.channelId);
+        })
+        .sort((a, b) => (a.created_at < b.created_at ? -1 : 1))[0];
 
-  // Reply Agents — pick the FIRST matching active agent and generate a
-  // single draft. Multiple agents per channel would mean multiple drafts
-  // and a confusing UI, so we treat agents as ordered: the oldest active
-  // agent whose channel filter matches wins. EmailBison webhooks are
-  // always channel_type='email', so filter agents accordingly.
-  try {
-    const channelType = "email" as const;
-    const candidate = (await loadAgents(ctx.workspaceId))
-      .filter((a) => a.active)
-      .filter((a) => a.channel_filter === "both" || a.channel_filter === channelType)
-      .filter((a) => {
-        if (a.channel_ids.length === 0) return true;
-        return ctx.channelId !== null && a.channel_ids.includes(ctx.channelId);
-      })
-      // Oldest-first — same agent runs across the workspace's lifetime
-      // unless the user explicitly turns it off.
-      .sort((a, b) => (a.created_at < b.created_at ? -1 : 1))[0];
-
-    if (candidate) {
-      const full = await loadAgentWithKey(candidate.id);
-      if (full && full.api_key) {
-        // Pull the full thread (both directions, oldest → newest) so the
-        // agent has the prior pitch + any back-and-forth as context, not
-        // just the latest inbound. The just-inserted reply is included in
-        // this query — upsertMessage above has already committed it.
-        const { data: allMessages } = await createAdminSupabase()
-          .from("messages")
-          .select("direction, sent_at, body_text, body_html")
-          .eq("thread_id", threadId)
-          .order("sent_at", { ascending: true });
-        const conversation = (allMessages ?? []).map((m) => ({
-          direction: m.direction as "inbound" | "outbound",
-          sentAt: (m.sent_at as string | null) ?? null,
-          body: (m.body_text as string | null) ?? stripHtml((m.body_html as string | null) ?? ""),
-        }));
-        try {
+      if (candidate) {
+        const full = await loadAgentWithKey(candidate.id);
+        if (full && full.api_key) {
+          const { data: allMessages } = await createAdminSupabase()
+            .from("messages")
+            .select("direction, sent_at, body_text, body_html")
+            .eq("thread_id", threadId)
+            .order("sent_at", { ascending: true });
+          const conversation = (allMessages ?? []).map((m) => ({
+            direction: m.direction as "inbound" | "outbound",
+            sentAt: (m.sent_at as string | null) ?? null,
+            body:
+              (m.body_text as string | null) ??
+              stripHtml((m.body_html as string | null) ?? ""),
+          }));
           const r = await createDraftForAgent({
             workspaceId: ctx.workspaceId,
             threadId,
             agent: full,
             leadName:
-              [payload.lead.first_name, payload.lead.last_name].filter(Boolean).join(" ") ||
-              null,
-            leadEmail: payload.lead.email ?? null,
-            ourName: payload.sender_email?.name ?? null,
-            ourEmail: payload.sender_email?.email ?? null,
+              [lead.first_name, lead.last_name].filter(Boolean).join(" ") || null,
+            leadEmail: lead.email ?? null,
+            ourName: senderEmailName,
+            ourEmail: senderEmailAddr,
             subject: msg.subject,
             conversation,
           });
@@ -625,14 +634,12 @@ export async function handleEmailBisonEvent(envelope: EmailBisonWebhookEnvelope)
           } else {
             console.error(`[agent:${candidate.name}] draft failed`, r);
           }
-        } catch (err) {
-          console.error(`[agent:${candidate.name}] draft generation failed`, err);
         }
       }
+    } catch (err) {
+      console.error("[agents] draft generation pass failed", err);
     }
-  } catch (err) {
-    console.error("[agents] draft generation pass failed", err);
-  }
+  })();
 
   return { ok: true };
 }

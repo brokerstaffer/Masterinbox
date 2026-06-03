@@ -494,68 +494,77 @@ export async function handleInstantlyEvent(envelope: InstantlyWebhookEnvelope): 
 
   await upsertMessage({ ctx, threadId, emailId, envelope, bodyText });
 
-  // Pull the rest of the per-(lead, campaign) conversation from Instantly
-  // so the inbox shows the full back-and-forth, not just the latest reply.
-  // Synchronous: one extra API call per webhook, same model as EmailBison.
-  await backfillInstantlyConversation(ctx, threadId, leadEmail, envelope.campaign_id);
-
-  // AI labeling on the inbound message (no-op if not configured for this
-  // workspace). Errors swallowed so labeling can never block a webhook ack.
-  try {
-    await labelInboundMessage({
-      workspaceId: ctx.workspaceId,
-      threadId,
-      messageId: `in:email:${emailId}`,
-      subject: envelope.reply_subject ?? null,
-      bodyText,
-      bodyHtml: envelope.reply_html ?? null,
-    });
-  } catch (err) {
-    console.error("[ai] labelInboundMessage (instantly) failed", err);
-  }
-
-  // Reply agent — pick the first matching active email agent and draft.
-  try {
-    const candidate = (await loadAgents(ctx.workspaceId))
-      .filter((a) => a.active)
-      .filter((a) => a.channel_filter === "both" || a.channel_filter === "email")
-      .filter((a) => {
-        if (a.channel_ids.length === 0) return true;
-        return ctx.channelId !== null && a.channel_ids.includes(ctx.channelId);
-      })
-      .sort((a, b) => (a.created_at < b.created_at ? -1 : 1))[0];
-    if (candidate) {
-      const full = await loadAgentWithKey(candidate.id);
-      if (full && full.api_key) {
-        // Full thread context — both directions, oldest → newest. The
-        // just-upserted inbound is included since upsertMessage above
-        // already committed it.
-        const { data: allMessages } = await createAdminSupabase()
-          .from("messages")
-          .select("direction, sent_at, body_text, body_html")
-          .eq("thread_id", threadId)
-          .order("sent_at", { ascending: true });
-        const conversation = (allMessages ?? []).map((m) => ({
-          direction: m.direction as "inbound" | "outbound",
-          sentAt: (m.sent_at as string | null) ?? null,
-          body: (m.body_text as string | null) ?? stripHtml((m.body_html as string | null) ?? ""),
-        }));
-        await createDraftForAgent({
-          workspaceId: ctx.workspaceId,
-          threadId,
-          agent: full,
-          leadName: [envelope.firstName, envelope.lastName].filter(Boolean).join(" ") || null,
-          leadEmail,
-          ourName: null,
-          ourEmail: envelope.email_account ?? null,
-          subject: envelope.reply_subject ?? null,
-          conversation,
-        });
-      }
+  // Background pipeline — the webhook response returns the moment the
+  // lead / thread / message rows are committed. Backfill of the full
+  // conversation history from Instantly, AI labeling and agent-draft
+  // generation all continue asynchronously and write their results
+  // when ready. The realtime channel surfaces those writes to any
+  // open inbox tab on its own debounce.
+  //
+  // Previously these steps awaited inline, holding the webhook
+  // response on ~1-2 s of Instantly API + OpenAI latency. Concurrent
+  // user navigation contended for the same Node worker / DB pool and
+  // surfaced as the multi-second UI freeze operators reported.
+  void (async () => {
+    try {
+      await backfillInstantlyConversation(ctx, threadId, leadEmail, envelope.campaign_id);
+    } catch (err) {
+      console.error("[instantly] async backfill failed", err);
     }
-  } catch (err) {
-    console.error("[agents] instantly draft generation failed", err);
-  }
+    try {
+      await labelInboundMessage({
+        workspaceId: ctx.workspaceId,
+        threadId,
+        messageId: `in:email:${emailId}`,
+        subject: envelope.reply_subject ?? null,
+        bodyText,
+        bodyHtml: envelope.reply_html ?? null,
+      });
+    } catch (err) {
+      console.error("[ai] labelInboundMessage (instantly) failed", err);
+    }
+    try {
+      const candidate = (await loadAgents(ctx.workspaceId))
+        .filter((a) => a.active)
+        .filter((a) => a.channel_filter === "both" || a.channel_filter === "email")
+        .filter((a) => {
+          if (a.channel_ids.length === 0) return true;
+          return ctx.channelId !== null && a.channel_ids.includes(ctx.channelId);
+        })
+        .sort((a, b) => (a.created_at < b.created_at ? -1 : 1))[0];
+      if (candidate) {
+        const full = await loadAgentWithKey(candidate.id);
+        if (full && full.api_key) {
+          const { data: allMessages } = await createAdminSupabase()
+            .from("messages")
+            .select("direction, sent_at, body_text, body_html")
+            .eq("thread_id", threadId)
+            .order("sent_at", { ascending: true });
+          const conversation = (allMessages ?? []).map((m) => ({
+            direction: m.direction as "inbound" | "outbound",
+            sentAt: (m.sent_at as string | null) ?? null,
+            body:
+              (m.body_text as string | null) ??
+              stripHtml((m.body_html as string | null) ?? ""),
+          }));
+          await createDraftForAgent({
+            workspaceId: ctx.workspaceId,
+            threadId,
+            agent: full,
+            leadName:
+              [envelope.firstName, envelope.lastName].filter(Boolean).join(" ") || null,
+            leadEmail,
+            ourName: null,
+            ourEmail: envelope.email_account ?? null,
+            subject: envelope.reply_subject ?? null,
+            conversation,
+          });
+        }
+      }
+    } catch (err) {
+      console.error("[agents] instantly draft generation failed", err);
+    }
+  })();
 
   return { ok: true };
 }
