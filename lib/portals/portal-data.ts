@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { createAdminSupabase } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/db/paginated-select";
 
 // Per-client data loaders for the portal expansion. Every query goes
 // through the service-role admin client with a code-level client_id
@@ -234,51 +235,76 @@ export const loadPipelineEntries = cache(
   },
 );
 
+// Three list loaders. Each pages past Supabase's server-side
+// db-max-rows=1000 cap via fetchAllRows — a single .range(0, N)
+// call does NOT lift it (the server replies Content-Range: 0-999/N
+// no matter what range the client asks for). Without paging, a
+// brokerage that imports a 3,400-row CSV only ever sees the first
+// 1,000 rows in the UI even though the inserts succeeded.
+//
+// Each loader keeps its own ordering. fetchAllRows preserves the
+// per-window ORDER BY across the concatenated result.
+
 export const loadDncEntries = cache(
   async (clientId: string): Promise<DncEntry[]> => {
     const admin = createAdminSupabase();
-    const { data, error } = await admin
-      .from("client_dnc_entries")
-      .select(
-        "id, kind, name, email, phone, brokerage, domain, notes, added_by, pushed_to_instantly, pushed_to_emailbison, push_error, created_at",
-      )
-      .eq("client_id", clientId)
-      .order("created_at", { ascending: false })
-      .range(0, 9_999);
-    if (error || !data) return [];
-    return data as DncEntry[];
+    try {
+      return await fetchAllRows<DncEntry>(({ from, to }) =>
+        admin
+          .from("client_dnc_entries")
+          .select(
+            "id, kind, name, email, phone, brokerage, domain, notes, added_by, pushed_to_instantly, pushed_to_emailbison, push_error, created_at",
+          )
+          .eq("client_id", clientId)
+          .order("created_at", { ascending: false })
+          .range(from, to),
+      );
+    } catch (err) {
+      console.error("[loadDncEntries] failed", err);
+      return [];
+    }
   },
 );
 
 export const loadAgentEntries = cache(
   async (clientId: string): Promise<AgentEntry[]> => {
     const admin = createAdminSupabase();
-    const { data, error } = await admin
-      .from("client_agents")
-      .select(
-        "id, name, email, phone, license, pushed_to_instantly, pushed_to_emailbison, push_error, created_at",
-      )
-      .eq("client_id", clientId)
-      .order("created_at", { ascending: false })
-      .range(0, 9_999);
-    if (error || !data) return [];
-    return data as AgentEntry[];
+    try {
+      return await fetchAllRows<AgentEntry>(({ from, to }) =>
+        admin
+          .from("client_agents")
+          .select(
+            "id, name, email, phone, license, pushed_to_instantly, pushed_to_emailbison, push_error, created_at",
+          )
+          .eq("client_id", clientId)
+          .order("created_at", { ascending: false })
+          .range(from, to),
+      );
+    } catch (err) {
+      console.error("[loadAgentEntries] failed", err);
+      return [];
+    }
   },
 );
 
 export const loadTeamMembers = cache(
   async (clientId: string): Promise<TeamMember[]> => {
     const admin = createAdminSupabase();
-    const { data, error } = await admin
-      .from("client_team_members")
-      .select(
-        "id, name, email, title, phone, receives, active, pushed_to_instantly, pushed_to_emailbison, push_error, created_at",
-      )
-      .eq("client_id", clientId)
-      .order("created_at", { ascending: true })
-      .range(0, 999);
-    if (error || !data) return [];
-    return data as TeamMember[];
+    try {
+      return await fetchAllRows<TeamMember>(({ from, to }) =>
+        admin
+          .from("client_team_members")
+          .select(
+            "id, name, email, title, phone, receives, active, pushed_to_instantly, pushed_to_emailbison, push_error, created_at",
+          )
+          .eq("client_id", clientId)
+          .order("created_at", { ascending: true })
+          .range(from, to),
+      );
+    } catch (err) {
+      console.error("[loadTeamMembers] failed", err);
+      return [];
+    }
   },
 );
 
