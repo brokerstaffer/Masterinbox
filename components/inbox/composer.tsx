@@ -28,6 +28,7 @@ import {
   substituteVariables,
   type SubstitutionContext,
 } from "@/lib/inbox/template-variables";
+import { mergeAlwaysCcString } from "@/lib/inbox/auto-cc";
 import {
   ComposerBodyEditor,
   type ComposerBodyHandle,
@@ -152,7 +153,10 @@ export function Composer({
   );
   const [composerSubject, setComposerSubject] = useState(subject || "");
   const [to, setTo] = useState(toEmail);
-  const [cc, setCc] = useState(ccInitial);
+  // Pre-fill the auto-CC so operators see who's being looped in. The
+  // server (app/api/threads/[threadId]/reply/route.ts) also runs the
+  // same merge as a safety net — UI is the canonical source.
+  const [cc, setCc] = useState(() => mergeAlwaysCcString(ccInitial, toEmail));
   const [bcc, setBcc] = useState(bccInitial);
   // Pre-select the channel whose display_name / instantly_account_id
   // matches the thread's pinned sender. Falls back to null (use the
@@ -170,8 +174,10 @@ export function Composer({
     },
   );
   // Auto-open the CC row when we pre-filled it — otherwise the user has no
-  // visual signal that anyone's being looped in.
-  const [showCc, setShowCc] = useState(ccInitial.trim().length > 0);
+  // visual signal that anyone's being looped in. The auto-CC always fills
+  // it, so this is effectively always true; left as state so future per-
+  // thread variants (e.g. internal-note send) can opt out.
+  const [showCc, setShowCc] = useState(true);
   const [showBcc, setShowBcc] = useState(bccInitial.trim().length > 0);
   const [addSignature, setAddSignature] = useState(false);
   const [sending, setSending] = useState(false);

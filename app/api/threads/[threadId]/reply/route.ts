@@ -4,6 +4,7 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { createEmailBisonClient } from "@/lib/emailbison/client";
 import { createInstantlyClient, InstantlyError } from "@/lib/instantly/client";
+import { ALWAYS_CC_EMAIL } from "@/lib/inbox/auto-cc";
 
 // Sends an outbound reply for the given thread via EmailBison's
 // POST /api/replies/{id}/reply endpoint.
@@ -24,11 +25,11 @@ export const maxDuration = 300;
 const PER_FILE_MAX = 25 * 1024 * 1024; // 25 MB
 const COMBINED_MAX = 50 * 1024 * 1024; // 50 MB
 
-// Workspace-wide auto-CC. Operators asked for Nicole to be on every
-// outbound reply so the staff oversight loop is automatic instead of
-// remembered by the composing user. Wire it server-side so the
-// composer / templates / API clients all get the same behavior.
-const ALWAYS_CC_EMAIL = "nicole.c@brokerstaffer.com";
+// Workspace-wide auto-CC. The composer already pre-fills the same
+// address (lib/inbox/auto-cc.ts) so operators see who's looped in.
+// This server-side merge is the safety net: any direct API client
+// + the rare case where the operator removes Nicole from the cc
+// field still gets enforced here.
 
 type Recipient = { name?: string | null; email_address: string };
 
