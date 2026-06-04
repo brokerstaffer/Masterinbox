@@ -1,12 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, X, Mail } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { sanitizeEmailHtml } from "@/lib/inbox/sanitize-email-html";
 import type { PipelineEntry } from "@/lib/portals/portal-data";
 import { Avatar } from "@/components/portals/portal-ui";
 import { cn } from "@/lib/utils";
+
+// Resizable conversation sheet — drag the handle on the left edge to
+// widen or narrow. Default is comfy email-reading width; the user's
+// chosen width persists across sessions via localStorage. Hard limits
+// stop it from shrinking past the point where bubble layout breaks
+// or growing past the viewport.
+const SHEET_WIDTH_KEY = "portal-conversation-sheet-width";
+const DEFAULT_WIDTH = 880;
+const MIN_WIDTH = 480;
+const MAX_WIDTH = 1400;
 
 // Right-side slide-out conversation viewer. Read-only — clients see
 // the email back-and-forth on a candidate's thread without any of
@@ -48,6 +58,51 @@ export function ConversationSheet({
 }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Persisted resizable width. Initialised to the default on the
+  // server so the SSR/CSR markup matches; localStorage restore runs
+  // in a useEffect below.
+  const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
+  const [resizing, setResizing] = useState(false);
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  useEffect(() => {
+    try {
+      const saved = Number(window.localStorage.getItem(SHEET_WIDTH_KEY));
+      if (Number.isFinite(saved) && saved >= MIN_WIDTH && saved <= MAX_WIDTH) {
+        setWidth(saved);
+      }
+    } catch {
+      // localStorage can throw in private-mode Safari — fall back to default.
+    }
+  }, []);
+
+  function handleResizePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    dragRef.current = { startX: e.clientX, startWidth: width };
+    setResizing(true);
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }
+  function handleResizePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!dragRef.current) return;
+    // Sheet enters from the RIGHT, so dragging the left edge LEFTWARD
+    // (clientX decreasing) widens the sheet. delta = how far the
+    // pointer moved left of where the drag started.
+    const delta = dragRef.current.startX - e.clientX;
+    const proposed = dragRef.current.startWidth + delta;
+    const cap = Math.min(MAX_WIDTH, window.innerWidth - 32);
+    setWidth(Math.max(MIN_WIDTH, Math.min(cap, proposed)));
+  }
+  function handleResizePointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (!dragRef.current) return;
+    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    dragRef.current = null;
+    setResizing(false);
+    try {
+      window.localStorage.setItem(SHEET_WIDTH_KEY, String(width));
+    } catch {
+      // ignore — width still applies for the rest of this session.
+    }
+  }
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [noThread, setNoThread] = useState(false);
 
@@ -82,12 +137,44 @@ export function ConversationSheet({
     <Sheet open onOpenChange={(v) => !v && onClose()}>
       <SheetContent
         side="right"
-        // Wider sheet (~720 px) so the message bubbles have room to
-        // breathe instead of wrapping every other word. Falls back to
-        // full-width on small viewports.
-        className="flex w-full flex-col gap-0 bg-[#fafbfc] p-0 sm:max-w-[720px]"
+        // Width is user-resizable via the drag handle on the left
+        // edge below. SSR / first paint use DEFAULT_WIDTH; the
+        // localStorage restore kicks in on mount. Full-bleed on
+        // narrow viewports where the inline width would exceed the
+        // screen — Tailwind's responsive `sm:` keeps the cap off
+        // mobile.
+        className={cn(
+          "flex w-full flex-col gap-0 bg-[#fafbfc] p-0",
+          resizing ? "transition-none select-none" : "transition-[max-width]",
+        )}
+        style={{ maxWidth: `min(${width}px, 100vw)` }}
         showCloseButton={false}
       >
+        {/* Drag handle on the LEFT edge of the slide-out. Wider hit
+            area (6 px) than visual width (1 px line on hover). Hidden
+            on touch / sub-md viewports where drag doesn't make
+            sense. */}
+        <div
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerUp}
+          onPointerCancel={handleResizePointerUp}
+          role="separator"
+          aria-label="Drag to resize conversation"
+          aria-orientation="vertical"
+          className={cn(
+            "group absolute inset-y-0 left-0 z-30 hidden w-1.5 cursor-col-resize touch-none md:block",
+            resizing && "bg-[#1565C0]/30",
+          )}
+        >
+          <div
+            className={cn(
+              "absolute inset-y-0 left-0 w-px bg-transparent transition-colors",
+              "group-hover:bg-[#bcd5f1]",
+              resizing && "bg-[#1565C0]",
+            )}
+          />
+        </div>
         <header className="relative shrink-0 border-b border-[#ebecf0] bg-white px-5 pt-5 pb-4">
           <button
             type="button"
