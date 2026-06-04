@@ -23,6 +23,7 @@ import {
 // as a direct lookup.
 const LEGEND_STYLE: Record<PipelineStage, string> = {
   introduction: "bg-[#1976d2]",
+  phone_screen_scheduled: "bg-[#7689e0]",
   phone_screen: "bg-[#4f63d2]",
   interview: "bg-[#7c4dff]",
   hired: "bg-[#10a05d]",
@@ -31,12 +32,11 @@ const LEGEND_STYLE: Record<PipelineStage, string> = {
   no_show: "bg-[#8b95a3]",
 };
 
-// The same stage maps to two of the requested legend entries
-// (Screening / Interview share copy); we surface them as one combined
-// row so the client sees the definition without duplicates.
-const LEGEND_ORDER: PipelineStage[] = STAGE_ORDER.filter(
-  (s) => s !== "phone_screen",
-);
+// Surface every stage in the legend so the client can see what each
+// of the workflow steps means. Previously `phone_screen` shared copy
+// with `interview` and was hidden; the new stage clarifies the split
+// so both are kept.
+const LEGEND_ORDER: PipelineStage[] = STAGE_ORDER;
 
 const BEST_PRACTICES: Array<{ icon: typeof Reply; title: string; body: string }> = [
   {

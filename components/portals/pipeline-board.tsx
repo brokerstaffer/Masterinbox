@@ -60,18 +60,22 @@ import {
   SelectAllAcrossPagesBanner,
 } from "@/components/portals/portal-ui";
 import { PipelineDetailInline } from "@/components/portals/pipeline-detail-inline";
+import { ConversationSheet } from "@/components/portals/conversation-sheet";
 import { formatPhoneDisplay } from "@/lib/portals/phone";
 
 // Stage → coloured chip. Tone matches the Google Sheets pipeline board:
 // saturated fill, white text — readable at a glance across a long table.
 const STAGE_STYLE: Record<PipelineStage, { bg: string; text: string }> = {
-  introduction:    { bg: "bg-[#1976d2]", text: "text-white" },
-  phone_screen:    { bg: "bg-[#4f63d2]", text: "text-white" },
-  interview:       { bg: "bg-[#7c4dff]", text: "text-white" },
-  hired:           { bg: "bg-[#10a05d]", text: "text-white" },
-  keep_warm:       { bg: "bg-[#f5a623]", text: "text-white" },
-  we_they_rejected:{ bg: "bg-[#e23a3a]", text: "text-white" },
-  no_show:         { bg: "bg-[#8b95a3]", text: "text-white" },
+  introduction:           { bg: "bg-[#1976d2]", text: "text-white" },
+  // Lighter indigo than phone_screen so the workflow gradient reads
+  // intro-blue → scheduled-light-indigo → phone-screen-indigo → interview-purple.
+  phone_screen_scheduled: { bg: "bg-[#7689e0]", text: "text-white" },
+  phone_screen:           { bg: "bg-[#4f63d2]", text: "text-white" },
+  interview:              { bg: "bg-[#7c4dff]", text: "text-white" },
+  hired:                  { bg: "bg-[#10a05d]", text: "text-white" },
+  keep_warm:              { bg: "bg-[#f5a623]", text: "text-white" },
+  we_they_rejected:       { bg: "bg-[#e23a3a]", text: "text-white" },
+  no_show:                { bg: "bg-[#8b95a3]", text: "text-white" },
 };
 
 type EditTarget = { mode: "create" } | { mode: "edit"; entry: PipelineEntry };
@@ -100,6 +104,7 @@ export function PipelineBoard({
   const [stageFilter, setStageFilter] = useState<Set<PipelineStage>>(new Set());
   const [replaceOnly, setReplaceOnly] = useState(false);
   const [openNotes, setOpenNotes] = useState<PipelineEntry | null>(null);
+  const [openConversation, setOpenConversation] = useState<PipelineEntry | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -135,6 +140,7 @@ export function PipelineBoard({
   const stageCounts = useMemo(() => {
     const m: Record<PipelineStage, number> = {
       introduction: 0,
+      phone_screen_scheduled: 0,
       phone_screen: 0,
       interview: 0,
       hired: 0,
@@ -622,6 +628,7 @@ export function PipelineBoard({
                         onAssign={(memberId) => assignOne(e, memberId)}
                         teamMembers={teamMembers}
                         onOpenNotes={() => setOpenNotes(e)}
+                        onOpenConversation={() => setOpenConversation(e)}
                         onEdit={() => setEditTarget({ mode: "edit", entry: e })}
                         onToggleExpand={() =>
                           setExpandedId((cur) => (cur === e.id ? null : e.id))
@@ -661,6 +668,7 @@ export function PipelineBoard({
                   onAssign={(memberId) => assignOne(e, memberId)}
                   teamMembers={teamMembers}
                   onOpenNotes={() => setOpenNotes(e)}
+                  onOpenConversation={() => setOpenConversation(e)}
                   onEdit={() => setEditTarget({ mode: "edit", entry: e })}
                   onToggleExpand={() =>
                     setExpandedId((cur) => (cur === e.id ? null : e.id))
@@ -691,6 +699,14 @@ export function PipelineBoard({
         />
       ) : null}
 
+      {openConversation ? (
+        <ConversationSheet
+          token={token}
+          entry={openConversation}
+          onClose={() => setOpenConversation(null)}
+        />
+      ) : null}
+
       {editTarget ? (
         <EditLeadDialog
           token={token}
@@ -718,6 +734,7 @@ function PipelineRow({
   onAssign,
   teamMembers,
   onOpenNotes,
+  onOpenConversation,
   onEdit,
   onToggleExpand,
 }: {
@@ -729,6 +746,7 @@ function PipelineRow({
   onAssign: (memberId: string | null) => void;
   teamMembers: TeamMember[];
   onOpenNotes: () => void;
+  onOpenConversation: () => void;
   onEdit: () => void;
   onToggleExpand: () => void;
 }) {
@@ -865,7 +883,7 @@ function PipelineRow({
           Edit
         </button>
       </div>
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end gap-1">
         <button
           type="button"
           onClick={onOpenNotes}
@@ -879,6 +897,27 @@ function PipelineRow({
         >
           <StickyNote className="size-3.5" />
           {entry.notes_log.length > 0 ? entry.notes_log.length : "Add"}
+        </button>
+        {/* Read-only conversation viewer — disabled for manual adds
+            that have no email thread linked yet. */}
+        <button
+          type="button"
+          onClick={onOpenConversation}
+          disabled={!entry.thread_id}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] transition-colors",
+            entry.thread_id
+              ? "border-[#ebecf0] bg-white text-[#5b6472] hover:border-[#d4e4f8] hover:bg-[#eaf2fd] hover:text-[#1565C0]"
+              : "cursor-not-allowed border-[#ebecf0] bg-[#fafbfc] text-[#c0c7d4]",
+          )}
+          title={
+            entry.thread_id
+              ? "View the email conversation with this candidate"
+              : "No conversation tracked for manually-added candidates"
+          }
+        >
+          <Mail className="size-3.5" />
+          Conversation
         </button>
       </div>
     </div>
@@ -894,6 +933,7 @@ function PipelineMobileCard({
   onAssign,
   teamMembers,
   onOpenNotes,
+  onOpenConversation,
   onEdit,
   onToggleExpand,
   token,
@@ -907,6 +947,7 @@ function PipelineMobileCard({
   onAssign: (memberId: string | null) => void;
   teamMembers: TeamMember[];
   onOpenNotes: () => void;
+  onOpenConversation: () => void;
   onEdit: () => void;
   onToggleExpand: () => void;
   token: string;
@@ -1017,6 +1058,25 @@ function PipelineMobileCard({
           >
             <StickyNote className="size-3.5" />
             {entry.notes_log.length > 0 ? entry.notes_log.length : "Notes"}
+          </button>
+          <button
+            type="button"
+            onClick={onOpenConversation}
+            disabled={!entry.thread_id}
+            className={cn(
+              "inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-[12px]",
+              entry.thread_id
+                ? "border-[#ebecf0] bg-white text-[#5b6472]"
+                : "cursor-not-allowed border-[#ebecf0] bg-[#fafbfc] text-[#c0c7d4]",
+            )}
+            title={
+              entry.thread_id
+                ? "View the email conversation with this candidate"
+                : "No conversation tracked for manually-added candidates"
+            }
+          >
+            <Mail className="size-3.5" />
+            Conversation
           </button>
         </div>
       </div>
@@ -1610,6 +1670,10 @@ function EditLeadDialog({
         introduced_at: body.introduced_at,
         lead_detail: null,
         campaign_name: null,
+        // Manual adds never link a thread. The "View conversation"
+        // button is gated off this and renders disabled with a
+        // tooltip until a webhook reply lands.
+        thread_id: null,
         notes_log: [],
         // Manual adds start unassigned — recruiter picks via the
         // row pill once the row appears.

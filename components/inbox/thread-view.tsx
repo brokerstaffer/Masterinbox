@@ -22,6 +22,7 @@ import { Composer } from "@/components/inbox/composer";
 import { LabelPickerButton } from "@/components/inbox/label-picker";
 import { SnoozeButton } from "@/components/inbox/snooze-button";
 import { cn } from "@/lib/utils";
+import { sanitizeEmailHtml } from "@/lib/inbox/sanitize-email-html";
 import type { ThreadDetail, MessageRow } from "@/lib/inbox/thread-detail";
 import type { LabelRow } from "@/lib/inbox/labels-shared";
 
@@ -869,13 +870,8 @@ function MessageHeaders({
 // still ships inline styles, classnames, etc. that affect ONLY the
 // content within the prose container. The point is to scope the
 // styles to the message, which `<style>` blocks fundamentally
-// can't be.
-function sanitizeEmailHtml(html: string): string {
-  return html
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<link\b[^>]*rel\s*=\s*["']?stylesheet["']?[^>]*\/?>/gi, "");
-}
+// can't be. (Moved to lib/inbox/sanitize-email-html.ts so the
+// portal's read-only conversation sheet can share the same pass.)
 
 function Avatar({ initials, className }: { initials: string; className?: string }) {
   return (

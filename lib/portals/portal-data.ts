@@ -8,6 +8,7 @@ import { fetchAllRows } from "@/lib/db/paginated-select";
 
 export type PipelineStage =
   | "introduction"
+  | "phone_screen_scheduled"
   | "phone_screen"
   | "interview"
   | "hired"
@@ -41,6 +42,12 @@ export interface PipelineEntry {
   // external_intros row backed it).
   lead_detail: Record<string, unknown> | null;
   campaign_name: string | null;
+  // FK to threads.id. Populated by the Introduction-label trigger
+  // and by the external_intros backfill (migration 0023/0027). Null
+  // for entries the operator added manually from the portal — those
+  // have no email thread to show, so the "View conversation" button
+  // is gated off this.
+  thread_id: string | null;
   // Timestamped notes (newest first). Backed by client_pipeline_notes.
   notes_log: PipelineNote[];
   // Recruiter ownership — points at a row in client_team_members
@@ -113,7 +120,7 @@ export const loadPipelineEntries = cache(
     const { data, error } = await admin
       .from("client_pipeline_entries")
       .select(
-        "id, stage, needs_replacement, lead_name, lead_email, lead_phone, current_brokerage, agent_profile_url, introduced_at, assigned_team_member_id, assigned_team_member:assigned_team_member_id (id, name), external_intros:external_intro_id (lead_detail, campaign_name), leads:lead_id (custom_fields, company)",
+        "id, stage, needs_replacement, lead_name, lead_email, lead_phone, current_brokerage, agent_profile_url, introduced_at, thread_id, assigned_team_member_id, assigned_team_member:assigned_team_member_id (id, name), external_intros:external_intro_id (lead_detail, campaign_name), leads:lead_id (custom_fields, company)",
       )
       .eq("client_id", clientId)
       .order("introduced_at", { ascending: false })
@@ -341,6 +348,7 @@ export const loadPortalCounts = cache(
 // a destructive migration; only the user-facing copy changes here.
 export const STAGE_LABELS: Record<PipelineStage, string> = {
   introduction: "Introduction",
+  phone_screen_scheduled: "Phone Screen Scheduled",
   phone_screen: "Phone Screen",
   interview: "Interview",
   hired: "Hired",
@@ -355,10 +363,12 @@ export const STAGE_LABELS: Record<PipelineStage, string> = {
 export const STAGE_DESCRIPTIONS: Record<PipelineStage, string> = {
   introduction:
     "An agent has been introduced to you and initial contact has been made.",
+  phone_screen_scheduled:
+    "A phone screen has been booked with the agent — they haven't been screened yet.",
   phone_screen:
-    "The agent is being scheduled for or has completed interviews (phone and/or in person).",
+    "The phone screen has happened. You're evaluating the agent before moving to a full interview.",
   interview:
-    "The agent is being scheduled for or has completed interviews (phone and/or in person).",
+    "The agent is being scheduled for or has completed an in-person / longer interview.",
   hired: "The agent has accepted and is joining your team.",
   keep_warm:
     "The agent is interested but not ready to move forward yet. We stay in touch and re-engage at the right time.",
@@ -370,6 +380,7 @@ export const STAGE_DESCRIPTIONS: Record<PipelineStage, string> = {
 
 export const STAGE_ORDER: PipelineStage[] = [
   "introduction",
+  "phone_screen_scheduled",
   "phone_screen",
   "interview",
   "hired",

@@ -15,6 +15,7 @@ export const dynamic = "force-dynamic";
 
 const STAGES = [
   "introduction",
+  "phone_screen_scheduled",
   "phone_screen",
   "interview",
   "hired",
