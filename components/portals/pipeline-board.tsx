@@ -818,19 +818,35 @@ function PipelineRow({
           {entry.lead_email ? (
             <div className="truncate text-[11.5px] text-[#9aa0ab]">{entry.lead_email}</div>
           ) : null}
-          {entry.agent_profile_url ? (
-            <a
-              href={normalizeUrl(entry.agent_profile_url)}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="mt-0.5 inline-flex max-w-full items-center gap-1 truncate text-[11.5px] text-[#1565C0] hover:underline"
-              title={trimUrl(entry.agent_profile_url)}
-            >
-              <Globe className="size-3 shrink-0" />
-              <span className="truncate">Agent profile</span>
-            </a>
-          ) : null}
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+            {entry.agent_profile_url ? (
+              <a
+                href={normalizeUrl(entry.agent_profile_url)}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex max-w-full items-center gap-1 truncate text-[11.5px] text-[#1565C0] hover:underline"
+                title={trimUrl(entry.agent_profile_url)}
+              >
+                <Globe className="size-3 shrink-0" />
+                <span className="truncate">Agent profile</span>
+              </a>
+            ) : null}
+            {entry.thread_id ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenConversation();
+                }}
+                className="inline-flex items-center gap-1 text-[11.5px] text-[#1565C0] hover:underline"
+                title="View the email conversation with this candidate"
+              >
+                <Mail className="size-3 shrink-0" />
+                <span>Conversation</span>
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
       <div className="min-w-0 text-[13px] text-[#5b6472]">
@@ -883,7 +899,7 @@ function PipelineRow({
           Edit
         </button>
       </div>
-      <div className="flex flex-col items-end gap-1">
+      <div className="flex justify-end">
         <button
           type="button"
           onClick={onOpenNotes}
@@ -897,27 +913,6 @@ function PipelineRow({
         >
           <StickyNote className="size-3.5" />
           {entry.notes_log.length > 0 ? entry.notes_log.length : "Add"}
-        </button>
-        {/* Read-only conversation viewer — disabled for manual adds
-            that have no email thread linked yet. */}
-        <button
-          type="button"
-          onClick={onOpenConversation}
-          disabled={!entry.thread_id}
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] transition-colors",
-            entry.thread_id
-              ? "border-[#ebecf0] bg-white text-[#5b6472] hover:border-[#d4e4f8] hover:bg-[#eaf2fd] hover:text-[#1565C0]"
-              : "cursor-not-allowed border-[#ebecf0] bg-[#fafbfc] text-[#c0c7d4]",
-          )}
-          title={
-            entry.thread_id
-              ? "View the email conversation with this candidate"
-              : "No conversation tracked for manually-added candidates"
-          }
-        >
-          <Mail className="size-3.5" />
-          Conversation
         </button>
       </div>
     </div>
@@ -991,18 +986,31 @@ function PipelineMobileCard({
           {entry.current_brokerage ? (
             <div className="mt-1 text-[12.5px] text-[#5b6472]">{entry.current_brokerage}</div>
           ) : null}
-          {entry.agent_profile_url ? (
-            <a
-              href={normalizeUrl(entry.agent_profile_url)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-0.5 inline-flex max-w-full items-center gap-1 truncate text-[12px] text-[#1565C0] hover:underline"
-              title={trimUrl(entry.agent_profile_url)}
-            >
-              <Globe className="size-3 shrink-0" />
-              <span className="truncate">Agent profile</span>
-            </a>
-          ) : null}
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+            {entry.agent_profile_url ? (
+              <a
+                href={normalizeUrl(entry.agent_profile_url)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex max-w-full items-center gap-1 truncate text-[12px] text-[#1565C0] hover:underline"
+                title={trimUrl(entry.agent_profile_url)}
+              >
+                <Globe className="size-3 shrink-0" />
+                <span className="truncate">Agent profile</span>
+              </a>
+            ) : null}
+            {entry.thread_id ? (
+              <button
+                type="button"
+                onClick={onOpenConversation}
+                className="inline-flex items-center gap-1 text-[12px] text-[#1565C0] hover:underline"
+                title="View the email conversation with this candidate"
+              >
+                <Mail className="size-3 shrink-0" />
+                <span>Conversation</span>
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1058,25 +1066,6 @@ function PipelineMobileCard({
           >
             <StickyNote className="size-3.5" />
             {entry.notes_log.length > 0 ? entry.notes_log.length : "Notes"}
-          </button>
-          <button
-            type="button"
-            onClick={onOpenConversation}
-            disabled={!entry.thread_id}
-            className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-[12px]",
-              entry.thread_id
-                ? "border-[#ebecf0] bg-white text-[#5b6472]"
-                : "cursor-not-allowed border-[#ebecf0] bg-[#fafbfc] text-[#c0c7d4]",
-            )}
-            title={
-              entry.thread_id
-                ? "View the email conversation with this candidate"
-                : "No conversation tracked for manually-added candidates"
-            }
-          >
-            <Mail className="size-3.5" />
-            Conversation
           </button>
         </div>
       </div>

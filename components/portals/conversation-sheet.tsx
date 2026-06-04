@@ -82,7 +82,10 @@ export function ConversationSheet({
     <Sheet open onOpenChange={(v) => !v && onClose()}>
       <SheetContent
         side="right"
-        className="flex w-full flex-col gap-0 bg-[#fafbfc] p-0 sm:max-w-lg"
+        // Wider sheet (~720 px) so the message bubbles have room to
+        // breathe instead of wrapping every other word. Falls back to
+        // full-width on small viewports.
+        className="flex w-full flex-col gap-0 bg-[#fafbfc] p-0 sm:max-w-[720px]"
         showCloseButton={false}
       >
         <header className="relative shrink-0 border-b border-[#ebecf0] bg-white px-5 pt-5 pb-4">
@@ -115,7 +118,7 @@ export function ConversationSheet({
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 sm:px-8">
           {loading ? (
             <div className="flex items-center justify-center py-12 text-[12.5px] text-[#9aa0ab]">
               <Loader2 className="mr-2 size-4 animate-spin" />
@@ -191,30 +194,33 @@ function MessageBubble({
     >
       <div
         className={cn(
-          "max-w-[92%] min-w-0 rounded-2xl px-4 py-3 shadow-sm",
+          // Wider bubble (max 86 %) + comfier padding so a typical
+          // email body lays out in 50-60 chars per line. Email-style
+          // reading proportions, not chat-style narrow columns.
+          "max-w-[86%] min-w-0 rounded-2xl px-5 py-4 shadow-sm",
           isInbound
             ? "border border-[#ebecf0] bg-white text-[#0f1320]"
             : "border border-[#bcd5f1] bg-[#eaf2fd] text-[#0f1320]",
         )}
       >
-        <div className="mb-1.5 flex items-baseline justify-between gap-3 text-[11px]">
+        <div className="mb-2 flex items-baseline justify-between gap-3 text-[11.5px]">
           <span className="truncate font-semibold text-[#0f1320]">{senderLabel}</span>
           {ts ? (
             <span className="shrink-0 tabular-nums text-[#9aa0ab]">{ts}</span>
           ) : null}
         </div>
         {message.subject ? (
-          <div className="mb-1 truncate text-[11.5px] font-medium text-[#5b6472]">
+          <div className="mb-2 truncate text-[12px] font-medium text-[#5b6472]">
             {message.subject}
           </div>
         ) : null}
         {html ? (
           <div
-            className="prose prose-sm max-w-none text-[13px] leading-relaxed [&_a]:text-[#1565C0] [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-[#dde0e5] [&_blockquote]:pl-3 [&_blockquote]:text-[#9aa0ab] [&_img]:max-w-full"
+            className="prose prose-sm max-w-none text-[13.5px] leading-[1.65] [&_a]:text-[#1565C0] [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-[#dde0e5] [&_blockquote]:pl-3 [&_blockquote]:text-[#9aa0ab] [&_img]:max-w-full [&_p]:my-2"
             dangerouslySetInnerHTML={{ __html: html }}
           />
         ) : (
-          <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed">
+          <pre className="whitespace-pre-wrap font-sans text-[13.5px] leading-[1.65]">
             {message.body_text ?? ""}
           </pre>
         )}
