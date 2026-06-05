@@ -62,7 +62,10 @@ export function CalendlyBanner() {
 
   return (
     <div className="fixed inset-x-0 top-0 z-[60] h-10 bg-[#1565C0] text-white shadow-[0_1px_0_rgba(0,0,0,0.04)]">
-      <div className="mx-auto flex h-full max-w-7xl items-center justify-between gap-3 px-3 sm:px-5">
+      {/* Centered message lives in normal flow; the dismiss button
+          is absolutely positioned so it can't pull the text off
+          center the way a justify-between layout does. */}
+      <div className="relative flex h-full items-center justify-center px-12 sm:px-14">
         <div className="flex min-w-0 items-center gap-2.5">
           <CalendarClock className="size-4 shrink-0" aria-hidden />
           <p className="truncate text-[12.5px] leading-none">
@@ -85,7 +88,7 @@ export function CalendlyBanner() {
           type="button"
           onClick={dismiss}
           aria-label="Dismiss banner"
-          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+          className="absolute right-2 top-1/2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/10 hover:text-white sm:right-3"
         >
           <X className="size-3.5" />
         </button>

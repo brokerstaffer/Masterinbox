@@ -45,7 +45,6 @@ export default async function WelcomePage(props: {
   const counts = await loadPortalCounts(client.id);
 
   const base = `/portal/${token}`;
-  const firstName = client.name.split(/[\s,]+/).filter(Boolean)[0] ?? client.name;
 
   const sections: Section[] = [
     {
@@ -105,11 +104,11 @@ export default async function WelcomePage(props: {
               Welcome
             </div>
             <h1 className="mt-1 text-[26px] font-semibold leading-tight tracking-tight text-[#0f1320] sm:text-[32px]">
-              Hi {firstName} — your recruiting hub is ready.
+              Hi {client.name}, your recruiting hub is ready.
             </h1>
             <p className="mt-2 max-w-2xl text-[13.5px] leading-relaxed text-[#5b6472] sm:text-[14px]">
               Your pipeline, the agents we&apos;re prospecting on your behalf,
-              the DNC list, and your team — all in one place. We&apos;ll keep
+              the DNC list, and your team, all in one place. We&apos;ll keep
               everything in sync. You stay in the driver&apos;s seat.
             </p>
           </div>
@@ -145,7 +144,7 @@ export default async function WelcomePage(props: {
                 Want to chat? Book a touch-base.
               </div>
               <p className="text-[12.5px] leading-snug text-[#5b6472]">
-                15 minutes with our team — we&apos;ll walk through anything
+                15 minutes with our team. We&apos;ll walk through anything
                 you need on your pipeline.
               </p>
             </div>
