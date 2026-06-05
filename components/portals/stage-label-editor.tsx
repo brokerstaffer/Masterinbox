@@ -128,11 +128,11 @@ export function StageLabelEditor({
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-[13.5px] font-semibold text-[#0f1320]">
-            Customize stage names
+            Stage names
           </span>
           <span className="mt-0.5 block text-[12px] leading-snug text-[#5b6472]">
-            Make these match your team&apos;s wording. Applies to everyone
-            viewing this portal.
+            Name each stage however your team refers to it. Applies to
+            everyone viewing this portal.
           </span>
         </span>
         <ChevronDown
@@ -152,18 +152,19 @@ export function StageLabelEditor({
               return (
                 <label
                   key={stage}
-                  className="group flex flex-col gap-1.5 rounded-xl border border-[#ebecf0] bg-white p-3 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition-colors focus-within:border-[#1565C0]"
+                  className="group flex items-center gap-2.5 rounded-xl border border-[#ebecf0] bg-white px-3 py-2.5 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition-colors focus-within:border-[#1565C0]"
                 >
-                  <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-[#5b6472]">
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "inline-block size-2.5 shrink-0 rounded-full",
-                        STAGE_STYLE[stage].bg,
-                      )}
-                    />
-                    <span className="truncate">{placeholder}</span>
-                  </span>
+                  {/* Color dot identifies the stage; no caption — the
+                      placeholder carries the default name so the tile
+                      reads as "name your stage" rather than "rename X
+                      to Y". */}
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "inline-block size-2.5 shrink-0 rounded-full",
+                      STAGE_STYLE[stage].bg,
+                    )}
+                  />
                   <Input
                     value={value}
                     onChange={(e) =>
@@ -172,9 +173,10 @@ export function StageLabelEditor({
                     placeholder={placeholder}
                     maxLength={STAGE_LABEL_MAX_LEN}
                     disabled={busy}
+                    aria-label={placeholder}
                     // text-[16px] minimum keeps iOS Safari from auto-zooming
                     // when the input gains focus.
-                    className="h-9 text-[16px] sm:text-[13.5px]"
+                    className="h-9 border-0 bg-transparent px-0 text-[16px] shadow-none focus-visible:ring-0 sm:text-[13.5px]"
                   />
                 </label>
               );
