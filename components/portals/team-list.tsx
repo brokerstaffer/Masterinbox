@@ -12,6 +12,8 @@ import {
   Download,
   Search,
   FileText,
+  ImagePlus,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -411,7 +413,7 @@ export function TeamList({
                 </div>
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="relative shrink-0">
-                    <Avatar name={m.name} />
+                    <Avatar name={m.name} src={m.avatar_url} />
                     {/* Small status dot bottom-right of avatar —
                         green when active, grey when paused. Matches
                         the mockup's at-a-glance status pattern. */}
@@ -481,7 +483,10 @@ export function TeamList({
         <EditMemberDialog
           token={token}
           member={editing}
-          onClose={() => setEditing(null)}
+          onClose={(touched) => {
+            setEditing(null);
+            if (touched) router.refresh();
+          }}
           onSaved={() => {
             setEditing(null);
             router.refresh();
@@ -618,14 +623,73 @@ function EditMemberDialog({
 }: {
   token: string;
   member: TeamMember;
-  onClose: () => void;
+  onClose: (touched?: boolean) => void;
   onSaved: () => void;
 }) {
   const [name, setName] = useState(member.name);
   const [email, setEmail] = useState(member.email);
   const [title, setTitle] = useState(member.title ?? "");
   const [phone, setPhone] = useState(member.phone ?? "");
+  const [avatarUrl, setAvatarUrl] = useState(member.avatar_url);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  // Avatar mutations land server-side as soon as the user uploads
+  // or removes a photo (independent of the Save button). If the
+  // dialog closes without the user pressing Save, we still need to
+  // refresh the parent list so the row picks up the new image.
+  const avatarTouched = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [pending, startTransition] = useTransition();
+
+  async function uploadAvatar(file: File) {
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image too large (max 5MB)");
+      return;
+    }
+    setAvatarBusy(true);
+    try {
+      // Resize client-side to a 512×512 JPEG before upload — saves
+      // bandwidth and avoids needing sharp on the server. Falls back
+      // to the raw file if the canvas pipeline can't read the image.
+      const blob = await resizeToSquare(file, 512, 0.85).catch(() => file);
+      const form = new FormData();
+      form.append("file", blob, "avatar.jpg");
+      const res = await fetch(
+        `/api/portal/${token}/team/${member.id}/avatar`,
+        { method: "POST", body: form },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.ok) {
+        toast.error(json.error ?? "Couldn't upload — try a smaller image");
+        return;
+      }
+      setAvatarUrl(json.avatar_url ?? null);
+      avatarTouched.current = true;
+      toast.success("Photo updated");
+    } finally {
+      setAvatarBusy(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function removeAvatar() {
+    setAvatarBusy(true);
+    try {
+      const res = await fetch(
+        `/api/portal/${token}/team/${member.id}/avatar`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        toast.error(j.error ?? "Couldn't remove photo");
+        return;
+      }
+      setAvatarUrl(null);
+      avatarTouched.current = true;
+      toast.success("Photo removed");
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
 
   async function save() {
     if (!name.trim()) {
@@ -656,12 +720,65 @@ function EditMemberDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
+    <Dialog open onOpenChange={(v) => !v && onClose(avatarTouched.current)}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Edit member</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
+          <div className="flex items-center gap-4 rounded-xl border border-[#ebecf0] bg-[#f9fafb] p-3">
+            <Avatar
+              name={name || member.name}
+              src={avatarUrl}
+              className="size-16 text-base"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="text-[12px] font-semibold text-[#0f1320]">
+                Profile photo
+              </div>
+              <p className="text-[11.5px] leading-snug text-[#5b6472]">
+                JPG, PNG, or WebP. Square photos look best.
+              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) uploadAvatar(f);
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={avatarBusy}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="h-7 gap-1 px-2 text-[12px]"
+                >
+                  {avatarBusy ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <ImagePlus className="size-3.5" />
+                  )}
+                  {avatarUrl ? "Change" : "Upload"}
+                </Button>
+                {avatarUrl ? (
+                  <button
+                    type="button"
+                    onClick={removeAvatar}
+                    disabled={avatarBusy}
+                    className="inline-flex items-center gap-1 text-[12px] text-[#9aa0ab] transition-colors hover:text-[#b91c1c] disabled:opacity-50"
+                  >
+                    <X className="size-3.5" />
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-xs font-medium">Full name</label>
@@ -696,7 +813,7 @@ function EditMemberDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={() => onClose(avatarTouched.current)}>
             Cancel
           </Button>
           <Button onClick={save} disabled={pending || !name.trim() || !email.trim()}>
@@ -866,4 +983,44 @@ function TeamCsvImportDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+// Client-side crop-to-square + resize. Draws the file onto a
+// `size`×`size` canvas with cover-fit cropping so portrait/landscape
+// photos look right inside the round Avatar. Returns a JPEG Blob
+// at the requested quality. Saves on the server having to install
+// sharp just to normalise a single avatar.
+async function resizeToSquare(
+  file: File,
+  size: number,
+  quality: number,
+): Promise<Blob> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = () => reject(new Error("Could not decode image"));
+    i.src = dataUrl;
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("No 2D context");
+  const srcSize = Math.min(img.width, img.height);
+  const sx = (img.width - srcSize) / 2;
+  const sy = (img.height - srcSize) / 2;
+  ctx.drawImage(img, sx, sy, srcSize, srcSize, 0, 0, size, size);
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("toBlob failed"))),
+      "image/jpeg",
+      quality,
+    );
+  });
 }

@@ -7,6 +7,7 @@ import {
 } from "@/components/portals/pipeline-header";
 import { PipelineBoard } from "@/components/portals/pipeline-board";
 import { PortalLogo } from "@/components/portals/portal-logo";
+import { WelcomeRedirect } from "@/components/portals/welcome-redirect";
 
 // The Recruiting Pipeline IS the portal home now. Every Introduction
 // (legacy MasterInbox feed + new Postgres-triggered label assignments)
@@ -44,6 +45,7 @@ export default async function PortalRoot(props: {
 
   return (
     <>
+      <WelcomeRedirect token={token} />
       <PipelineHeader clientName={client.name} />
       <PipelineBoard token={token} entries={entries} teamMembers={teamMembers} />
       <PipelineFooterInfo />

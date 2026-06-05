@@ -233,14 +233,20 @@ export function SelectAllAcrossPagesBanner({
   );
 }
 
-// Initials avatar — used in the Team and DNC lists.
+// Initials avatar — used in the Team and DNC lists. When `src` is
+// provided we render the photo inside the same circle; broken loads
+// fall back to the initials so a stale URL never leaves a blank
+// circle.
 export function Avatar({
   name,
+  src,
   className,
 }: {
   name: string;
+  src?: string | null;
   className?: string;
 }) {
+  const [imgError, setImgError] = useState(false);
   const initials =
     name
       .split(/\s+/)
@@ -249,14 +255,27 @@ export function Avatar({
       .slice(0, 2)
       .join("")
       .toUpperCase() || "?";
+
+  const showImage = !!src && !imgError;
+
   return (
     <div
       className={cn(
-        "flex size-9 shrink-0 items-center justify-center rounded-full bg-[#eaf2fd] text-xs font-semibold text-[#1565C0]",
+        "flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#eaf2fd] text-xs font-semibold text-[#1565C0]",
         className,
       )}
     >
-      {initials}
+      {showImage ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src as string}
+          alt={name}
+          className="size-full object-cover"
+          onError={() => setImgError(true)}
+        />
+      ) : (
+        initials
+      )}
     </div>
   );
 }

@@ -96,6 +96,7 @@ export interface TeamMember {
   phone: string | null;
   receives: "intro" | "digest" | "admin";
   active: boolean;
+  avatar_url: string | null;
   // Legacy columns from when Team was a second blocklist. We don't
   // write them anymore but the rows still exist; kept on the type so
   // existing data deserialises cleanly. Safe to drop in a future
@@ -302,7 +303,7 @@ export const loadTeamMembers = cache(
         admin
           .from("client_team_members")
           .select(
-            "id, name, email, title, phone, receives, active, pushed_to_instantly, pushed_to_emailbison, push_error, created_at",
+            "id, name, email, title, phone, receives, active, avatar_url, pushed_to_instantly, pushed_to_emailbison, push_error, created_at",
           )
           .eq("client_id", clientId)
           .order("created_at", { ascending: true })

@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Workflow, UserCheck, Ban, Users, Menu, X } from "lucide-react";
+import { Workflow, UserCheck, Ban, Users, Menu, X, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PortalLogo } from "@/components/portals/portal-logo";
+import { CalendlyBanner } from "@/components/portals/calendly-banner";
 
 interface Props {
   token: string;
@@ -40,6 +41,7 @@ export function PortalShell({ token, clientName, counts, children }: Props) {
   }, [drawerOpen]);
 
   const items = [
+    { href: `${base}/welcome`, label: "Welcome", icon: Sparkles },
     { href: base, label: "Recruiting Pipeline", icon: Workflow, count: counts.pipeline },
     { href: `${base}/agents`, label: "Your Agents", icon: UserCheck, count: counts.agents },
     { href: `${base}/dnc`, label: "DNC List", icon: Ban, count: counts.dnc, tone: "danger" as const },
@@ -49,10 +51,16 @@ export function PortalShell({ token, clientName, counts, children }: Props) {
   const activeItem = items.find((it) => isActive(pathname, it.href, base));
 
   return (
-    <div className="flex min-h-screen bg-[#f6f7f9] text-[#0f1320] antialiased">
+    <>
+      {/* Slim Calendly CTA bar — fixed at the top of the viewport.
+          Sets --portal-banner-h on <html> when visible so the rest
+          of the shell offsets accordingly; dismissed → no var → no
+          offset. */}
+      <CalendlyBanner />
+      <div className="flex min-h-screen bg-[#f6f7f9] text-[#0f1320] antialiased pt-[var(--portal-banner-h,0px)]">
       {/* Mobile top bar — only visible <md. Hamburger toggles the drawer,
           plus a compact client name + current section title. */}
-      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-2 border-b border-[#ebecf0] bg-white/95 px-3 backdrop-blur md:hidden">
+      <header className="fixed inset-x-0 top-[var(--portal-banner-h,0px)] z-40 flex h-14 items-center gap-2 border-b border-[#ebecf0] bg-white/95 px-3 backdrop-blur md:hidden">
         <button
           type="button"
           onClick={() => setDrawerOpen(true)}
@@ -80,10 +88,12 @@ export function PortalShell({ token, clientName, counts, children }: Props) {
         />
       ) : null}
 
-      {/* Sidebar. Drawer on mobile (slides from left), sticky on md+. */}
+      {/* Sidebar. Drawer on mobile (slides from left), sticky on md+.
+          On desktop the sticky offset + height respect the Calendly
+          banner via the --portal-banner-h variable. */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-[260px] max-w-[80vw] flex-col border-r border-[#ebecf0] bg-white transition-transform duration-200 ease-out md:sticky md:top-0 md:z-auto md:h-screen md:w-[232px] md:max-w-none md:translate-x-0 md:transition-none",
+          "fixed bottom-0 left-0 top-[var(--portal-banner-h,0px)] z-50 flex w-[260px] max-w-[80vw] flex-col border-r border-[#ebecf0] bg-white transition-transform duration-200 ease-out md:sticky md:top-[var(--portal-banner-h,0px)] md:z-auto md:h-[calc(100vh-var(--portal-banner-h,0px))] md:w-[232px] md:max-w-none md:translate-x-0 md:transition-none",
           drawerOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
@@ -157,7 +167,8 @@ export function PortalShell({ token, clientName, counts, children }: Props) {
       {/* Main column. pt-14 reserves space for the mobile top bar; on md+
           the bar is hidden and the sidebar lives inline so no offset. */}
       <main className="min-w-0 flex-1 pt-14 md:pt-0">{children}</main>
-    </div>
+      </div>
+    </>
   );
 }
 
