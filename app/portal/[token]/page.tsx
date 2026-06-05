@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { resolvePortalClient } from "@/lib/portals/token";
-import { loadPipelineEntries, loadTeamMembers } from "@/lib/portals/portal-data";
+import {
+  loadPipelineEntries,
+  loadTeamMembers,
+  resolveStageLabels,
+} from "@/lib/portals/portal-data";
 import {
   PipelineHeader,
   PipelineFooterInfo,
@@ -8,6 +12,7 @@ import {
 import { PipelineBoard } from "@/components/portals/pipeline-board";
 import { PortalLogo } from "@/components/portals/portal-logo";
 import { WelcomeRedirect } from "@/components/portals/welcome-redirect";
+import { StageLabelsProvider } from "@/components/portals/stage-labels-context";
 
 // The Recruiting Pipeline IS the portal home now. Every Introduction
 // (legacy MasterInbox feed + new Postgres-triggered label assignments)
@@ -43,13 +48,21 @@ export default async function PortalRoot(props: {
     loadTeamMembers(client.id),
   ]);
 
+  const stageLabels = resolveStageLabels(client.stage_label_overrides);
+
   return (
-    <>
+    <StageLabelsProvider value={stageLabels}>
       <WelcomeRedirect token={token} />
       <PipelineHeader clientName={client.name} />
-      <PipelineBoard token={token} entries={entries} teamMembers={teamMembers} />
+      <PipelineBoard
+        token={token}
+        entries={entries}
+        teamMembers={teamMembers}
+        stageLabels={stageLabels}
+        stageLabelOverrides={client.stage_label_overrides}
+      />
       <PipelineFooterInfo />
-    </>
+    </StageLabelsProvider>
   );
 }
 

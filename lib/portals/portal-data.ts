@@ -344,10 +344,18 @@ export const loadPortalCounts = cache(
   },
 );
 
-// Display labels for the pipeline stage enum. The enum values
-// (keep_warm, we_they_rejected) stay frozen in the database to avoid
-// a destructive migration; only the user-facing copy changes here.
-export const STAGE_LABELS: Record<PipelineStage, string> = {
+// Default display labels for the pipeline stage enum. The enum
+// values (keep_warm, we_they_rejected) stay frozen in the database
+// to avoid a destructive migration; only the user-facing copy
+// changes here.
+//
+// Each client can override any subset of these via the editor on
+// the Recruiting Pipeline page — overrides land in
+// `clients.stage_label_overrides` (jsonb) and the UI reads the
+// merged map through resolveStageLabels() + the StageLabelsProvider
+// context in [components/portals/stage-labels-context.tsx]. Anything
+// not overridden falls back to the value here.
+export const DEFAULT_STAGE_LABELS: Record<PipelineStage, string> = {
   introduction: "Introduction",
   phone_screen_scheduled: "Phone Screen Scheduled",
   phone_screen: "Phone Screen",
@@ -357,6 +365,30 @@ export const STAGE_LABELS: Record<PipelineStage, string> = {
   we_they_rejected: "Not a Fit",
   no_show: "No Show / No Response",
 };
+
+// Hard cap on a custom label length. Keeps the badges, dropdowns,
+// and bulk-action menu from blowing out their column widths.
+export const STAGE_LABEL_MAX_LEN = 40;
+
+// Merge per-client overrides over the defaults. Unknown keys and
+// empty / whitespace values are ignored so a stale or malformed
+// JSON blob can never blank out a label or sneak in a bogus stage.
+// Values are trimmed and capped to STAGE_LABEL_MAX_LEN so a very
+// long override can't break the layout.
+export function resolveStageLabels(
+  overrides: Record<string, unknown> | null | undefined,
+): Record<PipelineStage, string> {
+  const merged: Record<PipelineStage, string> = { ...DEFAULT_STAGE_LABELS };
+  if (!overrides || typeof overrides !== "object") return merged;
+  for (const stage of STAGE_ORDER) {
+    const raw = (overrides as Record<string, unknown>)[stage];
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    merged[stage] = trimmed.slice(0, STAGE_LABEL_MAX_LEN);
+  }
+  return merged;
+}
 
 // One-line definitions surfaced in the pipeline legend so clients
 // understand what each stage means without asking. Order tracks

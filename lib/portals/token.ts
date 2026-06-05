@@ -12,6 +12,10 @@ export interface PortalClient {
   id: string;
   name: string;
   slug: string;
+  // Raw jsonb map of per-stage label overrides. Use
+  // resolveStageLabels() from lib/portals/portal-data.ts to merge
+  // these with the defaults before rendering.
+  stage_label_overrides: Record<string, unknown>;
 }
 
 export const resolvePortalClient = cache(
@@ -24,7 +28,9 @@ export const resolvePortalClient = cache(
     const admin = createAdminSupabase();
     const { data } = await admin
       .from("clients")
-      .select("id, name, slug, portal_enabled")
+      .select(
+        "id, name, slug, portal_enabled, stage_label_overrides",
+      )
       .eq("portal_token", token)
       .maybeSingle();
 
@@ -32,10 +38,15 @@ export const resolvePortalClient = cache(
     if (data.slug === "unknown") return null;
     if (data.portal_enabled === false) return null;
 
+    const rawOverrides = data.stage_label_overrides;
     return {
       id: data.id as string,
       name: data.name as string,
       slug: data.slug as string,
+      stage_label_overrides:
+        rawOverrides && typeof rawOverrides === "object"
+          ? (rawOverrides as Record<string, unknown>)
+          : {},
     };
   },
 );

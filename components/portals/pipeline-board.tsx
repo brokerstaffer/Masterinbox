@@ -48,9 +48,10 @@ import {
   type PipelineEntry,
   type PipelineStage,
   type TeamMember,
-  STAGE_LABELS,
   STAGE_ORDER,
 } from "@/lib/portals/portal-data";
+import { useStageLabels } from "@/components/portals/stage-labels-context";
+import { StageLabelEditor } from "@/components/portals/stage-label-editor";
 import {
   PortalEmpty,
   Avatar,
@@ -65,7 +66,9 @@ import { formatPhoneDisplay } from "@/lib/portals/phone";
 
 // Stage → coloured chip. Tone matches the Google Sheets pipeline board:
 // saturated fill, white text — readable at a glance across a long table.
-const STAGE_STYLE: Record<PipelineStage, { bg: string; text: string }> = {
+// Exported so the StageLabelEditor card on the same page can render
+// matching color dots beside its inputs — single source of truth.
+export const STAGE_STYLE: Record<PipelineStage, { bg: string; text: string }> = {
   introduction:           { bg: "bg-[#1976d2]", text: "text-white" },
   // Lighter indigo than phone_screen so the workflow gradient reads
   // intro-blue → scheduled-light-indigo → phone-screen-indigo → interview-purple.
@@ -84,6 +87,8 @@ export function PipelineBoard({
   token,
   entries: initial,
   teamMembers,
+  stageLabels,
+  stageLabelOverrides,
 }: {
   token: string;
   entries: PipelineEntry[];
@@ -92,6 +97,13 @@ export function PipelineBoard({
   // Passed in (not fetched here) so the page can dedupe with other
   // surfaces and stay fully server-rendered.
   teamMembers: TeamMember[];
+  // Per-client stage names resolved server-side (defaults merged with
+  // overrides). Drives every chip, dropdown, and menu through the
+  // StageLabelsProvider below.
+  stageLabels: Record<PipelineStage, string>;
+  // Raw overrides jsonb — seeds the StageLabelEditor card so the
+  // form knows which keys are customised vs. default.
+  stageLabelOverrides: Record<string, unknown>;
 }) {
   const router = useRouter();
   const mounted = useMounted();
@@ -267,7 +279,7 @@ export function PipelineBoard({
       }
     }
     setBulkBusy(false);
-    toast.success(`Moved ${ids.length.toLocaleString()} to ${STAGE_LABELS[stage]}`);
+    toast.success(`Moved ${ids.length.toLocaleString()} to ${stageLabels[stage]}`);
   }
 
   // Per-row assignment mutation: optimistic local update + single
@@ -367,7 +379,7 @@ export function PipelineBoard({
         r.current_brokerage ?? "",
         r.agent_profile_url ?? "",
         r.lead_location ?? "",
-        STAGE_LABELS[r.stage],
+        stageLabels[r.stage],
         r.assigned_team_member?.name ?? "",
         r.introduced_at ? new Date(r.introduced_at).toISOString().slice(0, 10) : "",
       ];
@@ -384,6 +396,10 @@ export function PipelineBoard({
 
   return (
     <div className="mx-auto max-w-6xl px-4 pb-12 pt-6 sm:px-6">
+      <StageLabelEditor
+        token={token}
+        savedOverrides={stageLabelOverrides}
+      />
       {entries.length === 0 ? (
         <div className="space-y-3">
           <PortalEmpty
@@ -447,7 +463,7 @@ export function PipelineBoard({
                         : "border-[#ebecf0] bg-white text-[#5b6472] hover:bg-[#f6f7f9]",
                     )}
                   >
-                    {STAGE_LABELS[s]}
+                    {stageLabels[s]}
                     <span className={cn("tabular-nums", active ? "" : "text-[#9aa0ab]")}>
                       {stageCounts[s]}
                     </span>
@@ -506,7 +522,7 @@ export function PipelineBoard({
                   {STAGE_ORDER.map((s) => (
                     <DropdownMenuItem key={s} onClick={() => bulkStage(s)}>
                       <span className={cn("mr-2 inline-block size-2.5 rounded-full", STAGE_STYLE[s].bg)} />
-                      {STAGE_LABELS[s]}
+                      {stageLabels[s]}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
@@ -1165,6 +1181,7 @@ function StageSelector({
   onChange: (s: PipelineStage) => void;
 }) {
   const style = STAGE_STYLE[value];
+  const stageLabels = useStageLabels();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -1177,7 +1194,7 @@ function StageSelector({
               style.text,
             )}
           >
-            <span className="truncate">{STAGE_LABELS[value]}</span>
+            <span className="truncate">{stageLabels[value]}</span>
             <ChevronDown className="size-3 shrink-0 opacity-70" />
           </button>
         }
@@ -1189,7 +1206,7 @@ function StageSelector({
             onClick={() => onChange(s)}
             className="flex items-center justify-between gap-2"
           >
-            <span className="text-[13px]">{STAGE_LABELS[s]}</span>
+            <span className="text-[13px]">{stageLabels[s]}</span>
             {s === value ? <Check className="size-3.5 text-[#1565C0]" /> : null}
           </DropdownMenuItem>
         ))}
@@ -1219,6 +1236,7 @@ function NotesSheet({
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const stageLabels = useStageLabels();
 
   async function addNote() {
     const body = draft.trim();
@@ -1310,7 +1328,7 @@ function NotesSheet({
           )}
         >
           <span className="size-1.5 rounded-full bg-white/80" />
-          {STAGE_LABELS[entry.stage]}
+          {stageLabels[entry.stage]}
         </span>
       ),
     },

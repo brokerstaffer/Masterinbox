@@ -7,6 +7,7 @@ import {
   loadPipelineEntries,
   loadPortalCounts,
   loadTeamMembers,
+  resolveStageLabels,
 } from "@/lib/portals/portal-data";
 import { publicPortalUrl } from "@/lib/portals/public-url";
 import {
@@ -14,6 +15,7 @@ import {
   PipelineFooterInfo,
 } from "@/components/portals/pipeline-header";
 import { PipelineBoard } from "@/components/portals/pipeline-board";
+import { StageLabelsProvider } from "@/components/portals/stage-labels-context";
 import { CLIENT_PORTALS_ENABLED } from "@/lib/portals/flag";
 import { PortalsComingSoon } from "@/components/portals/portals-coming-soon";
 
@@ -33,7 +35,9 @@ export default async function PortalDrilldownPage(props: {
   const admin = createAdminSupabase();
   const { data: client } = await admin
     .from("clients")
-    .select("id, name, slug, portal_token, portal_enabled")
+    .select(
+      "id, name, slug, portal_token, portal_enabled, stage_label_overrides",
+    )
     .eq("id", clientId)
     .maybeSingle();
   if (!client || client.slug === "unknown") notFound();
@@ -46,6 +50,15 @@ export default async function PortalDrilldownPage(props: {
   // "Open live portal" must point at the brokerage-facing custom
   // domain so staff click-throughs land on the same URL clients see.
   const portalPublicUrl = publicPortalUrl(client.portal_token as string | null);
+
+  // Mirror the client's per-stage label overrides on the staff view
+  // so what the broker sees and what staff sees can never drift.
+  const rawOverrides = client.stage_label_overrides;
+  const overrides: Record<string, unknown> =
+    rawOverrides && typeof rawOverrides === "object"
+      ? (rawOverrides as Record<string, unknown>)
+      : {};
+  const stageLabels = resolveStageLabels(overrides);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-[#f6f7f9]">
@@ -90,21 +103,25 @@ export default async function PortalDrilldownPage(props: {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <PipelineHeader clientName={client.name as string} />
-        {client.portal_token ? (
-          <>
-            <PipelineBoard
-              token={client.portal_token as string}
-              entries={entries}
-              teamMembers={teamMembers}
-            />
-            <PipelineFooterInfo />
-          </>
-        ) : (
-          <div className="mx-auto max-w-6xl px-6 py-12 text-center text-sm text-muted-foreground">
-            This client has no portal token yet; pipeline edits aren&apos;t wired up.
-          </div>
-        )}
+        <StageLabelsProvider value={stageLabels}>
+          <PipelineHeader clientName={client.name as string} />
+          {client.portal_token ? (
+            <>
+              <PipelineBoard
+                token={client.portal_token as string}
+                entries={entries}
+                teamMembers={teamMembers}
+                stageLabels={stageLabels}
+                stageLabelOverrides={overrides}
+              />
+              <PipelineFooterInfo />
+            </>
+          ) : (
+            <div className="mx-auto max-w-6xl px-6 py-12 text-center text-sm text-muted-foreground">
+              This client has no portal token yet; pipeline edits aren&apos;t wired up.
+            </div>
+          )}
+        </StageLabelsProvider>
       </div>
     </div>
   );

@@ -5,10 +5,10 @@ import { ChevronDown, Phone, Reply, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   STAGE_DESCRIPTIONS,
-  STAGE_LABELS,
   STAGE_ORDER,
   type PipelineStage,
 } from "@/lib/portals/portal-data";
+import { useStageLabels } from "@/components/portals/stage-labels-context";
 
 // Splits into three render targets:
 //   <PipelineHeader>      → title + Nicole Collins intro (always visible)
@@ -127,6 +127,7 @@ function NicolePhoto() {
 // collapsibles (closed by default) so they don't push the data off-
 // screen but stay discoverable for first-time users.
 export function PipelineFooterInfo() {
+  const stageLabels = useStageLabels();
   return (
     <section className="mx-auto mt-2 max-w-6xl px-4 pb-12 sm:px-6">
       <Disclosure
@@ -174,7 +175,7 @@ export function PipelineFooterInfo() {
                     LEGEND_STYLE[s],
                   )}
                 >
-                  {s === "interview" ? "Screening / Interview" : STAGE_LABELS[s]}
+                  {stageLabels[s]}
                 </span>
                 <p className="text-[12.5px] leading-snug text-[#5b6472]">
                   {STAGE_DESCRIPTIONS[s]}
