@@ -61,7 +61,7 @@ export default async function WelcomePage(props: {
       icon: UserCheck,
       title: "Your Agents",
       description:
-        "The agents we're targeting on your behalf — fully editable.",
+        "Your brokerage's own agents, we never reach out to anyone on this list.",
       count: counts.agents,
       countLabel: "agents",
     },
@@ -69,7 +69,7 @@ export default async function WelcomePage(props: {
       href: `${base}/dnc`,
       icon: Ban,
       title: "Do Not Contact",
-      description: "Names, emails, and domains we'll never reach out to.",
+      description: "Agents and companies we should never reach out to.",
       count: counts.dnc,
       countLabel: "entries",
       tone: "danger",
@@ -78,8 +78,7 @@ export default async function WelcomePage(props: {
       href: `${base}/team`,
       icon: Users,
       title: "Team",
-      description:
-        "Who at your firm receives introductions and digests from us.",
+      description: "Who receives intro notifications and how.",
       count: counts.team,
       countLabel: "members",
     },
@@ -114,13 +113,6 @@ export default async function WelcomePage(props: {
           </div>
           <PortalLogo className="hidden h-9 w-auto shrink-0 opacity-80 sm:block" />
         </div>
-
-        {/* Quick-stat strip — three small tiles inside the hero. */}
-        <div className="relative mt-7 grid grid-cols-3 gap-3">
-          <Stat label="Candidates" value={counts.pipeline} />
-          <Stat label="Active agents" value={counts.agents} />
-          <Stat label="Team members" value={counts.team} />
-        </div>
       </section>
 
       {/* Section cards. 2-col on desktop, stacked on mobile. */}
@@ -149,11 +141,15 @@ export default async function WelcomePage(props: {
               </p>
             </div>
           </div>
+          {/* !text-white because the global a:link { color: inherit }
+              rule in globals.css beats Tailwind's text-white on
+              specificity. The Open links on the section cards work
+              by setting their colors on inner spans instead. */}
           <a
             href={CALENDLY_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-full bg-[#1565C0] px-5 py-2.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-[#10499a]"
+            className="inline-flex items-center gap-2 rounded-full bg-[#1565C0] px-5 py-2.5 text-[13px] font-semibold !text-white shadow-sm transition-colors hover:bg-[#10499a]"
           >
             Schedule a call
             <ArrowRight className="size-4" />
@@ -220,15 +216,3 @@ function SectionCard({ section }: { section: Section }) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-xl border border-[#ebecf0] bg-white/70 px-3 py-2.5 backdrop-blur-sm">
-      <div className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[#9aa0ab]">
-        {label}
-      </div>
-      <div className="mt-0.5 text-[20px] font-semibold tabular-nums text-[#0f1320]">
-        {value.toLocaleString()}
-      </div>
-    </div>
-  );
-}
