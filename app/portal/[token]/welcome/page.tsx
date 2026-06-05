@@ -53,8 +53,6 @@ export default async function WelcomePage(props: {
       title: "Recruiting Pipeline",
       description:
         "Track every introduced candidate from first reply to placement.",
-      count: counts.pipeline,
-      countLabel: "candidates",
     },
     {
       href: `${base}/agents`,
@@ -165,8 +163,11 @@ type Section = {
   icon: typeof Workflow;
   title: string;
   description: string;
-  count: number;
-  countLabel: string;
+  // Count chip is optional; the Recruiting Pipeline card hides it
+  // because the live total already shows on the pipeline page itself
+  // and the sidebar badge.
+  count?: number;
+  countLabel?: string;
   tone?: "danger";
 };
 
@@ -187,18 +188,22 @@ function SectionCard({ section }: { section: Section }) {
         >
           <Icon className="size-[18px]" />
         </div>
-        <span
-          className={
-            section.tone === "danger"
-              ? "inline-flex items-center gap-1 rounded-full bg-[#fee2e2] px-2.5 py-1 text-[11.5px] font-semibold text-[#b91c1c]"
-              : "inline-flex items-center gap-1 rounded-full bg-[#f5f7fa] px-2.5 py-1 text-[11.5px] font-semibold text-[#5b6472]"
-          }
-        >
-          <span className="tabular-nums">{section.count.toLocaleString()}</span>
-          <span className="text-[11px] font-medium opacity-80">
-            {section.countLabel}
+        {typeof section.count === "number" ? (
+          <span
+            className={
+              section.tone === "danger"
+                ? "inline-flex items-center gap-1 rounded-full bg-[#fee2e2] px-2.5 py-1 text-[11.5px] font-semibold text-[#b91c1c]"
+                : "inline-flex items-center gap-1 rounded-full bg-[#f5f7fa] px-2.5 py-1 text-[11.5px] font-semibold text-[#5b6472]"
+            }
+          >
+            <span className="tabular-nums">{section.count.toLocaleString()}</span>
+            {section.countLabel ? (
+              <span className="text-[11px] font-medium opacity-80">
+                {section.countLabel}
+              </span>
+            ) : null}
           </span>
-        </span>
+        ) : null}
       </div>
       <div>
         <div className="text-[15px] font-semibold tracking-tight text-[#0f1320]">
