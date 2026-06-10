@@ -9,7 +9,7 @@ async function fetchChannels(workspaceId: string): Promise<ChannelRow[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
     .from("channels")
-    .select("id, display_name, provider, type")
+    .select("id, display_name, provider, type, instantly_account_id")
     .eq("workspace_id", workspaceId)
     .order("display_name", { ascending: true });
 

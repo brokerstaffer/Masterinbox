@@ -965,6 +965,13 @@ export interface ChannelOption {
   provider: "instantly" | "emailbison" | "unipile";
   display_name: string;
   instantly_account_id: string | null;
+  // Resolved sender email for this channel. Instantly stores it on
+  // instantly_account_id; EmailBison only has a friendly name on the
+  // channel row, so the parent derives this from the latest outbound
+  // message on the channel and passes it in. Used by the picker to
+  // disambiguate channels that share a display_name (the EmailBison
+  // 22-sender case where every row is "Nicole Collins").
+  email: string | null;
 }
 
 // Searchable From-dropdown. Filters channels to the same provider as
@@ -1015,6 +1022,7 @@ function SenderPicker({
           // email for Instantly channels — search that explicitly so
           // typing the @domain portion of a sender's address matches.
           if (c.display_name.toLowerCase().includes(needle)) return true;
+          if (c.email && c.email.toLowerCase().includes(needle)) return true;
           if (
             c.instantly_account_id &&
             c.instantly_account_id.toLowerCase().includes(needle)
@@ -1106,24 +1114,39 @@ function SenderPicker({
             No senders match &quot;{filter}&quot;.
           </div>
         ) : (
-          filtered.slice(0, 200).map((c) => (
-            <DropdownMenuItem
-              key={c.id}
-              onClick={() => {
-                onChange(c.id);
-                setFilter("");
-                setOpen(false);
-              }}
-              className="flex items-center justify-between gap-2 text-[13px]"
-            >
-              <span className="truncate">{c.display_name}</span>
-              {c.id === selectedId ? (
-                <span className="text-[10px] text-[#1565C0] font-semibold uppercase">
-                  Selected
+          filtered.slice(0, 200).map((c) => {
+            const senderEmail = c.email ?? c.instantly_account_id ?? null;
+            // Hide the email when it's identical to display_name (the
+            // Instantly common case where display_name IS the email),
+            // otherwise the row reads "x@y.com  x@y.com".
+            const showEmail =
+              senderEmail && senderEmail.toLowerCase() !== c.display_name.toLowerCase();
+            return (
+              <DropdownMenuItem
+                key={c.id}
+                onClick={() => {
+                  onChange(c.id);
+                  setFilter("");
+                  setOpen(false);
+                }}
+                className="flex items-start justify-between gap-2 text-[13px]"
+              >
+                <span className="flex min-w-0 flex-col leading-tight">
+                  <span className="truncate">{c.display_name}</span>
+                  {showEmail ? (
+                    <span className="truncate text-[11.5px] text-muted-foreground">
+                      {senderEmail}
+                    </span>
+                  ) : null}
                 </span>
-              ) : null}
-            </DropdownMenuItem>
-          ))
+                {c.id === selectedId ? (
+                  <span className="text-[10px] text-[#1565C0] font-semibold uppercase">
+                    Selected
+                  </span>
+                ) : null}
+              </DropdownMenuItem>
+            );
+          })
         )}
         {filtered.length > 200 ? (
           <div className="px-3 py-1.5 text-center text-[11px] text-muted-foreground border-t">

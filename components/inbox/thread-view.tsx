@@ -132,6 +132,7 @@ export function ThreadView({
     provider: "instantly" | "emailbison" | "unipile";
     display_name: string;
     instantly_account_id: string | null;
+    email: string | null;
   }>;
   prevThreadHref?: string | null;
   nextThreadHref?: string | null;

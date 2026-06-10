@@ -5,4 +5,8 @@ export interface ChannelRow {
   display_name: string | null;
   provider: "emailbison" | "instantly" | null;
   type: "email" | null;
+  // For Instantly channels this IS the sender email (Instantly stores
+  // the address as the account id). EmailBison channels leave this
+  // null — their address must be resolved separately.
+  instantly_account_id: string | null;
 }

@@ -99,6 +99,37 @@ export default async function ThreadDetailPage(props: {
   if (!detail) notFound();
   ts("ready to render");
 
+  // EmailBison channels only store a friendly display_name like
+  // "Nicole Collins" — the actual sending address isn't on the row.
+  // Derive it from the most recent outbound message on each channel
+  // so the SenderPicker can disambiguate when several rows share a
+  // display_name. Instantly channels already carry the address on
+  // instantly_account_id, so they don't need this lookup.
+  const ebChannelIds = channels
+    .filter((c) => c.provider === "emailbison" && c.id)
+    .map((c) => c.id);
+  const emailByChannelId = new Map<string, string>();
+  if (ebChannelIds.length > 0) {
+    const { data: outboundRows } = await createAdminSupabase()
+      .from("messages")
+      .select("channel_id, sender")
+      .eq("workspace_id", session.activeWorkspace.id)
+      .eq("direction", "outbound")
+      .in("channel_id", ebChannelIds)
+      .not("sender", "is", null)
+      .order("sent_at", { ascending: false })
+      .limit(1000);
+    for (const m of (outboundRows ?? []) as Array<{
+      channel_id: string;
+      sender: string | null;
+    }>) {
+      if (!m.sender || !m.channel_id) continue;
+      if (!emailByChannelId.has(m.channel_id)) {
+        emailByChannelId.set(m.channel_id, m.sender);
+      }
+    }
+  }
+
   const initialFilter: FilterState =
     filterFromUrl ?? {
       rows:
@@ -150,7 +181,11 @@ export default async function ThreadDetailPage(props: {
               id: c.id,
               provider: c.provider,
               display_name: c.display_name,
-              instantly_account_id: null,
+              instantly_account_id: c.instantly_account_id ?? null,
+              email:
+                c.instantly_account_id ??
+                emailByChannelId.get(c.id) ??
+                null,
             }))}
           backHref={`/inbox/${view}${buildSuffix(f, list, page, q)}`}
           prevThreadHref={(() => {
