@@ -51,6 +51,11 @@ export const env = {
   get APP_ENCRYPTION_KEY() {
     return lazyOptional("APP_ENCRYPTION_KEY")();
   },
+  // n8n webhook notified when a human marks a lead as Introduction.
+  // Optional — the notifier is a silent no-op when unset.
+  get N8N_INTRODUCTION_WEBHOOK_URL() {
+    return lazyOptional("N8N_INTRODUCTION_WEBHOOK_URL")();
+  },
   // Hard-pinned singleton workspace UUID. Setting this lets requireSession
   // skip the per-request Supabase query that resolves "which workspace am
   // I in" — saving ~280ms × every page render on the single-tenant

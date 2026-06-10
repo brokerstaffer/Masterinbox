@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth/workspace";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { isHostileLabel, markThreadLeadDoNotContact } from "@/lib/inbox/dnc";
+import { notifyIntroductionForThreads } from "@/lib/webhooks/n8n-introduction";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +65,12 @@ export async function POST(
     .maybeSingle();
   if (isHostileLabel(label?.name as string | null)) {
     await markThreadLeadDoNotContact(threadId);
+  }
+
+  // Introduction → notify n8n. The 0023 DB trigger has already created
+  // the pipeline row inside the upsert above; resolve it post-response.
+  if ((label?.name as string | null)?.toLowerCase() === "introduction") {
+    after(() => notifyIntroductionForThreads([threadId], "inbox_label"));
   }
 
   return NextResponse.json({ ok: true });

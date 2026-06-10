@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth/workspace";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { chunkedRun } from "@/lib/db/chunked-in";
+import { notifyIntroductionForThreads } from "@/lib/webhooks/n8n-introduction";
 
 export const dynamic = "force-dynamic";
 
@@ -160,6 +161,21 @@ export async function POST(request: Request) {
               onConflict: "label_id,target_type,target_id",
             });
           if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        }
+        // Introduction among the applied labels → notify n8n for the
+        // selected threads. The 0023 trigger created pipeline rows
+        // during the upserts above; threads without one (e.g. no
+        // client) drop out inside the helper.
+        const { data: introLabels } = await supabase
+          .from("labels")
+          .select("id")
+          .in("id", data.label_ids)
+          .ilike("name", "introduction");
+        if (introLabels && introLabels.length > 0) {
+          const threadIds = data.thread_ids;
+          after(() =>
+            notifyIntroductionForThreads(threadIds, "inbox_bulk_label"),
+          );
         }
         return NextResponse.json({ ok: true });
       } else {

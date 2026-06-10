@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
+import { notifyIntroduction } from "@/lib/webhooks/n8n-introduction";
 
 // POST /api/portal/[token]/pipeline — manually create a pipeline entry
 // from the client portal. Used when the client wants to log an intro
@@ -80,6 +81,10 @@ export async function POST(
     .select("id")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (row.stage === "introduction") {
+    const entryId = data.id as string;
+    after(() => notifyIntroduction([entryId], "portal_add_lead"));
+  }
   return NextResponse.json({ ok: true, id: data.id });
 }
 
@@ -116,12 +121,20 @@ export async function PATCH(
     if (!parsed.data.stage) {
       return NextResponse.json({ error: "stage required" }, { status: 400 });
     }
-    const { error } = await admin
+    // .select("id") so the n8n notify below only covers rows that
+    // actually belong to this client (foreign ids fall out of the
+    // update silently).
+    const { data: updated, error } = await admin
       .from("client_pipeline_entries")
       .update({ stage: parsed.data.stage, updated_at: new Date().toISOString() })
       .eq("client_id", client.id)
-      .in("id", parsed.data.ids);
+      .in("id", parsed.data.ids)
+      .select("id");
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (parsed.data.stage === "introduction" && updated && updated.length > 0) {
+      const entryIds = (updated as { id: string }[]).map((r) => r.id);
+      after(() => notifyIntroduction(entryIds, "portal_stage_change"));
+    }
     return NextResponse.json({ ok: true });
   }
   if (parsed.data.action === "assign") {

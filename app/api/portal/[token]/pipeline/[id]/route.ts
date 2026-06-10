@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
+import { notifyIntroduction } from "@/lib/webhooks/n8n-introduction";
 
 // PATCH /api/portal/[token]/pipeline/[id]
 // DELETE /api/portal/[token]/pipeline/[id]
@@ -71,6 +72,10 @@ export async function PATCH(
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   if (!data) return NextResponse.json({ error: "Entry not found" }, { status: 404 });
+  if (parsed.data.stage === "introduction") {
+    const entryId = data.id as string;
+    after(() => notifyIntroduction([entryId], "portal_stage_change"));
+  }
   return NextResponse.json({ ok: true });
 }
 
