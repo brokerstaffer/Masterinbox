@@ -74,6 +74,9 @@ async function resolveContext(
   // Auto-create the channel on first sight. status='connected' because we
   // just received traffic on it, display_name falls back to the email
   // address when no name was provided in the webhook payload.
+  // external_account_id stores the actual sending address so the From
+  // picker can show it under display_name when EmailBison friendly
+  // names collide (the "22 senders all named Nicole Collins" case).
   const display = senderEmail?.name || senderEmail?.email || `EmailBison #${senderEmailId}`;
   const { data: created, error } = await supabase
     .from("channels")
@@ -82,6 +85,7 @@ async function resolveContext(
       type: "email",
       provider: "emailbison",
       display_name: display,
+      external_account_id: senderEmail?.email ?? null,
       emailbison_sender_email_id: String(senderEmailId),
       emailbison_team_id: ebTeamId ?? null,
       status: "connected",

@@ -184,6 +184,7 @@ export default async function ThreadDetailPage(props: {
               instantly_account_id: c.instantly_account_id ?? null,
               email:
                 c.instantly_account_id ??
+                c.external_account_id ??
                 emailByChannelId.get(c.id) ??
                 null,
             }))}
