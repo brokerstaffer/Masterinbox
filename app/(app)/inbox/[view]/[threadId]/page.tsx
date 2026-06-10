@@ -21,6 +21,26 @@ import { createAdminSupabase } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
+// Preserve the active list / filter / page / search across the
+// thread-detail Back, Prev, and Next links. Without this the next
+// thread's URL would drop the ?list=… (and ?f=…) params and dump
+// the user back to the unfiltered view — the exact behaviour
+// flagged in the SERHANT. list bug report.
+function buildSuffix(
+  f: string | undefined,
+  list: string | undefined,
+  page: string | undefined,
+  q: string | undefined,
+): string {
+  const params = new URLSearchParams();
+  if (f) params.set("f", f);
+  if (list) params.set("list", list);
+  if (page) params.set("page", page);
+  if (q) params.set("q", q);
+  const s = params.toString();
+  return s ? `?${s}` : "";
+}
+
 export default async function ThreadDetailPage(props: {
   params: Promise<{ view: string; threadId: string }>;
   searchParams: Promise<{ f?: string; list?: string; page?: string; q?: string }>;
@@ -132,16 +152,16 @@ export default async function ThreadDetailPage(props: {
               display_name: c.display_name,
               instantly_account_id: null,
             }))}
-          backHref={`/inbox/${view}`}
+          backHref={`/inbox/${view}${buildSuffix(f, list, page, q)}`}
           prevThreadHref={(() => {
             const idx = threadPage.rows.findIndex((t) => t.id === threadId);
             const prev = idx > 0 ? threadPage.rows[idx - 1] : null;
-            return prev ? `/inbox/${view}/${prev.id}` : null;
+            return prev ? `/inbox/${view}/${prev.id}${buildSuffix(f, list, page, q)}` : null;
           })()}
           nextThreadHref={(() => {
             const idx = threadPage.rows.findIndex((t) => t.id === threadId);
             const next = idx >= 0 && idx < threadPage.rows.length - 1 ? threadPage.rows[idx + 1] : null;
-            return next ? `/inbox/${view}/${next.id}` : null;
+            return next ? `/inbox/${view}/${next.id}${buildSuffix(f, list, page, q)}` : null;
           })()}
         />
         <ProspectPanel detail={detail} />
