@@ -25,6 +25,14 @@ export interface PortalClient {
   // ISO timestamp of the last successful Connect against FUB. Lets
   // the Settings card render "Connected on …". Null when not set.
   fub_connected_at: string | null;
+  // Per-client feature-flag map. Empty {} (the default) means
+  // "behave like every other client" — no new behaviour. A non-empty
+  // map opts THIS client into specific in-flight features; see
+  // lib/portals/feature-flags.ts for the read pattern. Backed by
+  // clients.feature_flags (added in migration 0053). The loader
+  // below reads the column DEFENSIVELY so a pre-migration deploy
+  // still resolves portals normally with empty flags.
+  feature_flags: Record<string, unknown>;
 }
 
 export const resolvePortalClient = cache(
@@ -35,13 +43,37 @@ export const resolvePortalClient = cache(
     if (!token || token.length < 4) return null;
 
     const admin = createAdminSupabase();
-    const { data } = await admin
+
+    // Defensive read: try first with feature_flags included. If the
+    // column doesn't exist yet (migration 0053 not applied to this
+    // environment), retry with the original column set. This means
+    // the WRONG deploy order — code before migration — degrades to
+    // "feature flags are empty for everyone" rather than 404-ing
+    // every portal page like the FUB-columns regression did.
+    const SELECT_WITH_FLAGS =
+      "id, name, slug, portal_enabled, stage_label_overrides, fub_api_key, fub_connected_at, feature_flags";
+    const SELECT_BASE =
+      "id, name, slug, portal_enabled, stage_label_overrides, fub_api_key, fub_connected_at";
+
+    let { data, error } = await admin
       .from("clients")
-      .select(
-        "id, name, slug, portal_enabled, stage_label_overrides, fub_api_key, fub_connected_at",
-      )
+      .select(SELECT_WITH_FLAGS)
       .eq("portal_token", token)
       .maybeSingle();
+
+    if (error && isMissingColumnError(error, "feature_flags")) {
+      const retry = await admin
+        .from("clients")
+        .select(SELECT_BASE)
+        .eq("portal_token", token)
+        .maybeSingle();
+      data = retry.data
+        ? // Re-shape the retry row so the rest of the function reads
+          // the same field set regardless of which branch ran.
+          ({ ...retry.data, feature_flags: {} } as typeof data)
+        : null;
+      error = retry.error;
+    }
 
     if (!data) return null;
     if (data.slug === "unknown") return null;
@@ -49,6 +81,7 @@ export const resolvePortalClient = cache(
 
     const rawOverrides = data.stage_label_overrides;
     const rawKey = data.fub_api_key as string | null | undefined;
+    const rawFlags = (data as { feature_flags?: unknown }).feature_flags;
     return {
       id: data.id as string,
       name: data.name as string,
@@ -59,6 +92,27 @@ export const resolvePortalClient = cache(
           : {},
       fub_api_key_set: typeof rawKey === "string" && rawKey.trim().length > 0,
       fub_connected_at: (data.fub_connected_at as string | null) ?? null,
+      feature_flags:
+        rawFlags && typeof rawFlags === "object" && !Array.isArray(rawFlags)
+          ? (rawFlags as Record<string, unknown>)
+          : {},
     };
   },
 );
+
+// supabase-js error shapes vary by version; check both the PG code
+// (42703 = undefined_column) and the human message text. Either
+// signal triggers the fallback path that omits the column.
+function isMissingColumnError(
+  error: { code?: string; message?: string } | null | undefined,
+  columnName: string,
+): boolean {
+  if (!error) return false;
+  if (error.code === "42703") return true;
+  const msg = (error.message ?? "").toLowerCase();
+  return (
+    msg.includes(`column "${columnName}"`) ||
+    msg.includes(`column ${columnName}`) ||
+    (msg.includes(columnName) && msg.includes("does not exist"))
+  );
+}

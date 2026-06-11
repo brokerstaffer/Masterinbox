@@ -4,6 +4,7 @@ import {
   loadPipelineEntries,
   loadTeamMembers,
   resolveStageLabels,
+  visibleStagesFor,
 } from "@/lib/portals/portal-data";
 import {
   PipelineHeader,
@@ -12,7 +13,10 @@ import {
 import { PipelineBoard } from "@/components/portals/pipeline-board";
 import { PortalLogo } from "@/components/portals/portal-logo";
 import { WelcomeRedirect } from "@/components/portals/welcome-redirect";
-import { StageLabelsProvider } from "@/components/portals/stage-labels-context";
+import {
+  StageLabelsProvider,
+  VisibleStagesProvider,
+} from "@/components/portals/stage-labels-context";
 
 // The Recruiting Pipeline IS the portal home now. Every Introduction
 // (legacy MasterInbox feed + new Postgres-triggered label assignments)
@@ -49,20 +53,27 @@ export default async function PortalRoot(props: {
   ]);
 
   const stageLabels = resolveStageLabels(client.stage_label_overrides);
+  // Per-client visible stage list. Real clients get the canonical
+  // 8 stages; flag-enabled clients (OpsLabs) get the additional
+  // interview_scheduled tile. Computed server-side and shared
+  // across every nested component via VisibleStagesProvider.
+  const visibleStages = visibleStagesFor(client);
 
   return (
     <StageLabelsProvider value={stageLabels}>
-      <WelcomeRedirect token={token} />
-      <PipelineHeader clientName={client.name} />
-      <PipelineBoard
-        token={token}
-        entries={entries}
-        teamMembers={teamMembers}
-        stageLabels={stageLabels}
-        stageLabelOverrides={client.stage_label_overrides}
-        fubConnected={client.fub_api_key_set}
-      />
-      <PipelineFooterInfo />
+      <VisibleStagesProvider value={visibleStages}>
+        <WelcomeRedirect token={token} />
+        <PipelineHeader clientName={client.name} />
+        <PipelineBoard
+          token={token}
+          entries={entries}
+          teamMembers={teamMembers}
+          stageLabels={stageLabels}
+          stageLabelOverrides={client.stage_label_overrides}
+          fubConnected={client.fub_api_key_set}
+        />
+        <PipelineFooterInfo />
+      </VisibleStagesProvider>
     </StageLabelsProvider>
   );
 }

@@ -10,6 +10,15 @@ export type PipelineStage =
   | "introduction"
   | "phone_screen_scheduled"
   | "phone_screen"
+  // Added 2026-06-12, gated to OpsLabs only via the
+  // "interview_scheduled_stage" feature flag (see
+  // lib/portals/feature-flags.ts). Real clients use
+  // visibleStagesFor() below, which omits this from every
+  // dropdown / chip / legend they render, so the new stage stays
+  // invisible to them until rollout is approved. The enum value
+  // itself lives in Postgres (migration 0052) so the type can
+  // include it safely.
+  | "interview_scheduled"
   | "interview"
   | "hired"
   | "keep_warm"
@@ -366,6 +375,7 @@ export const DEFAULT_STAGE_LABELS: Record<PipelineStage, string> = {
   introduction: "Introduction",
   phone_screen_scheduled: "Phone Screen Scheduled",
   phone_screen: "Phone Screen",
+  interview_scheduled: "Interview Scheduled",
   interview: "Interview",
   hired: "Hired",
   keep_warm: "Nurture",
@@ -407,8 +417,10 @@ export const STAGE_DESCRIPTIONS: Record<PipelineStage, string> = {
     "A phone screen has been booked with the agent — they haven't been screened yet.",
   phone_screen:
     "The phone screen has happened. You're evaluating the agent before moving to a full interview.",
+  interview_scheduled:
+    "An interview has been booked with the agent. The interview itself hasn't happened yet.",
   interview:
-    "The agent is being scheduled for or has completed an in-person / longer interview.",
+    "The interview has happened, or is being scheduled for an in-person / longer conversation.",
   hired: "The agent has accepted and is joining your team.",
   keep_warm:
     "The agent is interested but not ready to move forward yet. We stay in touch and re-engage at the right time.",
@@ -422,9 +434,33 @@ export const STAGE_ORDER: PipelineStage[] = [
   "introduction",
   "phone_screen_scheduled",
   "phone_screen",
+  "interview_scheduled",
   "interview",
   "hired",
   "keep_warm",
   "we_they_rejected",
   "no_show",
 ];
+
+// Per-client visible stages. Filters out stages that are still
+// feature-flagged off for this client. Use this anywhere the UI
+// renders a stage list (dropdowns, chips, legend, filter pills,
+// label editor). The canonical full set in STAGE_ORDER stays
+// untouched so `Record<PipelineStage, T>` initialisers and
+// exhaustiveness checks keep working.
+//
+// Today's only gate: `interview_scheduled` is hidden until a
+// client carries feature_flags.interview_scheduled_stage = true.
+// Default for every existing client is no flag set, so they keep
+// seeing the same eight stages as before this change.
+export function visibleStagesFor(
+  client: { feature_flags?: Record<string, unknown> | null } | null | undefined,
+): PipelineStage[] {
+  const flags = client?.feature_flags;
+  const hasInterviewScheduled =
+    flags && typeof flags === "object"
+      ? Boolean((flags as Record<string, unknown>).interview_scheduled_stage)
+      : false;
+  if (hasInterviewScheduled) return STAGE_ORDER;
+  return STAGE_ORDER.filter((s) => s !== "interview_scheduled");
+}

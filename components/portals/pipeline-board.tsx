@@ -51,9 +51,11 @@ import {
   type PipelineEntry,
   type PipelineStage,
   type TeamMember,
-  STAGE_ORDER,
 } from "@/lib/portals/portal-data";
-import { useStageLabels } from "@/components/portals/stage-labels-context";
+import {
+  useStageLabels,
+  useVisibleStages,
+} from "@/components/portals/stage-labels-context";
 import { StageLabelEditor } from "@/components/portals/stage-label-editor";
 import {
   PortalEmpty,
@@ -73,10 +75,12 @@ import { formatPhoneDisplay } from "@/lib/portals/phone";
 // matching color dots beside its inputs — single source of truth.
 export const STAGE_STYLE: Record<PipelineStage, { bg: string; text: string }> = {
   introduction:           { bg: "bg-[#1976d2]", text: "text-white" },
-  // Lighter indigo than phone_screen so the workflow gradient reads
-  // intro-blue → scheduled-light-indigo → phone-screen-indigo → interview-purple.
+  // Workflow gradient reads:
+  //   intro-blue → phone-scheduled-light-indigo → phone-indigo
+  //   → interview-scheduled-light-purple → interview-purple → hired-green.
   phone_screen_scheduled: { bg: "bg-[#7689e0]", text: "text-white" },
   phone_screen:           { bg: "bg-[#4f63d2]", text: "text-white" },
+  interview_scheduled:    { bg: "bg-[#a98ff8]", text: "text-white" },
   interview:              { bg: "bg-[#7c4dff]", text: "text-white" },
   hired:                  { bg: "bg-[#10a05d]", text: "text-white" },
   keep_warm:              { bg: "bg-[#f5a623]", text: "text-white" },
@@ -115,6 +119,13 @@ export function PipelineBoard({
 }) {
   const router = useRouter();
   const mounted = useMounted();
+  // Per-client list of stages this client is allowed to see in the
+  // UI (filter chips, bulk move-to menu). Real clients are missing
+  // the in-flight stages (e.g. Interview Scheduled); OpsLabs sees
+  // the full set via the feature_flags.interview_scheduled_stage
+  // flag. STAGE_ORDER stays as the canonical universe for Record
+  // initialisers + type exhaustiveness.
+  const visibleStages = useVisibleStages();
   // Local copy lets us update optimistically — the server is the source
   // of truth on the next router.refresh().
   const [entries, setEntries] = useState(initial);
@@ -162,6 +173,7 @@ export function PipelineBoard({
       introduction: 0,
       phone_screen_scheduled: 0,
       phone_screen: 0,
+      interview_scheduled: 0,
       interview: 0,
       hired: 0,
       keep_warm: 0,
@@ -456,7 +468,7 @@ export function PipelineBoard({
               </span>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {STAGE_ORDER.map((s) => {
+              {visibleStages.map((s) => {
                 const active = stageFilter.has(s);
                 const style = STAGE_STYLE[s];
                 return (
@@ -527,7 +539,7 @@ export function PipelineBoard({
                   }
                 />
                 <DropdownMenuContent align="end" className="w-48">
-                  {STAGE_ORDER.map((s) => (
+                  {visibleStages.map((s) => (
                     <DropdownMenuItem key={s} onClick={() => bulkStage(s)}>
                       <span className={cn("mr-2 inline-block size-2.5 rounded-full", STAGE_STYLE[s].bg)} />
                       {stageLabels[s]}
@@ -1214,6 +1226,15 @@ function StageSelector({
 }) {
   const style = STAGE_STYLE[value];
   const stageLabels = useStageLabels();
+  // Per-client visible stages. If the current entry is in a stage
+  // hidden for this client (e.g. a row that's somehow already in
+  // interview_scheduled state for a real client), we still include
+  // it so the operator can move it out — never let the row become
+  // unselectable. Otherwise we'd trap the data.
+  const visibleStages = useVisibleStages();
+  const dropdownStages = visibleStages.includes(value)
+    ? visibleStages
+    : [...visibleStages, value];
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -1232,7 +1253,7 @@ function StageSelector({
         }
       />
       <DropdownMenuContent align="start" className="w-48">
-        {STAGE_ORDER.map((s) => (
+        {dropdownStages.map((s) => (
           <DropdownMenuItem
             key={s}
             onClick={() => onChange(s)}

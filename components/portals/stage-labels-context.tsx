@@ -3,6 +3,7 @@
 import { createContext, useContext } from "react";
 import {
   DEFAULT_STAGE_LABELS,
+  STAGE_ORDER,
   type PipelineStage,
 } from "@/lib/portals/portal-data";
 
@@ -34,4 +35,34 @@ export function StageLabelsProvider({
 
 export function useStageLabels(): Record<PipelineStage, string> {
   return useContext(StageLabelsContext);
+}
+
+// Per-client *visible* stage list. STAGE_ORDER is the canonical
+// universe; this context narrows that down to what THIS client
+// should see in dropdowns / chips / legend. Real clients get the
+// pre-Interview-Scheduled list (8 stages); OpsLabs (with the
+// interview_scheduled_stage flag) gets the full 9.
+//
+// Default falls back to STAGE_ORDER so any component rendered
+// outside a provider stays compatible — but the pipeline tree
+// always provides the per-client value via VisibleStagesProvider
+// at the page root.
+const VisibleStagesContext = createContext<PipelineStage[]>(STAGE_ORDER);
+
+export function VisibleStagesProvider({
+  value,
+  children,
+}: {
+  value: PipelineStage[];
+  children: React.ReactNode;
+}) {
+  return (
+    <VisibleStagesContext.Provider value={value}>
+      {children}
+    </VisibleStagesContext.Provider>
+  );
+}
+
+export function useVisibleStages(): PipelineStage[] {
+  return useContext(VisibleStagesContext);
 }

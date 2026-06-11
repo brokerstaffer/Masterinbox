@@ -19,6 +19,7 @@ const STAGES = [
   "introduction",
   "phone_screen_scheduled",
   "phone_screen",
+  "interview_scheduled",
   "interview",
   "hired",
   "keep_warm",

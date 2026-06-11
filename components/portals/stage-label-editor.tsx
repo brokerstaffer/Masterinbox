@@ -14,6 +14,7 @@ import {
   type PipelineStage,
 } from "@/lib/portals/portal-data";
 import { STAGE_STYLE } from "@/components/portals/pipeline-board";
+import { useVisibleStages } from "@/components/portals/stage-labels-context";
 
 // Per-client editor for the pipeline stage display labels. Sits at
 // the top of the Recruiting Pipeline page as a collapsible card.
@@ -40,6 +41,14 @@ export function StageLabelEditor({
   const [drafts, setDrafts] = useState<Drafts>(initial);
   const [pending, startTransition] = useTransition();
   const [saving, setSaving] = useState(false);
+  // Per-client visible stages. Real clients only see editable tiles
+  // for the eight stages they've always had; OpsLabs (with the
+  // interview_scheduled_stage flag) also gets the new Interview
+  // Scheduled tile. Internal state machinery (dirty / anyOverride /
+  // payload build) keeps iterating STAGE_ORDER so a flag-enabled
+  // client's existing overrides are never accidentally dropped when
+  // the flag is toggled.
+  const visibleStages = useVisibleStages();
 
   const dirty = useMemo(() => {
     for (const stage of STAGE_ORDER) {
@@ -146,7 +155,7 @@ export function StageLabelEditor({
       {open ? (
         <div className="border-t border-[#ebecf0] bg-[#fafbfc] px-4 pb-4 pt-4 sm:px-5 sm:pb-5">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {STAGE_ORDER.map((stage) => {
+            {visibleStages.map((stage) => {
               const placeholder = DEFAULT_STAGE_LABELS[stage];
               const value = drafts[stage] ?? "";
               return (

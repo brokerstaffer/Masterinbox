@@ -5,10 +5,12 @@ import { ChevronDown, Phone, Reply, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   STAGE_DESCRIPTIONS,
-  STAGE_ORDER,
   type PipelineStage,
 } from "@/lib/portals/portal-data";
-import { useStageLabels } from "@/components/portals/stage-labels-context";
+import {
+  useStageLabels,
+  useVisibleStages,
+} from "@/components/portals/stage-labels-context";
 
 // Splits into three render targets:
 //   <PipelineHeader>      → title + Nicole Collins intro (always visible)
@@ -25,6 +27,7 @@ const LEGEND_STYLE: Record<PipelineStage, string> = {
   introduction: "bg-[#1976d2]",
   phone_screen_scheduled: "bg-[#7689e0]",
   phone_screen: "bg-[#4f63d2]",
+  interview_scheduled: "bg-[#a98ff8]",
   interview: "bg-[#7c4dff]",
   hired: "bg-[#10a05d]",
   keep_warm: "bg-[#f5a623]",
@@ -32,11 +35,10 @@ const LEGEND_STYLE: Record<PipelineStage, string> = {
   no_show: "bg-[#8b95a3]",
 };
 
-// Surface every stage in the legend so the client can see what each
-// of the workflow steps means. Previously `phone_screen` shared copy
-// with `interview` and was hidden; the new stage clarifies the split
-// so both are kept.
-const LEGEND_ORDER: PipelineStage[] = STAGE_ORDER;
+// Surface every stage the CLIENT is allowed to see in the legend
+// (per-client visible set via useVisibleStages — feature-flagged
+// stages stay hidden until their flag is on for that client). The
+// list is resolved inside PipelineFooterInfo at render time below.
 
 const BEST_PRACTICES: Array<{ icon: typeof Reply; title: string; body: string }> = [
   {
@@ -128,6 +130,10 @@ function NicolePhoto() {
 // screen but stay discoverable for first-time users.
 export function PipelineFooterInfo() {
   const stageLabels = useStageLabels();
+  // Per-client visible stage list. Real clients see the eight
+  // stages they've always seen; OpsLabs (with the feature flag)
+  // sees the additional Interview Scheduled stage in this legend.
+  const legendOrder = useVisibleStages();
   return (
     <section className="mx-auto mt-2 max-w-6xl px-4 pb-12 sm:px-6">
       <Disclosure
@@ -167,7 +173,7 @@ export function PipelineFooterInfo() {
               across the whole list keeps every chip's left edge in line
               and every description starting at the same x. */}
           <ul className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-3 sm:grid-cols-[auto_1fr_auto_1fr]">
-            {LEGEND_ORDER.map((s) => (
+            {legendOrder.map((s) => (
               <Fragment key={s}>
                 <span
                   className={cn(
