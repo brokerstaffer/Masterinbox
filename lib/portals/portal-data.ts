@@ -464,3 +464,31 @@ export function visibleStagesFor(
   if (hasInterviewScheduled) return STAGE_ORDER;
   return STAGE_ORDER.filter((s) => s !== "interview_scheduled");
 }
+
+// Build a labels map safe to ship across the server→client boundary
+// as a React prop. Stages that are NOT in `visibleStages` get their
+// user-facing label replaced with the raw enum key (e.g.
+// "interview_scheduled" instead of "Interview Scheduled"). The
+// Record<PipelineStage, string> shape is preserved so every
+// downstream lookup keeps working without conditional handling.
+//
+// Why: Next.js serialises every server-rendered client component's
+// props into a `<script>` payload for hydration. If we pass the
+// full `Record<PipelineStage, string>` down to PipelineBoard /
+// StageLabelsProvider, the hidden stage's HUMAN label leaks into
+// View Source on every real client portal. Replacing the label
+// with the enum key keeps that string out of the SSR'd HTML
+// entirely — anyone curling the page sees `interview_scheduled` as
+// the value, not the polished "Interview Scheduled" copy. OpsLabs
+// (the only client with the flag) still receives the full labels.
+export function safeStageLabelsFor(
+  fullLabels: Record<PipelineStage, string>,
+  visibleStages: PipelineStage[],
+): Record<PipelineStage, string> {
+  const visible = new Set(visibleStages);
+  const out = {} as Record<PipelineStage, string>;
+  for (const stage of STAGE_ORDER) {
+    out[stage] = visible.has(stage) ? fullLabels[stage] : stage;
+  }
+  return out;
+}

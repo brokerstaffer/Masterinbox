@@ -8,6 +8,7 @@ import {
   loadPortalCounts,
   loadTeamMembers,
   resolveStageLabels,
+  safeStageLabelsFor,
   visibleStagesFor,
 } from "@/lib/portals/portal-data";
 import { publicPortalUrl } from "@/lib/portals/public-url";
@@ -87,7 +88,7 @@ export default async function PortalDrilldownPage(props: {
     rawOverrides && typeof rawOverrides === "object"
       ? (rawOverrides as Record<string, unknown>)
       : {};
-  const stageLabels = resolveStageLabels(overrides);
+  const fullLabels = resolveStageLabels(overrides);
   // Mirror the per-client visible stages on the staff drilldown so
   // staff see the same column/filter set the client sees on their
   // own portal — no risk of drift.
@@ -97,6 +98,12 @@ export default async function PortalDrilldownPage(props: {
       ? (rawFlags as Record<string, unknown>)
       : {};
   const visibleStages = visibleStagesFor({ feature_flags: featureFlags });
+  // Mask hidden stages' human labels with the raw enum key before
+  // the prop crosses the server→client boundary, so the staff
+  // drilldown's SSR hydration payload matches the public portal's
+  // (no Interview Scheduled string in View Source for clients that
+  // haven't opted in).
+  const stageLabels = safeStageLabelsFor(fullLabels, visibleStages);
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-[#f6f7f9]">
