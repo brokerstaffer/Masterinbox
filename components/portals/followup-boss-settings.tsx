@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 // /api/portal/<token>/followup-boss which validates against FUB
 // before persisting.
 
-const FUB_DOCS_KEY_URL = "https://help.followupboss.com/hc/en-us/articles/360045173433-Setting-up-the-API-key";
+const FUB_DOCS_KEY_URL = "https://help.followupboss.com/hc/en-us/articles/360014289393-API-Key";
 
 interface Props {
   token: string;
