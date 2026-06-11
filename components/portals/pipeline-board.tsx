@@ -24,7 +24,6 @@ import {
   CircleCheck,
   TriangleAlert,
 } from "lucide-react";
-import Link from "next/link";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -1931,16 +1930,10 @@ function PushToFubChip({
   }
 
   if (!fubConnected) {
-    return (
-      <Link
-        href={`/portal/${token}/settings`}
-        className="inline-flex items-center gap-1 text-[11.5px] text-[#9aa0ab] hover:text-[#1565C0] hover:underline"
-        title="Connect Follow Up Boss in Settings to enable per-lead push"
-      >
-        <Send className="size-3 shrink-0" />
-        <span>Connect FUB</span>
-      </Link>
-    );
+    // No CTA on the row when the client hasn't connected FUB. The
+    // Settings page is the single place that surfaces the "Connect"
+    // affordance, so the per-lead strip stays clean.
+    return null;
   }
 
   if (entry.fub_pushed_at) {
