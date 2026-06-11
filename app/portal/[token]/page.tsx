@@ -60,6 +60,7 @@ export default async function PortalRoot(props: {
         teamMembers={teamMembers}
         stageLabels={stageLabels}
         stageLabelOverrides={client.stage_label_overrides}
+        fubConnected={client.fub_api_key_set}
       />
       <PipelineFooterInfo />
     </StageLabelsProvider>

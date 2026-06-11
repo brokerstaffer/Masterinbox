@@ -36,7 +36,7 @@ export default async function PortalDrilldownPage(props: {
   const { data: client } = await admin
     .from("clients")
     .select(
-      "id, name, slug, portal_token, portal_enabled, stage_label_overrides",
+      "id, name, slug, portal_token, portal_enabled, stage_label_overrides, fub_api_key",
     )
     .eq("id", clientId)
     .maybeSingle();
@@ -113,6 +113,9 @@ export default async function PortalDrilldownPage(props: {
                 teamMembers={teamMembers}
                 stageLabels={stageLabels}
                 stageLabelOverrides={overrides}
+                fubConnected={Boolean(
+                  (client as { fub_api_key?: string | null }).fub_api_key,
+                )}
               />
               <PipelineFooterInfo />
             </>

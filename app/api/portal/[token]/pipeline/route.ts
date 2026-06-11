@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
 import { notifyIntroduction } from "@/lib/webhooks/n8n-introduction";
+import { pushPipelineEntryToFub } from "@/lib/integrations/push-pipeline-entry";
 
 // POST /api/portal/[token]/pipeline — manually create a pipeline entry
 // from the client portal. Used when the client wants to log an intro
@@ -81,10 +82,29 @@ export async function POST(
     .select("id")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  // Stage → Introduction is observed by two downstream listeners.
+  // Both run inside `after(...)` so the user's request returns
+  // immediately and neither integration can break the other.
   if (row.stage === "introduction") {
     const entryId = data.id as string;
+    // 1. n8n webhook — every introduction event.
     after(() => notifyIntroduction([entryId], "portal_add_lead"));
+    // 2. Follow Up Boss auto-push — only if the client has connected
+    //    their FUB account in Settings. Helper writes
+    //    fub_last_error on failure rather than throwing.
+    if (client.fub_api_key_set) {
+      const clientId = client.id;
+      after(async () => {
+        try {
+          await pushPipelineEntryToFub(clientId, entryId);
+        } catch (err) {
+          console.error("[fub] auto-push on create failed", err);
+        }
+      });
+    }
   }
+
   return NextResponse.json({ ok: true, id: data.id });
 }
 
@@ -121,20 +141,50 @@ export async function PATCH(
     if (!parsed.data.stage) {
       return NextResponse.json({ error: "stage required" }, { status: 400 });
     }
-    // .select("id") so the n8n notify below only covers rows that
+    const newStage = parsed.data.stage;
+    // .select("id") so downstream notifications only cover rows that
     // actually belong to this client (foreign ids fall out of the
     // update silently).
     const { data: updated, error } = await admin
       .from("client_pipeline_entries")
-      .update({ stage: parsed.data.stage, updated_at: new Date().toISOString() })
+      .update({ stage: newStage, updated_at: new Date().toISOString() })
       .eq("client_id", client.id)
       .in("id", parsed.data.ids)
       .select("id");
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    if (parsed.data.stage === "introduction" && updated && updated.length > 0) {
+
+    if (newStage === "introduction" && updated && updated.length > 0) {
       const entryIds = (updated as { id: string }[]).map((r) => r.id);
+      // 1. n8n webhook — fires for every entry in the batch.
       after(() => notifyIntroduction(entryIds, "portal_stage_change"));
+      // 2. Follow Up Boss auto-push — same gate as the single PATCH:
+      //    only entries whose fub_pushed_at is null and the client
+      //    has connected. Sequential to keep FUB-side rate limits
+      //    polite (~1 req/sec is well under the published cap).
+      if (client.fub_api_key_set) {
+        const clientId = client.id;
+        after(async () => {
+          try {
+            const { data: pushable } = await admin
+              .from("client_pipeline_entries")
+              .select("id")
+              .eq("client_id", clientId)
+              .in("id", entryIds)
+              .is("fub_pushed_at", null);
+            for (const row of (pushable ?? []) as Array<{ id: string }>) {
+              try {
+                await pushPipelineEntryToFub(clientId, row.id);
+              } catch (err) {
+                console.error("[fub] bulk auto-push failed", row.id, err);
+              }
+            }
+          } catch (err) {
+            console.error("[fub] bulk auto-push setup failed", err);
+          }
+        });
+      }
     }
+
     return NextResponse.json({ ok: true });
   }
   if (parsed.data.action === "assign") {

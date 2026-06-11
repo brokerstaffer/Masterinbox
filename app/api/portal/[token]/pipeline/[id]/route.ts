@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
 import { notifyIntroduction } from "@/lib/webhooks/n8n-introduction";
+import { pushPipelineEntryToFub } from "@/lib/integrations/push-pipeline-entry";
 
 // PATCH /api/portal/[token]/pipeline/[id]
 // DELETE /api/portal/[token]/pipeline/[id]
@@ -68,14 +69,34 @@ export async function PATCH(
     .update(patch)
     .eq("id", id)
     .eq("client_id", client.id)
-    .select("id")
+    .select("id, stage, fub_pushed_at")
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   if (!data) return NextResponse.json({ error: "Entry not found" }, { status: 404 });
-  if (parsed.data.stage === "introduction") {
+
+  // Stage → Introduction is a meaningful event for two downstream
+  // listeners. Both run inside `after(...)` so the user's request
+  // returns immediately and neither integration can break the other.
+  if (data.stage === "introduction") {
     const entryId = data.id as string;
+    // 1. Notify the n8n webhook (every introduction, no dedup —
+    //    that's the operator's contract with n8n).
     after(() => notifyIntroduction([entryId], "portal_stage_change"));
+    // 2. Push to the client's Follow Up Boss account, if connected
+    //    AND we haven't already pushed this entry. Failures land on
+    //    fub_last_error inside the helper, never throw out here.
+    if (!data.fub_pushed_at && client.fub_api_key_set) {
+      const clientId = client.id;
+      after(async () => {
+        try {
+          await pushPipelineEntryToFub(clientId, entryId);
+        } catch (err) {
+          console.error("[fub] auto-push failed", err);
+        }
+      });
+    }
   }
+
   return NextResponse.json({ ok: true });
 }
 

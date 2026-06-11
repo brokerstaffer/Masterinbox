@@ -20,7 +20,11 @@ import {
   Workflow,
   X,
   Repeat,
+  Send,
+  CircleCheck,
+  TriangleAlert,
 } from "lucide-react";
+import Link from "next/link";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -89,6 +93,7 @@ export function PipelineBoard({
   teamMembers,
   stageLabels,
   stageLabelOverrides,
+  fubConnected,
 }: {
   token: string;
   entries: PipelineEntry[];
@@ -104,6 +109,10 @@ export function PipelineBoard({
   // Raw overrides jsonb — seeds the StageLabelEditor card so the
   // form knows which keys are customised vs. default.
   stageLabelOverrides: Record<string, unknown>;
+  // True when the client has saved a Follow Up Boss API key. Drives
+  // whether the per-row "Push to Follow Up Boss" chip renders
+  // enabled or with a "Connect in Settings" hint.
+  fubConnected: boolean;
 }) {
   const router = useRouter();
   const mounted = useMounted();
@@ -649,6 +658,9 @@ export function PipelineBoard({
                         onToggleExpand={() =>
                           setExpandedId((cur) => (cur === e.id ? null : e.id))
                         }
+                        token={token}
+                        fubConnected={fubConnected}
+                        onLocalUpdate={(p) => applyEntryEdit(e.id, p)}
                       />
                       {expanded ? (
                         <div className="border-t border-[#ebecf0] bg-[#fafbfc]">
@@ -691,6 +703,7 @@ export function PipelineBoard({
                   }
                   token={token}
                   onLocalUpdate={(p) => applyEntryEdit(e.id, p)}
+                  fubConnected={fubConnected}
                 />
               ))
             )}
@@ -753,6 +766,9 @@ function PipelineRow({
   onOpenConversation,
   onEdit,
   onToggleExpand,
+  token,
+  fubConnected,
+  onLocalUpdate,
 }: {
   entry: PipelineEntry;
   expanded: boolean;
@@ -765,6 +781,9 @@ function PipelineRow({
   onOpenConversation: () => void;
   onEdit: () => void;
   onToggleExpand: () => void;
+  token: string;
+  fubConnected: boolean;
+  onLocalUpdate: (patch: Partial<PipelineEntry>) => void;
 }) {
   const phone = entry.lead_phone ?? null;
   return (
@@ -862,6 +881,12 @@ function PipelineRow({
                 <span>Conversation</span>
               </button>
             ) : null}
+            <PushToFubChip
+              entry={entry}
+              token={token}
+              fubConnected={fubConnected}
+              onLocalUpdate={onLocalUpdate}
+            />
           </div>
         </div>
       </div>
@@ -949,6 +974,7 @@ function PipelineMobileCard({
   onToggleExpand,
   token,
   onLocalUpdate,
+  fubConnected,
 }: {
   entry: PipelineEntry;
   expanded: boolean;
@@ -963,6 +989,7 @@ function PipelineMobileCard({
   onToggleExpand: () => void;
   token: string;
   onLocalUpdate: (patch: Partial<PipelineEntry>) => void;
+  fubConnected: boolean;
 }) {
   const phone = entry.lead_phone ?? null;
   return (
@@ -1026,6 +1053,12 @@ function PipelineMobileCard({
                 <span>Conversation</span>
               </button>
             ) : null}
+            <PushToFubChip
+              entry={entry}
+              token={token}
+              fubConnected={fubConnected}
+              onLocalUpdate={onLocalUpdate}
+            />
           </div>
         </div>
       </div>
@@ -1686,6 +1719,10 @@ function EditLeadDialog({
         // row pill once the row appears.
         assigned_team_member_id: null,
         assigned_team_member: null,
+        // Brand-new entry — not yet pushed to Follow Up Boss.
+        fub_event_id: null,
+        fub_pushed_at: null,
+        fub_last_error: null,
       };
       onApply(j.id, {}, newRow);
       toast.success("Candidate added");
@@ -1830,4 +1867,167 @@ function normalizeUrl(u: string): string {
 }
 function trimUrl(u: string): string {
   return u.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, "");
+}
+
+// Per-row Follow Up Boss push chip. Renders one of four states:
+//
+//   • Not connected → "Connect to push" link to the Settings page.
+//   • Never pushed  → solid "Push to Follow Up Boss" button.
+//   • Pushed OK     → green "In Follow Up Boss" chip + tiny "Push again"
+//                     re-push affordance.
+//   • Last attempt failed → red "Push failed" chip with the error in
+//                     the tooltip + a quick "Retry" affordance.
+//
+// Re-pushing is always safe — FUB dedupes by email/phone and the
+// helper updates the same person row instead of duplicating.
+function PushToFubChip({
+  entry,
+  token,
+  fubConnected,
+  onLocalUpdate,
+}: {
+  entry: PipelineEntry;
+  token: string;
+  fubConnected: boolean;
+  onLocalUpdate: (patch: Partial<PipelineEntry>) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function push() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch(
+        `/api/portal/${token}/pipeline/${entry.id}/push-fub`,
+        { method: "POST" },
+      );
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        mode?: "created" | "updated";
+        reason?: string;
+      };
+      if (!res.ok || !json.ok) {
+        const msg = json.error ?? "Push failed";
+        toast.error(msg);
+        onLocalUpdate({
+          fub_last_error: msg.slice(0, 500),
+        });
+        return;
+      }
+      const nowIso = new Date().toISOString();
+      onLocalUpdate({
+        fub_pushed_at: nowIso,
+        fub_last_error: null,
+      });
+      toast.success(
+        json.mode === "created"
+          ? "Sent to Follow Up Boss"
+          : "Updated in Follow Up Boss",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!fubConnected) {
+    return (
+      <Link
+        href={`/portal/${token}/settings`}
+        className="inline-flex items-center gap-1 text-[11.5px] text-[#9aa0ab] hover:text-[#1565C0] hover:underline"
+        title="Connect Follow Up Boss in Settings to enable per-lead push"
+      >
+        <Send className="size-3 shrink-0" />
+        <span>Connect FUB</span>
+      </Link>
+    );
+  }
+
+  if (entry.fub_pushed_at) {
+    return (
+      <span className="inline-flex items-center gap-2">
+        <span
+          className="inline-flex items-center gap-1 text-[11.5px] font-medium text-[#0c8a4e]"
+          title={`Pushed ${formatRelativeDate(entry.fub_pushed_at)}${
+            entry.fub_last_error
+              ? `. Last error: ${entry.fub_last_error}`
+              : ""
+          }`}
+        >
+          <CircleCheck className="size-3 shrink-0" />
+          <span>In Follow Up Boss</span>
+        </span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            void push();
+          }}
+          disabled={busy}
+          className="text-[11px] text-[#9aa0ab] underline-offset-2 hover:text-[#1565C0] hover:underline disabled:opacity-50"
+          title="Push the latest data again"
+        >
+          {busy ? "Pushing…" : "Push again"}
+        </button>
+      </span>
+    );
+  }
+
+  if (entry.fub_last_error) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          void push();
+        }}
+        disabled={busy}
+        className="inline-flex items-center gap-1 text-[11.5px] font-medium text-[#b91c1c] hover:underline disabled:opacity-50"
+        title={`Last error: ${entry.fub_last_error}`}
+      >
+        {busy ? (
+          <Loader2 className="size-3 shrink-0 animate-spin" />
+        ) : (
+          <TriangleAlert className="size-3 shrink-0" />
+        )}
+        <span>Retry push</span>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        void push();
+      }}
+      disabled={busy}
+      className="inline-flex items-center gap-1 text-[11.5px] font-medium text-[#1565C0] hover:underline disabled:opacity-50"
+      title="Send this lead to Follow Up Boss now"
+    >
+      {busy ? (
+        <Loader2 className="size-3 shrink-0 animate-spin" />
+      ) : (
+        <Send className="size-3 shrink-0" />
+      )}
+      <span>Push to FUB</span>
+    </button>
+  );
+}
+
+function formatRelativeDate(iso: string): string {
+  try {
+    const ms = Date.now() - new Date(iso).getTime();
+    const mins = Math.round(ms / 60_000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins} min ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.round(hours / 24);
+    if (days < 30) return `${days}d ago`;
+    return new Date(iso).toLocaleDateString();
+  } catch {
+    return iso;
+  }
 }

@@ -56,6 +56,13 @@ export interface PipelineEntry {
   // same SELECT so the row UI doesn't need a second hop.
   assigned_team_member_id: string | null;
   assigned_team_member: { id: string; name: string } | null;
+  // Follow Up Boss push state. Set when the entry has been
+  // successfully pushed (auto or manual). fub_last_error captures
+  // the most recent failure so the row can surface "Push failed:
+  // <reason>". The actual API key lives on the client row, not here.
+  fub_event_id: string | null;
+  fub_pushed_at: string | null;
+  fub_last_error: string | null;
 }
 
 export interface DncEntry {
@@ -121,7 +128,7 @@ export const loadPipelineEntries = cache(
     const { data, error } = await admin
       .from("client_pipeline_entries")
       .select(
-        "id, stage, needs_replacement, lead_name, lead_email, lead_phone, current_brokerage, agent_profile_url, introduced_at, thread_id, assigned_team_member_id, assigned_team_member:assigned_team_member_id (id, name), external_intros:external_intro_id (lead_detail, campaign_name), leads:lead_id (custom_fields, company)",
+        "id, stage, needs_replacement, lead_name, lead_email, lead_phone, current_brokerage, agent_profile_url, introduced_at, thread_id, assigned_team_member_id, fub_event_id, fub_pushed_at, fub_last_error, assigned_team_member:assigned_team_member_id (id, name), external_intros:external_intro_id (lead_detail, campaign_name), leads:lead_id (custom_fields, company)",
       )
       .eq("client_id", clientId)
       .order("introduced_at", { ascending: false })

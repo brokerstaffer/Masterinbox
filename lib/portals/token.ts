@@ -16,6 +16,15 @@ export interface PortalClient {
   // resolveStageLabels() from lib/portals/portal-data.ts to merge
   // these with the defaults before rendering.
   stage_label_overrides: Record<string, unknown>;
+  // True when a Follow Up Boss API key has been saved for this
+  // client. We never ship the raw key to the browser — the boolean
+  // is enough for the manual "Push to FUB" button to know whether
+  // to enable itself. The actual key stays server-side, read inline
+  // when a push is requested.
+  fub_api_key_set: boolean;
+  // ISO timestamp of the last successful Connect against FUB. Lets
+  // the Settings card render "Connected on …". Null when not set.
+  fub_connected_at: string | null;
 }
 
 export const resolvePortalClient = cache(
@@ -29,7 +38,7 @@ export const resolvePortalClient = cache(
     const { data } = await admin
       .from("clients")
       .select(
-        "id, name, slug, portal_enabled, stage_label_overrides",
+        "id, name, slug, portal_enabled, stage_label_overrides, fub_api_key, fub_connected_at",
       )
       .eq("portal_token", token)
       .maybeSingle();
@@ -39,6 +48,7 @@ export const resolvePortalClient = cache(
     if (data.portal_enabled === false) return null;
 
     const rawOverrides = data.stage_label_overrides;
+    const rawKey = data.fub_api_key as string | null | undefined;
     return {
       id: data.id as string,
       name: data.name as string,
@@ -47,6 +57,8 @@ export const resolvePortalClient = cache(
         rawOverrides && typeof rawOverrides === "object"
           ? (rawOverrides as Record<string, unknown>)
           : {},
+      fub_api_key_set: typeof rawKey === "string" && rawKey.trim().length > 0,
+      fub_connected_at: (data.fub_connected_at as string | null) ?? null,
     };
   },
 );

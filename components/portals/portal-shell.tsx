@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Workflow, UserCheck, Ban, Users, Menu, X, Sparkles } from "lucide-react";
+import { Workflow, UserCheck, Ban, Users, Menu, X, Sparkles, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PortalLogo } from "@/components/portals/portal-logo";
 import { CalendlyBanner } from "@/components/portals/calendly-banner";
@@ -46,6 +46,7 @@ export function PortalShell({ token, clientName, counts, children }: Props) {
     { href: `${base}/agents`, label: "Your Agents", icon: UserCheck, count: counts.agents },
     { href: `${base}/dnc`, label: "DNC List", icon: Ban, count: counts.dnc, tone: "danger" as const },
     { href: `${base}/team`, label: "Team", icon: Users, count: counts.team },
+    { href: `${base}/settings`, label: "Settings", icon: Settings2 },
   ];
 
   const activeItem = items.find((it) => isActive(pathname, it.href, base));
