@@ -148,9 +148,13 @@ export function buildFubPayload(entry: PipelineEntry): FubPerson {
       person.customZillowUrl = url;
     } else if (
       lower.includes("realtor.com") &&
-      !person.customRealtorcomProfile
+      !person.customRealtorComProfile
     ) {
-      person.customRealtorcomProfile = url;
+      // FUB derives the API key from the label "Realtor.com Profile"
+      // as `customRealtorComProfile` (capital C in Com — verified by
+      // creating the field via the API). Match FUB's actual key, not
+      // a guessed camelCase.
+      person.customRealtorComProfile = url;
     } else if (
       (lower.includes("courted.io") || lower.includes("courted.com")) &&
       !person.customCourtedProfileURL
