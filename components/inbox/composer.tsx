@@ -65,6 +65,7 @@ export function Composer({
   fromName,
   leadCompany = null,
   leadTitle = null,
+  leadPhone = null,
   channels = [],
   quoted,
   draft,
@@ -86,11 +87,13 @@ export function Composer({
   fromEmail?: string | null;
   fromName?: string | null;
   // Optional lead enrichment for template-variable substitution. When
-  // a template body uses {{lead.company}} or {{lead.title}}, these
-  // values fill the placeholder; missing values leave the placeholder
-  // in the inserted body so the user notices and can fix manually.
+  // a template body uses {{lead.company}}, {{lead.title}}, or
+  // {{lead.phone_number}}, these values fill the placeholder; missing
+  // values leave the placeholder in the inserted body so the user
+  // notices and can fix manually.
   leadCompany?: string | null;
   leadTitle?: string | null;
+  leadPhone?: string | null;
   // All connected sender mailboxes for this workspace. Drives the From
   // dropdown — user can override which mailbox the message is sent
   // from (defaults to the thread's pinned sender).
@@ -615,6 +618,7 @@ export function Composer({
               lead: {
                 name: toName ?? null,
                 email: toEmail,
+                phone: leadPhone,
                 company: leadCompany,
                 title: leadTitle,
               },

@@ -81,7 +81,12 @@ export const ComposerBodyEditor = forwardRef<
           "tiptap min-h-[200px] outline-none text-sm leading-relaxed",
           "[&_p]:my-1 [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_h2]:mb-1",
           "[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5",
-          "[&_a]:text-blue-600 [&_a]:underline",
+          // `!`-prefix forces !important so the brand-blue + underline
+          // wins over the global anchor reset in app/globals.css
+          // (a:link/a:visited { color: inherit }). Without the bang,
+          // the higher-specificity :link/:visited selector keeps every
+          // composed hyperlink black.
+          "[&_a]:!text-[#1565C0] [&_a]:!underline",
         ),
       },
     },

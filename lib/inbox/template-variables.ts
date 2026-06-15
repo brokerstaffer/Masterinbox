@@ -16,6 +16,7 @@ export const TEMPLATE_VARIABLES: TemplateVariable[] = [
   { key: "lead.name", label: "Lead name", description: "Full name of the recipient" },
   { key: "lead.first_name", label: "Lead first name", description: "Just the first name (best for personalisation)" },
   { key: "lead.email", label: "Lead email", description: "Recipient's email address" },
+  { key: "lead.phone_number", label: "Lead phone number", description: "Recipient's phone (when known)" },
   { key: "lead.company", label: "Lead company", description: "Brokerage / firm the lead works at" },
   { key: "lead.title", label: "Lead title", description: "Role at their company (when known)" },
   { key: "thread.subject", label: "Thread subject", description: "The current conversation's subject line" },
@@ -28,6 +29,7 @@ export interface SubstitutionContext {
   lead?: {
     name?: string | null;
     email?: string | null;
+    phone?: string | null;
     company?: string | null;
     title?: string | null;
   };
@@ -98,6 +100,7 @@ const KNOWN_KEYS = new Set([
   "lead.name",
   "lead.first_name",
   "lead.email",
+  "lead.phone_number",
   "lead.company",
   "lead.title",
   "thread.subject",
@@ -118,6 +121,8 @@ export function substituteVariables(
         return firstName(context.lead?.name);
       case "lead.email":
         return context.lead?.email ?? null;
+      case "lead.phone_number":
+        return context.lead?.phone ?? null;
       case "lead.company":
         return context.lead?.company ?? null;
       case "lead.title":

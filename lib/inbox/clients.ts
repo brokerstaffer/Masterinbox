@@ -40,4 +40,18 @@ async function fetchClients(workspaceId: string): Promise<ClientOption[]> {
 // 60s TTL — the client roster turns over rarely; the threads scan is
 // expensive enough that re-running it once per render under concurrent
 // load was the bulk of the inbox slowdown.
-export const loadClients = cache(ttlCache(fetchClients, { ttlMs: 60_000 }));
+//
+// Held in a module-level variable so mutation endpoints can call
+// `.invalidate()` after a rename / delete. React's outer `cache()`
+// wrapper doesn't proxy custom methods, so we keep the raw ttlCache
+// reference separately.
+const cachedFetchClients = ttlCache(fetchClients, { ttlMs: 60_000 });
+export const loadClients = cache(cachedFetchClients);
+
+// Drop the inbox client-list cache so the next render sees fresh
+// names. Called from the rename + delete endpoints in
+// `app/api/clients/[id]/route.ts` — without this, renames take up
+// to 60s to appear in the inbox's Client filter dropdown.
+export function invalidateInboxClientsCache(): void {
+  cachedFetchClients.invalidate();
+}

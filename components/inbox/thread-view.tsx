@@ -384,6 +384,24 @@ export function ThreadView({
               null;
             return typeof v === "string" && v.trim() ? v : null;
           })()}
+          leadPhone={(() => {
+            const cf = detail.lead.custom_fields as
+              | Record<string, unknown>
+              | undefined;
+            // Phone lives in a handful of common keys across the
+            // Instantly / EmailBison enrichment payloads — pick the
+            // first non-empty string. The lead row itself doesn't have
+            // a top-level `phone` column today; everything lives in
+            // custom_fields.
+            const v =
+              (cf?.phone as string | undefined) ??
+              (cf?.Phone as string | undefined) ??
+              (cf?.["phone number"] as string | undefined) ??
+              (cf?.phone_number as string | undefined) ??
+              (cf?.mobile as string | undefined) ??
+              null;
+            return typeof v === "string" && v.trim() ? v : null;
+          })()}
           channels={channels}
           quoted={(() => {
             if (composeState.mode === "forward") return null;
@@ -745,7 +763,11 @@ function MessageBlock({
           >
             {message.body_html ? (
               <div
-                className="prose prose-sm max-w-none [&_a]:text-blue-600 [&_a]:underline [&_img]:max-w-full"
+                // `!` on the anchor colour/underline so they beat the
+                // global a:link/a:visited { color: inherit } reset in
+                // app/globals.css. Brand blue #1565C0 matches the
+                // composer + portal accent.
+                className="prose prose-sm max-w-none [&_a]:!text-[#1565C0] [&_a]:!underline [&_img]:max-w-full"
                 dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(message.body_html) }}
               />
             ) : (

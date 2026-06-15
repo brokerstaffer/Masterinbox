@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { _invalidateClientCache } from "@/lib/clients/derive";
+import { invalidateInboxClientsCache } from "@/lib/inbox/clients";
 import { CLIENT_PORTALS_ENABLED } from "@/lib/portals/flag";
 import { requireAuthedUser, retagUnknownThreads } from "../route";
 
@@ -121,6 +122,10 @@ export async function PATCH(
   }
 
   _invalidateClientCache();
+  // Also bust the Inbox's client-list cache so the per-thread Client
+  // filter dropdown shows the new name immediately. Without this,
+  // renames take up to 60s to surface in the inbox UI.
+  invalidateInboxClientsCache();
   // Aliases changed → existing "Unknown" threads might now match.
   if (parsed.data.aliases !== undefined || parsed.data.name !== undefined) {
     await retagUnknownThreads(admin, id);
@@ -161,5 +166,9 @@ export async function DELETE(
   }
 
   _invalidateClientCache();
+  // Also bust the Inbox's client-list cache so the per-thread Client
+  // filter dropdown shows the new name immediately. Without this,
+  // renames take up to 60s to surface in the inbox UI.
+  invalidateInboxClientsCache();
   return NextResponse.json({ ok: true });
 }
