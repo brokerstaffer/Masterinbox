@@ -126,6 +126,24 @@ export async function PATCH(
   // filter dropdown shows the new name immediately. Without this,
   // renames take up to 60s to surface in the inbox UI.
   invalidateInboxClientsCache();
+  // Propagate the rename to every saved list that's backed by this
+  // client (lists.client_id = id). Each list keeps its own copy of
+  // the name on the row, so without this the left-sidebar list keeps
+  // displaying the old client name. Lists with a NULL client_id
+  // (user-created custom lists not tied to a client) are skipped by
+  // the WHERE.
+  if (parsed.data.name !== undefined && parsed.data.name !== existing.name) {
+    const { error: listsErr } = await admin
+      .from("lists")
+      .update({ name: parsed.data.name, updated_at: new Date().toISOString() })
+      .eq("client_id", id);
+    if (listsErr) {
+      // Don't fail the request — the client rename already
+      // succeeded, the sidebar will just stay stale on the next
+      // render. Log so we can spot a persistent failure.
+      console.error("[clients/rename] failed to propagate to lists", listsErr);
+    }
+  }
   // Aliases changed → existing "Unknown" threads might now match.
   if (parsed.data.aliases !== undefined || parsed.data.name !== undefined) {
     await retagUnknownThreads(admin, id);
