@@ -714,6 +714,7 @@ export function PipelineBoard({
                   stageLabels={stageLabels}
                   showSource={sourceSplitEnabled}
                   onCardClick={(e) => setEditTarget({ mode: "edit", entry: e })}
+                  onStageChange={(id, stage) => changeStage(id, stage)}
                 />
               )}
             </div>
