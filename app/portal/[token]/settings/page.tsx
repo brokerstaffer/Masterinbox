@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Settings2 } from "lucide-react";
 import { resolvePortalClient } from "@/lib/portals/token";
+import { clientHasFeature } from "@/lib/portals/feature-flags";
 import { FollowUpBossSettings } from "@/components/portals/followup-boss-settings";
 
 // Per-client portal Settings page. Today it hosts the Follow Up Boss
@@ -15,8 +16,11 @@ export async function generateMetadata(props: {
 }): Promise<Metadata> {
   const { token } = await props.params;
   const client = await resolvePortalClient(token);
+  const pageLabel = client && clientHasFeature(client, "nav_integrations_label")
+    ? "Integrations"
+    : "Settings";
   return {
-    title: client ? `${client.name} — Settings` : "Portal not found",
+    title: client ? `${client.name} — ${pageLabel}` : "Portal not found",
     robots: { index: false, follow: false },
   };
 }
@@ -28,6 +32,10 @@ export default async function SettingsPage(props: {
   const client = await resolvePortalClient(token);
   if (!client) notFound();
 
+  const sectionLabel = clientHasFeature(client, "nav_integrations_label")
+    ? "Integrations"
+    : "Settings";
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
       <header className="mb-6 flex items-start gap-3 sm:mb-8">
@@ -36,7 +44,7 @@ export default async function SettingsPage(props: {
         </span>
         <div className="min-w-0">
           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#1565C0]">
-            Settings
+            {sectionLabel}
           </div>
           <h1 className="mt-1 text-[24px] font-semibold tracking-tight text-[#0f1320] sm:text-[28px]">
             Connect your tools

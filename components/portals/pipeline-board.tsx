@@ -12,6 +12,7 @@ import {
   Trash2,
   Pencil,
   Download,
+  Upload,
   Phone as PhoneIcon,
   MessageSquare,
   Globe,
@@ -66,6 +67,7 @@ import {
   SelectAllAcrossPagesBanner,
 } from "@/components/portals/portal-ui";
 import { PipelineDetailInline } from "@/components/portals/pipeline-detail-inline";
+import { PipelineKanban } from "@/components/portals/pipeline-kanban";
 import { ConversationSheet } from "@/components/portals/conversation-sheet";
 import { formatPhoneDisplay } from "@/lib/portals/phone";
 
@@ -97,6 +99,9 @@ export function PipelineBoard({
   stageLabels,
   stageLabelOverrides,
   fubConnected,
+  csvUploadEnabled = false,
+  kanbanViewEnabled = false,
+  sourceSplitEnabled = false,
 }: {
   token: string;
   entries: PipelineEntry[];
@@ -116,6 +121,14 @@ export function PipelineBoard({
   // whether the per-row "Push to Follow Up Boss" chip renders
   // enabled or with a "Connect in Settings" hint.
   fubConnected: boolean;
+  // Per-client feature flags, resolved server-side from
+  // clients.feature_flags. Each defaults to false so real clients
+  // without the flag never see the gated UI and the relevant
+  // strings ("Upload CSV", "Kanban", "Source", "Client Entry")
+  // never enter the SSR hydration payload.
+  csvUploadEnabled?: boolean;
+  kanbanViewEnabled?: boolean;
+  sourceSplitEnabled?: boolean;
 }) {
   const router = useRouter();
   const mounted = useMounted();
@@ -138,6 +151,30 @@ export function PipelineBoard({
   const [openConversation, setOpenConversation] = useState<PipelineEntry | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
+  const [csvOpen, setCsvOpen] = useState(false);
+  // List ↔ Kanban view toggle. Default "list" for SSR. After mount,
+  // hydrate from localStorage so the choice persists per portal token.
+  // Real clients without the kanbanViewEnabled flag never see the
+  // toggle; their view stays locked to "list" via the conditional
+  // render below (they couldn't toggle even if state somehow drifted).
+  const [viewMode, setViewMode] = useState<"list" | "kanban">("list");
+  useEffect(() => {
+    if (!kanbanViewEnabled) return;
+    try {
+      const v = window.localStorage.getItem(`portal:${token}:pipeline-view`);
+      if (v === "kanban" || v === "list") setViewMode(v);
+    } catch {
+      // localStorage blocked → silently stay on default.
+    }
+  }, [token, kanbanViewEnabled]);
+  function changeView(next: "list" | "kanban") {
+    setViewMode(next);
+    try {
+      window.localStorage.setItem(`portal:${token}:pipeline-view`, next);
+    } catch {
+      // no-op
+    }
+  }
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [page, setPage] = useState(1);
@@ -463,6 +500,44 @@ export function PipelineBoard({
               >
                 <Plus className="mr-1 size-4" /> Add candidate
               </Button>
+              {csvUploadEnabled ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCsvOpen(true)}
+                  className="h-9"
+                >
+                  <Upload className="mr-1 size-4" /> Upload CSV
+                </Button>
+              ) : null}
+              {kanbanViewEnabled ? (
+                <div className="inline-flex h-9 overflow-hidden rounded-md border border-[#ebecf0] bg-white">
+                  <button
+                    type="button"
+                    onClick={() => changeView("list")}
+                    className={cn(
+                      "px-3 text-[12px] font-medium transition-colors",
+                      viewMode === "list"
+                        ? "bg-[#eaf2fd] text-[#1565C0]"
+                        : "text-[#5b6472] hover:bg-[#f6f7f9]",
+                    )}
+                  >
+                    List
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => changeView("kanban")}
+                    className={cn(
+                      "border-l border-[#ebecf0] px-3 text-[12px] font-medium transition-colors",
+                      viewMode === "kanban"
+                        ? "bg-[#eaf2fd] text-[#1565C0]"
+                        : "text-[#5b6472] hover:bg-[#f6f7f9]",
+                    )}
+                  >
+                    Kanban
+                  </button>
+                </div>
+              ) : null}
               <span className="ml-auto text-[12px] text-[#9aa0ab]">
                 {filtered.length.toLocaleString()} of {entries.length.toLocaleString()} candidates
               </span>
@@ -621,10 +696,34 @@ export function PipelineBoard({
             onClear={() => setSelected(new Set())}
           />
 
+          {kanbanViewEnabled && viewMode === "kanban" ? (
+            <div
+              className={cn(
+                "transition-opacity duration-500",
+                mounted ? "opacity-100" : "opacity-0",
+              )}
+            >
+              {filtered.length === 0 ? (
+                <div className="rounded-2xl border border-[#ebecf0] bg-white p-12 text-center text-sm text-[#9aa0ab]">
+                  No candidates match the current filters.
+                </div>
+              ) : (
+                <PipelineKanban
+                  entries={filtered}
+                  visibleStages={visibleStages}
+                  stageLabels={stageLabels}
+                  showSource={sourceSplitEnabled}
+                  onCardClick={(e) => setEditTarget({ mode: "edit", entry: e })}
+                />
+              )}
+            </div>
+          ) : null}
+
           {/* Table (md+) — scrolls horizontally if container shrinks. */}
           <div
             className={cn(
-              "hidden overflow-hidden rounded-2xl border border-[#ebecf0] bg-white shadow-sm transition-opacity duration-500 md:block",
+              "hidden overflow-hidden rounded-2xl border border-[#ebecf0] bg-white shadow-sm transition-opacity duration-500",
+              kanbanViewEnabled && viewMode === "kanban" ? "" : "md:block",
               mounted ? "opacity-100" : "opacity-0",
             )}
           >
@@ -679,6 +778,7 @@ export function PipelineBoard({
                             entry={e}
                             token={token}
                             onLocalUpdate={(p) => applyEntryEdit(e.id, p)}
+                            showSource={sourceSplitEnabled}
                           />
                         </div>
                       ) : null}
@@ -689,8 +789,16 @@ export function PipelineBoard({
             )}
           </div>
 
-          {/* Card list (mobile). Same actions, vertical layout. */}
-          <div className="space-y-3 md:hidden">
+          {/* Card list (mobile). Same actions, vertical layout.
+              Hidden entirely on mobile when Kanban view is active —
+              the Kanban renderer is responsive and stacks horizontally
+              for a swipe gesture, so we don't want both rendering. */}
+          <div
+            className={cn(
+              "space-y-3",
+              kanbanViewEnabled && viewMode === "kanban" ? "hidden" : "md:hidden",
+            )}
+          >
             {filtered.length === 0 ? (
               <div className="rounded-2xl border border-[#ebecf0] bg-white p-8 text-center text-sm text-[#9aa0ab]">
                 No candidates match the current filters.
@@ -715,6 +823,7 @@ export function PipelineBoard({
                   token={token}
                   onLocalUpdate={(p) => applyEntryEdit(e.id, p)}
                   fubConnected={fubConnected}
+                  sourceSplitEnabled={sourceSplitEnabled}
                 />
               ))
             )}
@@ -761,7 +870,133 @@ export function PipelineBoard({
           }}
         />
       ) : null}
+
+      {csvOpen ? (
+        <CsvUploadDialog
+          token={token}
+          onClose={() => setCsvOpen(false)}
+          onUploaded={() => {
+            // Refresh from the server so the inserted rows show up
+            // with their server-resolved source value + enrichment.
+            router.refresh();
+            setCsvOpen(false);
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function CsvUploadDialog({
+  token,
+  onClose,
+  onUploaded,
+}: {
+  token: string;
+  onClose: () => void;
+  onUploaded: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<
+    { inserted: number; skipped: Array<{ row: number; reason: string }> } | null
+  >(null);
+
+  async function upload() {
+    if (!file) return;
+    setBusy(true);
+    setResult(null);
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`/api/portal/${token}/pipeline/csv`, {
+      method: "POST",
+      body: fd,
+    });
+    setBusy(false);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      toast.error(j.error ?? "Upload failed");
+      return;
+    }
+    const j = (await res.json()) as {
+      inserted: number;
+      skipped: Array<{ row: number; reason: string }>;
+    };
+    setResult(j);
+    if (j.inserted > 0) {
+      toast.success(
+        `Imported ${j.inserted} candidate${j.inserted === 1 ? "" : "s"}${
+          j.skipped.length > 0 ? `, skipped ${j.skipped.length}` : ""
+        }`,
+      );
+    } else if (j.skipped.length > 0) {
+      toast.error(`Skipped ${j.skipped.length} row${j.skipped.length === 1 ? "" : "s"}`);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => (!o ? onClose() : undefined)}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Upload candidates CSV</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 text-[13px] text-[#5b6472]">
+          <p>
+            Header row required. Only{" "}
+            <span className="font-medium text-[#0f1320]">lead_name</span> is
+            required; the rest are optional.
+          </p>
+          <code className="block whitespace-pre-wrap rounded-md bg-[#f6f7f9] px-2 py-1.5 text-[11px] text-[#0f1320]">
+            lead_name, lead_email, lead_phone, current_brokerage,
+            agent_profile_url, introduced_at, stage, needs_replacement
+          </code>
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null);
+              setResult(null);
+            }}
+            className="block w-full text-[13px] file:mr-2 file:rounded-md file:border file:border-[#ebecf0] file:bg-white file:px-3 file:py-1.5 file:text-[12px] file:font-medium file:text-[#1565C0] hover:file:bg-[#eaf2fd]"
+          />
+          {result ? (
+            <div className="rounded-md border border-[#ebecf0] bg-[#fafbfc] p-2.5 text-[12px]">
+              <div className="font-medium text-[#0f1320]">
+                {result.inserted} imported{" · "}{result.skipped.length} skipped
+              </div>
+              {result.skipped.length > 0 ? (
+                <ul className="mt-1 max-h-32 list-disc overflow-y-auto pl-4 text-[#9a3a3a]">
+                  {result.skipped.map((s, i) => (
+                    <li key={i}>Row {s.row}: {s.reason}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        <DialogFooter>
+          {result && result.inserted > 0 ? (
+            <Button onClick={onUploaded}>Done</Button>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={onClose} disabled={busy}>
+                Cancel
+              </Button>
+              <Button onClick={upload} disabled={!file || busy}>
+                {busy ? (
+                  <>
+                    <Loader2 className="mr-1.5 size-4 animate-spin" />
+                    Uploading
+                  </>
+                ) : (
+                  "Upload"
+                )}
+              </Button>
+            </>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -986,6 +1221,7 @@ function PipelineMobileCard({
   token,
   onLocalUpdate,
   fubConnected,
+  sourceSplitEnabled = false,
 }: {
   entry: PipelineEntry;
   expanded: boolean;
@@ -1001,6 +1237,7 @@ function PipelineMobileCard({
   token: string;
   onLocalUpdate: (patch: Partial<PipelineEntry>) => void;
   fubConnected: boolean;
+  sourceSplitEnabled?: boolean;
 }) {
   const phone = entry.lead_phone ?? null;
   return (
@@ -1143,6 +1380,7 @@ function PipelineMobileCard({
             entry={entry}
             token={token}
             onLocalUpdate={onLocalUpdate}
+            showSource={sourceSplitEnabled}
           />
         </div>
       ) : null}
@@ -1743,6 +1981,12 @@ function EditLeadDialog({
         fub_event_id: null,
         fub_pushed_at: null,
         fub_last_error: null,
+        // The server writes the right source value based on the
+        // pipeline_source_split flag (Client Entry when on, default
+        // 'BrokerStaffer' otherwise). The optimistic row uses the
+        // default here; router.refresh() reconciles the real value
+        // on the next render if the flag is on.
+        source: "BrokerStaffer",
       };
       onApply(j.id, {}, newRow);
       toast.success("Candidate added");

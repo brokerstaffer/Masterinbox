@@ -12,13 +12,26 @@ interface Props {
   token: string;
   clientName: string;
   counts: { pipeline: number; dnc: number; agents: number; team: number };
+  // True when the client has the nav_integrations_label feature flag
+  // turned on (OpsLabs today). Renames the Settings nav item to
+  // "Integrations" to better match what the page actually does
+  // (FollowUpBoss + future CRM connectors). Real clients without
+  // the flag never receive this as true, so the "Integrations"
+  // string never enters the SSR'd HTML.
+  integrationsLabelEnabled?: boolean;
   children: React.ReactNode;
 }
 
 // Shell for every page under /portal/[token]/. Sidebar is sticky on
 // md+, slides in as a drawer on mobile. Recruiting Pipeline is the
 // portal root — see migration 0027 + app/portal/[token]/page.tsx.
-export function PortalShell({ token, clientName, counts, children }: Props) {
+export function PortalShell({
+  token,
+  clientName,
+  counts,
+  integrationsLabelEnabled = false,
+  children,
+}: Props) {
   const pathname = usePathname();
   const base = `/portal/${token}`;
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -46,7 +59,11 @@ export function PortalShell({ token, clientName, counts, children }: Props) {
     { href: `${base}/agents`, label: "Your Agents", icon: UserCheck, count: counts.agents },
     { href: `${base}/dnc`, label: "DNC List", icon: Ban, count: counts.dnc, tone: "danger" as const },
     { href: `${base}/team`, label: "Team", icon: Users, count: counts.team },
-    { href: `${base}/settings`, label: "Settings", icon: Settings2 },
+    {
+      href: `${base}/settings`,
+      label: integrationsLabelEnabled ? "Integrations" : "Settings",
+      icon: Settings2,
+    },
   ];
 
   const activeItem = items.find((it) => isActive(pathname, it.href, base));

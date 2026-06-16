@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { resolvePortalClient } from "@/lib/portals/token";
+import { clientHasFeature } from "@/lib/portals/feature-flags";
 import {
   loadPipelineEntries,
   loadTeamMembers,
@@ -78,6 +79,9 @@ export default async function PortalRoot(props: {
           stageLabels={stageLabels}
           stageLabelOverrides={client.stage_label_overrides}
           fubConnected={client.fub_api_key_set}
+          csvUploadEnabled={clientHasFeature(client, "pipeline_csv_upload")}
+          kanbanViewEnabled={clientHasFeature(client, "pipeline_kanban_view")}
+          sourceSplitEnabled={clientHasFeature(client, "pipeline_source_split")}
         />
         <PipelineFooterInfo />
       </VisibleStagesProvider>

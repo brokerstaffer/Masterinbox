@@ -20,6 +20,7 @@ interface DetailField {
 
 export function PipelineDetailInline({
   entry,
+  showSource = false,
 }: {
   entry: PipelineEntry;
   // Reserved for future inline-edit interactions. The caller currently
@@ -27,6 +28,12 @@ export function PipelineDetailInline({
   // a future breaking-change to consumers.
   token?: string;
   onLocalUpdate?: (patch: Partial<PipelineEntry>) => void;
+  // When true, the lead-detail dropdown surfaces a "Source" row
+  // alongside the custom variables. Driven server-side off
+  // clients.feature_flags.pipeline_source_split — real clients
+  // without the flag never receive this as true, so the source
+  // string never enters the SSR'd HTML.
+  showSource?: boolean;
 }) {
   const detail = (entry.lead_detail ?? {}) as LeadDetail;
   const cf = (detail.custom_fields ?? {}) as Record<string, unknown>;
@@ -83,6 +90,16 @@ export function PipelineDetailInline({
   // Recruiter ownership — mirrors the row-header pill so the expanded
   // card stays consistent with the table.
   tryPush("Assigned", entry.assigned_team_member?.name, "assigned");
+
+  // Source tag — gated behind the pipeline_source_split feature flag
+  // so only flag-enabled clients (OpsLabs today) see the row. Real
+  // clients without the flag never get showSource=true, so the value
+  // ("BrokerStaffer" / "Client Entry") never enters the rendered HTML.
+  // dedupKey "source" prevents a stray custom_fields.source from
+  // double-rendering under the same label.
+  if (showSource) {
+    tryPush("Source", entry.source, "source");
+  }
 
   // Machine-readable keys that show up in Instantly custom_fields but
   // read as noise to a brokerage user (raw UUIDs, sequence step

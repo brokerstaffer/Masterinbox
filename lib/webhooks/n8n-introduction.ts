@@ -21,7 +21,8 @@ export type IntroductionSource =
   | "inbox_label"
   | "inbox_bulk_label"
   | "portal_add_lead"
-  | "portal_stage_change";
+  | "portal_stage_change"
+  | "portal_csv_upload";
 
 type PipelineRow = {
   id: string;

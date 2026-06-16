@@ -4,6 +4,7 @@ import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
 import { notifyIntroduction } from "@/lib/webhooks/n8n-introduction";
 import { pushPipelineEntryToFub } from "@/lib/integrations/push-pipeline-entry";
+import { clientHasFeature } from "@/lib/portals/feature-flags";
 
 // POST /api/portal/[token]/pipeline — manually create a pipeline entry
 // from the client portal. Used when the client wants to log an intro
@@ -66,6 +67,17 @@ export async function POST(
   }
 
   const admin = createAdminSupabase();
+  // Source split: when the client has the pipeline_source_split flag
+  // turned on (OpsLabs today), manually-added leads land as
+  // "Client Entry" so FUB records the right origin. Real clients
+  // without the flag fall through to the column default
+  // ('BrokerStaffer') by omitting `source` from the insert payload.
+  // Behaviour for real clients is bit-identical to pre-flag — the
+  // column was added in migration 0054 with a 'BrokerStaffer'
+  // default, and we don't write to it unless the flag is on.
+  const source = clientHasFeature(client, "pipeline_source_split")
+    ? "Client Entry"
+    : undefined;
   const row = {
     client_id: client.id,
     stage: parsed.data.stage ?? "introduction",
@@ -76,6 +88,7 @@ export async function POST(
     current_brokerage: parsed.data.current_brokerage ?? null,
     agent_profile_url: parsed.data.agent_profile_url ?? null,
     introduced_at: parsed.data.introduced_at ?? new Date().toISOString(),
+    ...(source ? { source } : {}),
   };
   const { data, error } = await admin
     .from("client_pipeline_entries")

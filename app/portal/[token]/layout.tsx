@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { resolvePortalClient } from "@/lib/portals/token";
 import { loadPortalCounts } from "@/lib/portals/portal-data";
+import { clientHasFeature } from "@/lib/portals/feature-flags";
 import { PortalShell } from "@/components/portals/portal-shell";
 
 // Wraps every page under /portal/[token]/ with the shared sidebar nav.
@@ -22,7 +23,12 @@ export default async function PortalTokenLayout(props: {
   const counts = await loadPortalCounts(client.id);
 
   return (
-    <PortalShell token={token} clientName={client.name} counts={counts}>
+    <PortalShell
+      token={token}
+      clientName={client.name}
+      counts={counts}
+      integrationsLabelEnabled={clientHasFeature(client, "nav_integrations_label")}
+    >
       {props.children}
     </PortalShell>
   );

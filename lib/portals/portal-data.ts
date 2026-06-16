@@ -72,6 +72,14 @@ export interface PipelineEntry {
   fub_event_id: string | null;
   fub_pushed_at: string | null;
   fub_last_error: string | null;
+  // Origin tag forwarded to FollowUpBoss as the event source.
+  // "BrokerStaffer" = lead came from Nicole's intros (the historical
+  // default, what every legacy row carries). "Client Entry" = lead
+  // the client added themselves via the portal (manual form or CSV
+  // upload). Backed by client_pipeline_entries.source (migration
+  // 0054), non-null with a 'BrokerStaffer' default so the value is
+  // safe to read everywhere without null-handling.
+  source: string;
 }
 
 export interface DncEntry {
@@ -137,7 +145,7 @@ export const loadPipelineEntries = cache(
     const { data, error } = await admin
       .from("client_pipeline_entries")
       .select(
-        "id, stage, needs_replacement, lead_name, lead_email, lead_phone, current_brokerage, agent_profile_url, introduced_at, thread_id, assigned_team_member_id, fub_event_id, fub_pushed_at, fub_last_error, assigned_team_member:assigned_team_member_id (id, name), external_intros:external_intro_id (lead_detail, campaign_name), leads:lead_id (custom_fields, company)",
+        "id, stage, needs_replacement, lead_name, lead_email, lead_phone, current_brokerage, agent_profile_url, introduced_at, thread_id, assigned_team_member_id, fub_event_id, fub_pushed_at, fub_last_error, source, assigned_team_member:assigned_team_member_id (id, name), external_intros:external_intro_id (lead_detail, campaign_name), leads:lead_id (custom_fields, company)",
       )
       .eq("client_id", clientId)
       .order("introduced_at", { ascending: false })

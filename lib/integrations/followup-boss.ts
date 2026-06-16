@@ -128,7 +128,14 @@ export async function verifyApiKey(apiKey: string): Promise<VerifyResult> {
 export async function pushPersonEvent(
   apiKey: string,
   person: FubPerson,
-  opts?: { message?: string },
+  // `source` is the human-facing origin tag that FUB attaches to the
+  // event (visible in the FUB activity feed and usable as a smart-list
+  // filter). Historically hardcoded to "BrokerStaffer" because every
+  // lead came from Nicole's intros. Defaults preserve that for every
+  // existing caller — only the pipeline-entry push helper actively
+  // forwards a per-entry value (e.g. "Client Entry" for portal-added
+  // leads). FUB accepts any string here.
+  opts?: { message?: string; source?: string },
 ): Promise<PushResult> {
   const trimmed = apiKey.trim();
   if (!trimmed) {
@@ -148,7 +155,7 @@ export async function pushPersonEvent(
     };
   }
   const body = {
-    source: "BrokerStaffer",
+    source: opts?.source ?? "BrokerStaffer",
     system: X_SYSTEM,
     type: "General Inquiry",
     message: opts?.message ?? "Introduced via BrokerStaffer",

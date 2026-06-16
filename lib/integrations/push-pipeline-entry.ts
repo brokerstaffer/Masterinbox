@@ -72,6 +72,12 @@ export async function pushPipelineEntryToFub(
     message: `Introduced via BrokerStaffer${
       entry.introduced_at ? ` on ${entry.introduced_at.slice(0, 10)}` : ""
     }`,
+    // Per-entry source: historical rows / introduction-label trigger
+    // rows all default to "BrokerStaffer" (the migration default),
+    // portal-added rows that came through with the pipeline_source_split
+    // flag on carry "Client Entry". FUB will display whichever the
+    // entry was tagged with at write time.
+    source: entry.source,
   });
 
   if (!result.ok) {
