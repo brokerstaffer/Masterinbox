@@ -48,7 +48,17 @@ export function PipelineDetailSheet({
     <Sheet open onOpenChange={(v) => (!v ? onClose() : undefined)}>
       <SheetContent
         side="right"
-        className="flex w-full flex-col gap-0 bg-white p-0 sm:max-w-[560px]"
+        className="flex w-full flex-col gap-0 bg-white p-0 sm:max-w-[720px]"
+        // Offset the sheet below the Calendly banner. Portal pages
+        // set `--portal-banner-h` on <html> (2.5rem when the banner
+        // is visible, 0 otherwise) — see calendly-banner.tsx + the
+        // shell layout. Without this the sheet's `inset-y-0`
+        // anchors it to the very top of the viewport and the
+        // banner clips the header.
+        style={{
+          top: "var(--portal-banner-h, 0px)",
+          height: "calc(100vh - var(--portal-banner-h, 0px))",
+        }}
         showCloseButton={false}
       >
         <header className="relative shrink-0 border-b border-[#ebecf0] bg-white px-6 pt-5 pb-5">
