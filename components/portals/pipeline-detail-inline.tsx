@@ -1,6 +1,7 @@
 "use client";
 
 import type { PipelineEntry } from "@/lib/portals/portal-data";
+import { cn } from "@/lib/utils";
 
 // Inline expandable detail block for a Recruiting Pipeline row.
 // Renders every meaningful field on the lead, including the enriched
@@ -21,6 +22,7 @@ interface DetailField {
 export function PipelineDetailInline({
   entry,
   showSource = false,
+  compact = false,
 }: {
   entry: PipelineEntry;
   // Reserved for future inline-edit interactions. The caller currently
@@ -34,6 +36,12 @@ export function PipelineDetailInline({
   // without the flag never receive this as true, so the source
   // string never enters the SSR'd HTML.
   showSource?: boolean;
+  // Narrow-container mode (e.g. inside the Kanban detail sheet).
+  // Switches the grid from 4-column responsive to 2-column, tones
+  // down padding, and lets long values (emails / profile URLs)
+  // wrap instead of truncating. The inline list-view expand keeps
+  // its full 4-column layout when compact is false.
+  compact?: boolean;
 }) {
   const detail = (entry.lead_detail ?? {}) as LeadDetail;
   const cf = (detail.custom_fields ?? {}) as Record<string, unknown>;
@@ -136,11 +144,29 @@ export function PipelineDetailInline({
     : null;
 
   return (
-    <div className="px-4 py-5 sm:px-12 sm:py-6">
+    <div
+      className={cn(
+        compact
+          ? "px-5 py-5 sm:px-6"
+          : "px-4 py-5 sm:px-12 sm:py-6",
+      )}
+    >
       {fields.length > 0 ? (
-        <div className="grid grid-cols-1 gap-x-10 gap-y-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        <div
+          className={cn(
+            "grid",
+            compact
+              ? "grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2"
+              : "grid-cols-1 gap-x-10 gap-y-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4",
+          )}
+        >
           {fields.map((f) => (
-            <FieldStack key={f.label} label={f.label} value={f.value} />
+            <FieldStack
+              key={f.label}
+              label={f.label}
+              value={f.value}
+              compact={compact}
+            />
           ))}
         </div>
       ) : (
@@ -150,8 +176,13 @@ export function PipelineDetailInline({
       )}
 
       {introducedDate ? (
-        <div className="mt-7 grid grid-cols-1 gap-x-12 gap-y-3 border-t border-[#ebecf0] pt-6 md:grid-cols-[220px_1fr]">
-          <FieldStack label="Introduced" value={introducedDate} />
+        <div
+          className={cn(
+            "mt-7 grid grid-cols-1 gap-x-12 gap-y-3 border-t border-[#ebecf0] pt-6",
+            compact ? "" : "md:grid-cols-[220px_1fr]",
+          )}
+        >
+          <FieldStack label="Introduced" value={introducedDate} compact={compact} />
         </div>
       ) : null}
 
@@ -184,7 +215,11 @@ export function PipelineDetailInline({
   );
 }
 
-function FieldStack({ label, value }: DetailField) {
+function FieldStack({
+  label,
+  value,
+  compact = false,
+}: DetailField & { compact?: boolean }) {
   const link = autoLink(label, value);
   return (
     <div className="min-w-0">
@@ -197,12 +232,18 @@ function FieldStack({ label, value }: DetailField) {
           // offset (matches the default browser convention so it's
           // unambiguous as a link), saturated blue, darker on hover.
           // `title={value}` shows the FULL URL on hover even when the
-          // displayed text was shortened by prettyHost().
+          // displayed text was shortened by prettyHost(). In compact
+          // mode (narrow sheet) we drop the truncate so long emails /
+          // profile URLs wrap onto multiple lines instead of clipping
+          // to "tom…" / "corc…".
           <a
             href={link.href}
             target={link.external ? "_blank" : undefined}
             rel={link.external ? "noopener noreferrer" : undefined}
-            className="block max-w-full truncate font-medium text-blue-600 underline underline-offset-2 hover:text-blue-800"
+            className={cn(
+              "block max-w-full font-medium text-blue-600 underline underline-offset-2 hover:text-blue-800",
+              compact ? "break-words" : "truncate",
+            )}
             title={value}
           >
             {link.display}
