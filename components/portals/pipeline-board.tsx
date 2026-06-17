@@ -13,6 +13,7 @@ import {
   Pencil,
   Download,
   Upload,
+  FileText,
   Phone as PhoneIcon,
   MessageSquare,
   Globe,
@@ -68,7 +69,14 @@ import {
 } from "@/components/portals/portal-ui";
 import { PipelineDetailInline } from "@/components/portals/pipeline-detail-inline";
 import { PipelineKanban } from "@/components/portals/pipeline-kanban";
+import { PipelineDetailSheet } from "@/components/portals/pipeline-detail-sheet";
 import { ConversationSheet } from "@/components/portals/conversation-sheet";
+import { SourceBadge } from "@/components/portals/source-badge";
+import {
+  parseCsv,
+  csvRowToPipeline,
+  type PipelineCsvRow,
+} from "@/lib/portals/csv";
 import { formatPhoneDisplay } from "@/lib/portals/phone";
 
 // Stage → coloured chip. Tone matches the Google Sheets pipeline board:
@@ -151,6 +159,12 @@ export function PipelineBoard({
   const [openConversation, setOpenConversation] = useState<PipelineEntry | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
+  // Kanban card click opens this read-first sheet showing the full
+  // lead detail (custom variables, brokerage, intro date, notes).
+  // Distinct from editTarget — that one drives the EditLeadDialog
+  // form for actual writes. "Edit details" inside the sheet hands
+  // off to editTarget so changes ride the existing edit flow.
+  const [detailTarget, setDetailTarget] = useState<PipelineEntry | null>(null);
   const [csvOpen, setCsvOpen] = useState(false);
   // List ↔ Kanban view toggle. Default "list" for SSR. After mount,
   // hydrate from localStorage so the choice persists per portal token.
@@ -511,31 +525,38 @@ export function PipelineBoard({
                 </Button>
               ) : null}
               {kanbanViewEnabled ? (
-                <div className="inline-flex h-9 overflow-hidden rounded-md border border-[#ebecf0] bg-white">
-                  <button
-                    type="button"
-                    onClick={() => changeView("list")}
-                    className={cn(
-                      "px-3 text-[12px] font-medium transition-colors",
-                      viewMode === "list"
-                        ? "bg-[#eaf2fd] text-[#1565C0]"
-                        : "text-[#5b6472] hover:bg-[#f6f7f9]",
-                    )}
-                  >
-                    List
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => changeView("kanban")}
-                    className={cn(
-                      "border-l border-[#ebecf0] px-3 text-[12px] font-medium transition-colors",
-                      viewMode === "kanban"
-                        ? "bg-[#eaf2fd] text-[#1565C0]"
-                        : "text-[#5b6472] hover:bg-[#f6f7f9]",
-                    )}
-                  >
-                    Kanban
-                  </button>
+                <div className="inline-flex items-center gap-2">
+                  <span className="text-[12px] text-[#5b6472]">View as:</span>
+                  <div className="inline-flex h-9 overflow-hidden rounded-md border border-[#ebecf0] bg-white">
+                    <button
+                      type="button"
+                      onClick={() => changeView("list")}
+                      className={cn(
+                        "px-3 text-[12px] font-medium transition-colors",
+                        viewMode === "list"
+                          ? "bg-[#eaf2fd] text-[#1565C0]"
+                          : "text-[#5b6472] hover:bg-[#f6f7f9]",
+                      )}
+                    >
+                      List
+                    </button>
+                    {/* Internal state key stays "kanban" so existing
+                        localStorage entries written before the rename
+                        still resolve to this view — only the label
+                        flipped to "Board" per Stephanie's note. */}
+                    <button
+                      type="button"
+                      onClick={() => changeView("kanban")}
+                      className={cn(
+                        "border-l border-[#ebecf0] px-3 text-[12px] font-medium transition-colors",
+                        viewMode === "kanban"
+                          ? "bg-[#eaf2fd] text-[#1565C0]"
+                          : "text-[#5b6472] hover:bg-[#f6f7f9]",
+                      )}
+                    >
+                      Board
+                    </button>
+                  </div>
                 </div>
               ) : null}
               <span className="ml-auto text-[12px] text-[#9aa0ab]">
@@ -713,7 +734,7 @@ export function PipelineBoard({
                   visibleStages={visibleStages}
                   stageLabels={stageLabels}
                   showSource={sourceSplitEnabled}
-                  onCardClick={(e) => setEditTarget({ mode: "edit", entry: e })}
+                  onCardClick={(e) => setDetailTarget(e)}
                   onStageChange={(id, stage) => changeStage(id, stage)}
                 />
               )}
@@ -771,6 +792,7 @@ export function PipelineBoard({
                         }
                         token={token}
                         fubConnected={fubConnected}
+                        sourceSplitEnabled={sourceSplitEnabled}
                         onLocalUpdate={(p) => applyEntryEdit(e.id, p)}
                       />
                       {expanded ? (
@@ -857,6 +879,21 @@ export function PipelineBoard({
         />
       ) : null}
 
+      {detailTarget ? (
+        <PipelineDetailSheet
+          entry={detailTarget}
+          token={token}
+          onClose={() => setDetailTarget(null)}
+          onEdit={() => {
+            const entry = detailTarget;
+            setDetailTarget(null);
+            setEditTarget({ mode: "edit", entry });
+          }}
+          onLocalUpdate={(p) => applyEntryEdit(detailTarget.id, p)}
+          showSource={sourceSplitEnabled}
+        />
+      ) : null}
+
       {editTarget ? (
         <EditLeadDialog
           token={token}
@@ -888,6 +925,11 @@ export function PipelineBoard({
   );
 }
 
+// Matches the Agents / DNC / Team CSV importer pattern: dashed
+// drop-zone, fuzzy header matching via lib/portals/csv.ts, preview
+// table after parse, JSON post of `{ rows }` so the server doesn't
+// re-parse what the client already parsed. Single source of truth
+// for the CSV parser sits in lib/portals/csv.ts.
 function CsvUploadDialog({
   token,
   onClose,
@@ -897,104 +939,180 @@ function CsvUploadDialog({
   onClose: () => void;
   onUploaded: () => void;
 }) {
-  const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [rows, setRows] = useState<PipelineCsvRow[] | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<
-    { inserted: number; skipped: Array<{ row: number; reason: string }> } | null
+    | { inserted: number; skipped: Array<{ row: number; reason: string }> }
+    | null
   >(null);
 
-  async function upload() {
+  function handleFile(file: File | undefined | null) {
     if (!file) return;
-    setBusy(true);
-    setResult(null);
-    const fd = new FormData();
-    fd.append("file", file);
-    const res = await fetch(`/api/portal/${token}/pipeline/csv`, {
-      method: "POST",
-      body: fd,
-    });
-    setBusy(false);
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      toast.error(j.error ?? "Upload failed");
-      return;
-    }
-    const j = (await res.json()) as {
-      inserted: number;
-      skipped: Array<{ row: number; reason: string }>;
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result ?? "");
+      const parsed = parseCsv(text);
+      const mapped = parsed
+        .map(csvRowToPipeline)
+        .filter((r): r is PipelineCsvRow => Boolean(r));
+      setRows(mapped);
     };
-    setResult(j);
-    if (j.inserted > 0) {
-      toast.success(
-        `Imported ${j.inserted} candidate${j.inserted === 1 ? "" : "s"}${
-          j.skipped.length > 0 ? `, skipped ${j.skipped.length}` : ""
-        }`,
-      );
-    } else if (j.skipped.length > 0) {
-      toast.error(`Skipped ${j.skipped.length} row${j.skipped.length === 1 ? "" : "s"}`);
+    reader.readAsText(file);
+  }
+
+  async function submit() {
+    if (!rows || rows.length === 0) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/portal/${token}/pipeline/csv`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(j.error ?? "Import failed");
+        setSubmitting(false);
+        return;
+      }
+      const r = j as {
+        inserted: number;
+        skipped: Array<{ row: number; reason: string }>;
+      };
+      setResult(r);
+      if (r.inserted > 0) {
+        toast.success(
+          `Imported ${r.inserted} candidate${r.inserted === 1 ? "" : "s"}${
+            r.skipped.length > 0 ? `, skipped ${r.skipped.length}` : ""
+          }`,
+        );
+      } else if (r.skipped.length > 0) {
+        toast.error(`Skipped ${r.skipped.length} row${r.skipped.length === 1 ? "" : "s"}`);
+      }
+      // Re-fetch the pipeline once the user closes via the "Close"
+      // button — keeps the dialog open so they can read the
+      // skipped-row list without it slamming shut.
+    } finally {
+      setSubmitting(false);
     }
   }
 
   return (
-    <Dialog open onOpenChange={(o) => (!o ? onClose() : undefined)}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Upload candidates CSV</DialogTitle>
+          <DialogTitle>Import candidates from CSV</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3 text-[13px] text-[#5b6472]">
-          <p>
-            Header row required. Only{" "}
-            <span className="font-medium text-[#0f1320]">lead_name</span> is
-            required; the rest are optional.
-          </p>
-          <code className="block whitespace-pre-wrap rounded-md bg-[#f6f7f9] px-2 py-1.5 text-[11px] text-[#0f1320]">
-            lead_name, lead_email, lead_phone, current_brokerage,
-            agent_profile_url, introduced_at, stage, needs_replacement
-          </code>
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            onChange={(e) => {
-              setFile(e.target.files?.[0] ?? null);
-              setResult(null);
-            }}
-            className="block w-full text-[13px] file:mr-2 file:rounded-md file:border file:border-[#ebecf0] file:bg-white file:px-3 file:py-1.5 file:text-[12px] file:font-medium file:text-[#1565C0] hover:file:bg-[#eaf2fd]"
-          />
-          {result ? (
-            <div className="rounded-md border border-[#ebecf0] bg-[#fafbfc] p-2.5 text-[12px]">
-              <div className="font-medium text-[#0f1320]">
-                {result.inserted} imported{" · "}{result.skipped.length} skipped
+        {!rows ? (
+          <div>
+            <div
+              onClick={() => fileRef.current?.click()}
+              className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#ebecf0] bg-[#fafbfc] px-6 py-12 text-center transition-colors hover:border-[#bcd5f1] hover:bg-[#f4f8fd]"
+            >
+              <FileText className="size-7 text-[#aab0ba]" />
+              <div className="text-sm font-medium">Click to choose a CSV file</div>
+              <div className="text-[12px] text-[#9aa0ab]">
+                Columns we recognise: <code>lead_name</code>,{" "}
+                <code>lead_email</code>, <code>lead_phone</code>,{" "}
+                <code>current_brokerage</code>, <code>agent_profile_url</code>,{" "}
+                <code>introduced_at</code>, <code>stage</code>,{" "}
+                <code>needs_replacement</code>
+                <br />
+                Headers don&apos;t need to match exactly &mdash; e.g.{" "}
+                <code>Full Name</code>, <code>Email Address</code>,{" "}
+                <code>Phone Number</code>, <code>Brokerage</code> all work.
               </div>
-              {result.skipped.length > 0 ? (
-                <ul className="mt-1 max-h-32 list-disc overflow-y-auto pl-4 text-[#9a3a3a]">
-                  {result.skipped.map((s, i) => (
-                    <li key={i}>Row {s.row}: {s.reason}</li>
-                  ))}
-                </ul>
+            </div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(e) => handleFile(e.target.files?.[0])}
+            />
+          </div>
+        ) : (
+          <div>
+            <div className="mb-2 flex items-center justify-between text-[12px]">
+              <span className="font-medium">
+                {fileName} &mdash;{" "}
+                <span className="text-[#5b6472]">{rows.length} ready to import</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setRows(null);
+                  setFileName(null);
+                  setResult(null);
+                }}
+                className="text-[#1565C0] hover:underline"
+              >
+                Choose a different file
+              </button>
+            </div>
+            <div className="max-h-72 overflow-y-auto rounded-lg border border-[#ebecf0]">
+              <div className="grid grid-cols-[1.4fr_1.4fr_140px] border-b border-[#ebecf0] bg-[#fafbfc] px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#9aa0ab]">
+                <div>Name</div>
+                <div>Email</div>
+                <div>Phone</div>
+              </div>
+              {rows.slice(0, 50).map((r, i) => (
+                <div
+                  key={i}
+                  className="grid grid-cols-[1.4fr_1.4fr_140px] gap-2 border-b border-[#f0f1f4] px-3 py-1.5 text-[12.5px] last:border-0"
+                >
+                  <div className="truncate font-medium">{r.lead_name}</div>
+                  <div className="truncate text-[#5b6472]">{r.lead_email ?? "—"}</div>
+                  <div className="truncate text-[#5b6472]">{r.lead_phone ?? "—"}</div>
+                </div>
+              ))}
+              {rows.length > 50 ? (
+                <div className="px-3 py-1.5 text-center text-[11.5px] text-[#9aa0ab]">
+                  &hellip;and {rows.length - 50} more
+                </div>
               ) : null}
             </div>
-          ) : null}
-        </div>
+            {result ? (
+              <div className="mt-3 rounded-md bg-[#e9f7ef] px-3 py-2 text-[12px] text-[#0c8a4e]">
+                Imported {result.inserted.toLocaleString()} candidate{result.inserted === 1 ? "" : "s"}.
+                {result.skipped.length > 0 ? (
+                  <ul className="mt-1 max-h-32 list-disc overflow-y-auto pl-4 text-[#9a3a3a]">
+                    {result.skipped.map((s, i) => (
+                      <li key={i}>Row {s.row}: {s.reason}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : (
+              <p className="mt-3 text-[11.5px] leading-relaxed text-[#9aa0ab]">
+                Each row creates a new candidate. The stage column defaults
+                to <code>introduction</code> when blank.
+              </p>
+            )}
+          </div>
+        )}
         <DialogFooter>
-          {result && result.inserted > 0 ? (
-            <Button onClick={onUploaded}>Done</Button>
-          ) : (
-            <>
-              <Button variant="ghost" onClick={onClose} disabled={busy}>
-                Cancel
-              </Button>
-              <Button onClick={upload} disabled={!file || busy}>
-                {busy ? (
-                  <>
-                    <Loader2 className="mr-1.5 size-4 animate-spin" />
-                    Uploading
-                  </>
-                ) : (
-                  "Upload"
-                )}
-              </Button>
-            </>
-          )}
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (result) onUploaded();
+              else onClose();
+            }}
+          >
+            {result ? "Close" : "Cancel"}
+          </Button>
+          {rows && !result ? (
+            <Button onClick={submit} disabled={submitting || rows.length === 0}>
+              {submitting ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                `Import ${rows.length} candidate${rows.length === 1 ? "" : "s"}`
+              )}
+            </Button>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1015,6 +1133,7 @@ function PipelineRow({
   onToggleExpand,
   token,
   fubConnected,
+  sourceSplitEnabled = false,
   onLocalUpdate,
 }: {
   entry: PipelineEntry;
@@ -1030,6 +1149,7 @@ function PipelineRow({
   onToggleExpand: () => void;
   token: string;
   fubConnected: boolean;
+  sourceSplitEnabled?: boolean;
   onLocalUpdate: (patch: Partial<PipelineEntry>) => void;
 }) {
   const phone = entry.lead_phone ?? null;
@@ -1134,6 +1254,7 @@ function PipelineRow({
               fubConnected={fubConnected}
               onLocalUpdate={onLocalUpdate}
             />
+            {sourceSplitEnabled ? <SourceBadge value={entry.source} /> : null}
           </div>
         </div>
       </div>
@@ -1308,6 +1429,7 @@ function PipelineMobileCard({
               fubConnected={fubConnected}
               onLocalUpdate={onLocalUpdate}
             />
+            {sourceSplitEnabled ? <SourceBadge value={entry.source} /> : null}
           </div>
         </div>
       </div>

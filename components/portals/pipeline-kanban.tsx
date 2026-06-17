@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Calendar } from "lucide-react";
 import type { PipelineEntry, PipelineStage } from "@/lib/portals/portal-data";
+import { SourceBadge } from "@/components/portals/source-badge";
 import { cn } from "@/lib/utils";
 
 // Kanban renderer for the Recruiting Pipeline. Same entries the table
@@ -179,9 +180,7 @@ export function PipelineKanban({
                           })
                         : "—"}
                       {showSource ? (
-                        <span className="ml-auto truncate rounded-full bg-[#f6f7f9] px-1.5 py-0.5 text-[10px] font-medium text-[#5b6472]">
-                          {e.source}
-                        </span>
+                        <SourceBadge value={e.source} className="ml-auto" />
                       ) : null}
                     </div>
                   </button>

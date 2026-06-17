@@ -263,6 +263,118 @@ export function csvRowToTeam(row: CsvRow): TeamRow | null {
   };
 }
 
+// Maps a parsed CSV row to a Recruiting Pipeline insert payload.
+// Mirrors the manual "Add candidate" form fields. Only `lead_name`
+// is required — every other column is optional and falls back to
+// null. Stage / needs_replacement / introduced_at get their own
+// fuzzy match so headers like "Stage", "Replacement?", or
+// "Introduction Date" all resolve.
+//
+// Stage validation lives in the route handler (the union is
+// re-checked there); this mapper just normalises the value to
+// lowercase so the union check matches.
+export interface PipelineCsvRow {
+  lead_name: string;
+  lead_email: string | null;
+  lead_phone: string | null;
+  current_brokerage: string | null;
+  agent_profile_url: string | null;
+  introduced_at: string | null;
+  stage: string | null;
+  needs_replacement: boolean;
+}
+
+export function csvRowToPipeline(row: CsvRow): PipelineCsvRow | null {
+  const first = pickFuzzy(row, ["first_name", "firstname", "first"], []);
+  const last = pickFuzzy(row, ["last_name", "lastname", "last"], []);
+  const name =
+    pickFuzzy(
+      row,
+      [
+        "lead_name",
+        "name",
+        "full_name",
+        "fullname",
+        "agent_name",
+        "candidate_name",
+        "candidate",
+      ],
+      ["name", "agent", "candidate"],
+    ) ?? (first && last ? `${first} ${last}` : first ?? last);
+  if (!name) return null;
+
+  const needsRaw = pickFuzzy(
+    row,
+    [
+      "needs_replacement",
+      "replacement",
+      "needs_a_replacement",
+      "is_replacement",
+    ],
+    ["replacement"],
+  );
+  const needsReplacement =
+    needsRaw !== null && /^(true|yes|y|1)$/i.test(needsRaw);
+
+  const stageRaw = pickFuzzy(
+    row,
+    ["stage", "pipeline_stage", "status"],
+    ["stage", "status"],
+  );
+
+  return {
+    lead_name: name,
+    lead_email: pickFuzzy(
+      row,
+      ["lead_email", "email", "email_address", "agent_email"],
+      ["email"],
+    ),
+    lead_phone: pickFuzzy(
+      row,
+      ["lead_phone", "phone", "phone_number", "mobile", "cell"],
+      ["phone", "mobile", "cell"],
+    ),
+    current_brokerage: pickFuzzy(
+      row,
+      [
+        "current_brokerage",
+        "brokerage",
+        "company",
+        "firm",
+        "agency",
+        "current_company",
+      ],
+      ["brokerage", "company", "firm", "agency"],
+    ),
+    agent_profile_url: pickFuzzy(
+      row,
+      [
+        "agent_profile_url",
+        "agent_profile",
+        "profile_url",
+        "profile",
+        "website",
+        "url",
+      ],
+      ["profile", "website", "url"],
+    ),
+    introduced_at: pickFuzzy(
+      row,
+      [
+        "introduced_at",
+        "introduced",
+        "introduction_date",
+        "intro_date",
+        "date_introduced",
+        "date",
+      ],
+      ["introduced", "introduction"],
+    ),
+    stage: stageRaw ? stageRaw.toLowerCase() : null,
+    needs_replacement: needsReplacement,
+  };
+}
+
 // Pull the host out of an email — last-resort domain extraction when
 // a company-kind CSV row only includes an email column.
 function deriveDomainFromEmail(email: string | null): string | null {
