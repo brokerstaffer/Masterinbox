@@ -1015,15 +1015,12 @@ function CsvUploadDialog({
               <FileText className="size-7 text-[#aab0ba]" />
               <div className="text-sm font-medium">Click to choose a CSV file</div>
               <div className="text-[12px] text-[#9aa0ab]">
-                Columns we recognise: <code>lead_name</code>,{" "}
-                <code>lead_email</code>, <code>lead_phone</code>,{" "}
-                <code>current_brokerage</code>, <code>agent_profile_url</code>,{" "}
-                <code>introduced_at</code>, <code>stage</code>,{" "}
-                <code>needs_replacement</code>
+                Columns we recognise: <code>name</code>, <code>email</code>,{" "}
+                <code>phone</code>, <code>brokerage</code>
                 <br />
                 Headers don&apos;t need to match exactly &mdash; e.g.{" "}
                 <code>Full Name</code>, <code>Email Address</code>,{" "}
-                <code>Phone Number</code>, <code>Brokerage</code> all work.
+                <code>Phone Number</code> all work.
               </div>
             </div>
             <input
