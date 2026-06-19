@@ -93,7 +93,7 @@ export async function POST(
   const { data, error } = await admin
     .from("client_pipeline_entries")
     .insert(row)
-    .select("id")
+    .select("id, source")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
@@ -119,7 +119,16 @@ export async function POST(
     }
   }
 
-  return NextResponse.json({ ok: true, id: data.id });
+  // Return `source` so the client's optimistic row in
+  // EditLeadDialog uses the value the server actually wrote
+  // (Client Entry when pipeline_source_split is on, the default
+  // 'BrokerStaffer' otherwise). Without this the optimistic chip
+  // shows the wrong source until a full page load.
+  return NextResponse.json({
+    ok: true,
+    id: data.id,
+    source: (data as { source?: string }).source ?? "BrokerStaffer",
+  });
 }
 
 // PATCH /api/portal/[token]/pipeline — bulk actions. Body chooses

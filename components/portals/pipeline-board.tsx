@@ -2074,7 +2074,7 @@ function EditLeadDialog({
         toast.error(j.error ?? "Could not add lead");
         return;
       }
-      const j = (await res.json()) as { id: string };
+      const j = (await res.json()) as { id: string; source?: string };
       const newRow: PipelineEntry = {
         id: j.id,
         stage: "introduction",
@@ -2101,12 +2101,12 @@ function EditLeadDialog({
         fub_event_id: null,
         fub_pushed_at: null,
         fub_last_error: null,
-        // The server writes the right source value based on the
-        // pipeline_source_split flag (Client Entry when on, default
-        // 'BrokerStaffer' otherwise). The optimistic row uses the
-        // default here; router.refresh() reconciles the real value
-        // on the next render if the flag is on.
-        source: "BrokerStaffer",
+        // The server tells us the source it wrote (Client Entry
+        // when pipeline_source_split is on, default 'BrokerStaffer'
+        // otherwise) — use that directly so the optimistic chip
+        // matches the DB row from frame one. Falling back to
+        // BrokerStaffer only if the response somehow omits it.
+        source: j.source ?? "BrokerStaffer",
       };
       onApply(j.id, {}, newRow);
       toast.success("Candidate added");
