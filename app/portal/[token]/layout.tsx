@@ -14,9 +14,18 @@ import { PortalShell } from "@/components/portals/portal-shell";
 // fields so the title wins per-page while description, openGraph,
 // and twitter card all flow through from here.
 //
-// The OG image lives next to this file as opengraph-image.png and
-// is auto-served by Next's file convention — no explicit
-// openGraph.images entry needed.
+// The OG image lives at app/portal/opengraph-image.png (NOT under
+// [token]/) so the URL Next emits doesn't contain a dynamic
+// segment placeholder ("/portal/-/opengraph-image.png" 404s).
+// Sitting one level up means the same branded card applies to
+// every /portal/* URL, which is exactly what we want.
+//
+// metadataBase has to be set or Next defaults the og:image URL
+// to http://localhost:<port>, which Slack can't fetch. In dev
+// this still resolves to localhost (correct); in prod the env-
+// driven NEXT_PUBLIC_PORTAL_BASE_URL would override, but we
+// hardcode the public hostname here because that's the only
+// surface that ever serves these portals.
 //
 // IMPORTANT: This deliberately doesn't change the global
 // app/layout.tsx description ("Unified sales inbox for cold
@@ -24,6 +33,7 @@ import { PortalShell } from "@/components/portals/portal-shell";
 // staff MasterInbox app at /. The override below only fires
 // underneath /portal/[token]/.
 export const metadata: Metadata = {
+  metadataBase: new URL("https://portal.brokerstaffer.com"),
   description: "Your BrokerStaffer Client Portal",
   openGraph: {
     description: "Your BrokerStaffer Client Portal",
