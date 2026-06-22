@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 //
 // Visibility rules mirror the table:
 //   • columns come from visibleStages (per-client gated; real clients
-//     drop in-flight stages, OpsLabs sees the full set)
+//     drop in-flight stages, Demo Portal sees the full set)
 //   • labels come from stageLabels (the SSR-sanitised map — hidden
 //     stages already mask their human label as the enum key)
 //   • STAGE_STYLE is duplicated here on purpose so the Kanban column

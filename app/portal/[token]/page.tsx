@@ -56,14 +56,14 @@ export default async function PortalRoot(props: {
 
   const fullLabels = resolveStageLabels(client.stage_label_overrides);
   // Per-client visible stage list. Real clients get the canonical
-  // 8 stages; flag-enabled clients (OpsLabs) get the additional
+  // 8 stages; flag-enabled clients (Demo Portal) get the additional
   // interview_scheduled tile. Computed server-side and shared
   // across every nested component via VisibleStagesProvider.
   const visibleStages = visibleStagesFor(client);
   // safeStageLabelsFor masks hidden stages' human labels with the
   // raw enum key BEFORE the prop crosses the server→client boundary,
   // so real clients' View Source never carries "Interview Scheduled"
-  // in the SSR hydration payload. OpsLabs (with the flag) gets the
+  // in the SSR hydration payload. Demo Portal (with the flag) gets the
   // full labels through.
   const stageLabels = safeStageLabelsFor(fullLabels, visibleStages);
 

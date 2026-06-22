@@ -131,7 +131,7 @@ function NicolePhoto() {
 export function PipelineFooterInfo() {
   const stageLabels = useStageLabels();
   // Per-client visible stage list. Real clients see the eight
-  // stages they've always seen; OpsLabs (with the feature flag)
+  // stages they've always seen; Demo Portal (with the feature flag)
   // sees the additional Interview Scheduled stage in this legend.
   const legendOrder = useVisibleStages();
   return (

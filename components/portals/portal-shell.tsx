@@ -13,7 +13,7 @@ interface Props {
   clientName: string;
   counts: { pipeline: number; dnc: number; agents: number; team: number };
   // True when the client has the nav_integrations_label feature flag
-  // turned on (OpsLabs today). Renames the Settings nav item to
+  // turned on (Demo Portal today). Renames the Settings nav item to
   // "Integrations" to better match what the page actually does
   // (FollowUpBoss + future CRM connectors). Real clients without
   // the flag never receive this as true, so the "Integrations"

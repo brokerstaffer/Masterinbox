@@ -10,7 +10,7 @@ export type PipelineStage =
   | "introduction"
   | "phone_screen_scheduled"
   | "phone_screen"
-  // Added 2026-06-12, gated to OpsLabs only via the
+  // Added 2026-06-12, gated to Demo Portal only via the
   // "interview_scheduled_stage" feature flag (see
   // lib/portals/feature-flags.ts). Real clients use
   // visibleStagesFor() below, which omits this from every
@@ -487,7 +487,7 @@ export function visibleStagesFor(
 // View Source on every real client portal. Replacing the label
 // with the enum key keeps that string out of the SSR'd HTML
 // entirely — anyone curling the page sees `interview_scheduled` as
-// the value, not the polished "Interview Scheduled" copy. OpsLabs
+// the value, not the polished "Interview Scheduled" copy. Demo Portal
 // (the only client with the flag) still receives the full labels.
 export function safeStageLabelsFor(
   fullLabels: Record<PipelineStage, string>,

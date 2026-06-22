@@ -42,7 +42,7 @@ export function StageLabelEditor({
   const [pending, startTransition] = useTransition();
   const [saving, setSaving] = useState(false);
   // Per-client visible stages. Real clients only see editable tiles
-  // for the eight stages they've always had; OpsLabs (with the
+  // for the eight stages they've always had; Demo Portal (with the
   // interview_scheduled_stage flag) also gets the new Interview
   // Scheduled tile. Internal state machinery (dirty / anyOverride /
   // payload build) keeps iterating STAGE_ORDER so a flag-enabled

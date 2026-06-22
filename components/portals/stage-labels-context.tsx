@@ -40,7 +40,7 @@ export function useStageLabels(): Record<PipelineStage, string> {
 // Per-client *visible* stage list. STAGE_ORDER is the canonical
 // universe; this context narrows that down to what THIS client
 // should see in dropdowns / chips / legend. Real clients get the
-// pre-Interview-Scheduled list (8 stages); OpsLabs (with the
+// pre-Interview-Scheduled list (8 stages); Demo Portal (with the
 // interview_scheduled_stage flag) gets the full 9.
 //
 // Default falls back to STAGE_ORDER so any component rendered

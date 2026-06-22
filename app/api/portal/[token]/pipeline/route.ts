@@ -68,7 +68,7 @@ export async function POST(
 
   const admin = createAdminSupabase();
   // Source split: when the client has the pipeline_source_split flag
-  // turned on (OpsLabs today), manually-added leads land as
+  // turned on (Demo Portal today), manually-added leads land as
   // "Client Entry" so FUB records the right origin. Real clients
   // without the flag fall through to the column default
   // ('BrokerStaffer') by omitting `source` from the insert payload.

@@ -10,22 +10,22 @@
 //
 // Real clients (SERHANT., 54 Realty, Douglas Elliman, etc.) must NEVER
 // see an in-progress feature until it is explicitly rolled out to them.
-// The only client allowed to see in-progress features is OpsLabs (slug
-// "opslabs"), the test portal.
+// The only client allowed to see in-progress features is Demo Portal (slug
+// "demo-portal"), the test portal.
 //
 // To honour the rule, EVERY new feature ships in two halves:
 //
 //   1. Wrap the NEW code path in `clientHasFeature(client, "X")`:
 //        if (clientHasFeature(client, "reports_tab")) {
-//          // new behaviour, only OpsLabs sees this
+//          // new behaviour, only Demo Portal sees this
 //        } else {
 //          // existing behaviour — what real clients keep seeing
 //        }
 //
-//   2. After the code deploys, flip the flag on for OpsLabs only:
+//   2. After the code deploys, flip the flag on for Demo Portal only:
 //        update clients
 //        set feature_flags = jsonb_set(feature_flags, '{reports_tab}', 'true')
-//        where slug = 'opslabs';
+//        where slug = 'demo-portal';
 //
 //      No other client row is touched, so `clientHasFeature(realClient,
 //      "reports_tab")` returns false for them and they continue to render
@@ -36,11 +36,11 @@
 //   • One-shot SQL — turn the flag on for every client row.
 //   • Better: delete the `clientHasFeature` check and the old code path,
 //     leave the new path as the default. Cleaner long-term; the flag
-//     entry on OpsLabs becomes dead data and can stay or get cleaned.
+//     entry on Demo Portal becomes dead data and can stay or get cleaned.
 //
 // NEVER invert the check (`if (!clientHasFeature(...))`). That makes the
 // new behaviour the default for everyone and the flag would have to be
-// flipped on OpsLabs to HIDE the new feature — which is the exact
+// flipped on Demo Portal to HIDE the new feature — which is the exact
 // opposite of the safety contract. The wrong-by-construction shape
 // reads `if (clientHasFeature(...))` every time.
 //

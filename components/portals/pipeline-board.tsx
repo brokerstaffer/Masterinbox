@@ -142,7 +142,7 @@ export function PipelineBoard({
   const mounted = useMounted();
   // Per-client list of stages this client is allowed to see in the
   // UI (filter chips, bulk move-to menu). Real clients are missing
-  // the in-flight stages (e.g. Interview Scheduled); OpsLabs sees
+  // the in-flight stages (e.g. Interview Scheduled); Demo Portal sees
   // the full set via the feature_flags.interview_scheduled_stage
   // flag. STAGE_ORDER stays as the canonical universe for Record
   // initialisers + type exhaustiveness.

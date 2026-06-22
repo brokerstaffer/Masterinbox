@@ -100,7 +100,7 @@ export function PipelineDetailInline({
   tryPush("Assigned", entry.assigned_team_member?.name, "assigned");
 
   // Source tag — gated behind the pipeline_source_split feature flag
-  // so only flag-enabled clients (OpsLabs today) see the row. Real
+  // so only flag-enabled clients (Demo Portal today) see the row. Real
   // clients without the flag never get showSource=true, so the value
   // ("BrokerStaffer" / "Client Entry") never enters the rendered HTML.
   // dedupKey "source" prevents a stray custom_fields.source from
