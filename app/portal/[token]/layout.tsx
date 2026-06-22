@@ -32,16 +32,32 @@ import { PortalShell } from "@/components/portals/portal-shell";
 // outreach email replies."), which is still correct copy for the
 // staff MasterInbox app at /. The override below only fires
 // underneath /portal/[token]/.
+// The OG image at app/portal/opengraph-image.png is served as a
+// static asset at /portal/opengraph-image.png (HTTP 200), but
+// Next's auto-attach to descendant metadata wasn't firing for
+// the dynamic [token] segment. Reference it explicitly here.
+// metadataBase makes the relative URL resolve to the public host.
+const OG_IMAGE_URL = "/portal/opengraph-image.png";
+
 export const metadata: Metadata = {
   metadataBase: new URL("https://portal.brokerstaffer.com"),
   description: "Your BrokerStaffer Client Portal",
   openGraph: {
     description: "Your BrokerStaffer Client Portal",
     type: "website",
+    images: [
+      {
+        url: OG_IMAGE_URL,
+        width: 1200,
+        height: 630,
+        alt: "BrokerStaffer Client Portal",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     description: "Your BrokerStaffer Client Portal",
+    images: [OG_IMAGE_URL],
   },
   robots: { index: false, follow: false },
 };
