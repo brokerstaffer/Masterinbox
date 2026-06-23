@@ -564,6 +564,14 @@ export function Composer({
         : undefined;
       const ccArr = parseRecipients(cc);
       const bccArr = parseRecipients(bcc);
+      // True when the operator deliberately edited the Subject field
+      // (vs. accepting the auto-derived "Re: <source>" pre-fill). The
+      // reply route uses this to decide which EmailBison endpoint to
+      // hit — /api/replies/{id}/reply silently ignores subject, while
+      // /api/replies/new honours it at the cost of starting a new
+      // EmailBison-side thread. Instantly's path always honours the
+      // subject in-body, so this flag only affects EmailBison sends.
+      const subjectChanged = (composerSubject || "") !== (subject || "");
 
       let res: Response;
       if (files.length > 0) {
@@ -574,6 +582,7 @@ export function Composer({
         form.append("body", bodyHtmlToSend);
         form.append("content_type", "html");
         if (composerSubject) form.append("subject", composerSubject);
+        if (subjectChanged) form.append("subject_changed", "1");
         if (toArr) form.append("to", JSON.stringify(toArr));
         if (ccArr) form.append("cc", JSON.stringify(ccArr));
         if (bccArr) form.append("bcc", JSON.stringify(bccArr));
@@ -594,6 +603,7 @@ export function Composer({
             body: bodyHtmlToSend,
             content_type: "html",
             subject: composerSubject,
+            subject_changed: subjectChanged,
             to: toArr,
             cc: ccArr,
             bcc: bccArr,

@@ -65,6 +65,14 @@ const schema = z.object({
   // resolution from the thread's outbound_sender_email. Required for
   // the "From" dropdown in the composer.
   sender_channel_id: z.string().uuid().optional(),
+  // True when the operator deliberately edited the Subject in the
+  // composer (vs. accepting the auto-derived "Re: <source>" value).
+  // EmailBison's /api/replies/{id}/reply silently drops `subject`,
+  // so we route subject-changed sends through /api/replies/new
+  // instead. Instantly always honours subject in-body, so the flag
+  // doesn't affect that path. Optional + defaulted to false so older
+  // clients (and any unknown direct API caller) keep current behaviour.
+  subject_changed: z.boolean().optional(),
 });
 
 type ParsedInput = z.infer<typeof schema>;
@@ -100,7 +108,11 @@ export async function POST(
           } catch {
             fields[key] = undefined;
           }
-        } else if (key === "reply_all" || key === "inject_previous_email_body") {
+        } else if (
+          key === "reply_all" ||
+          key === "inject_previous_email_body" ||
+          key === "subject_changed"
+        ) {
           fields[key] = value === "1" || value === "true";
         } else {
           fields[key] = String(value);
@@ -306,11 +318,59 @@ export async function POST(
   }
 
   // Send via EmailBison.
+  //
+  // When the operator changes the Subject in the composer
+  // (payload.subject_changed === true), route through
+  // /api/replies/new instead of /api/replies/{id}/reply because the
+  // reply endpoint silently drops the subject. /replies/new starts
+  // a fresh thread on EmailBison's side — recipient still receives
+  // the new subject, which is the whole point. The unchanged-subject
+  // case keeps using /reply so EmailBison-side threading is
+  // preserved for the common path.
+  //
+  // The new endpoint requires a non-null sender_email_id. Reply-all
+  // sends with a changed subject still need one (the reply endpoint
+  // could pass null because EmailBison inferred the sender from
+  // the parent reply; /replies/new has no parent to infer from), so
+  // we fall back to senderEmailId from the inbound webhook envelope.
   const eb = createEmailBisonClient();
   let newReplyId: number | null = null;
+  const effectiveSenderEmailId =
+    senderOverride?.emailbisonSenderEmailId ?? senderEmailId;
+  const subjectChanged = payload.subject_changed === true;
   try {
     await eb.switchWorkspace(ebTeamId);
-    if (attachments.length > 0) {
+    if (subjectChanged) {
+      // /api/replies/new — subject-honouring path. Requires a subject
+      // (zod-checked above via the optional schema; we coerce empty to
+      // the original thread subject as a safety net) and a sender_email_id.
+      const subjectForNew =
+        (payload.subject ?? "").trim() || "(no subject)";
+      if (attachments.length > 0) {
+        const res = await eb.composeNewEmailMultipart({
+          subject: subjectForNew,
+          message: payload.body,
+          sender_email_id: effectiveSenderEmailId,
+          content_type: payload.content_type,
+          to_emails: toEmails,
+          cc_emails: payload.cc && payload.cc.length > 0 ? payload.cc : undefined,
+          bcc_emails: payload.bcc && payload.bcc.length > 0 ? payload.bcc : undefined,
+          attachments,
+        });
+        newReplyId = res?.data?.reply?.id ?? null;
+      } else {
+        const res = await eb.composeNewEmail({
+          subject: subjectForNew,
+          message: payload.body,
+          sender_email_id: effectiveSenderEmailId,
+          content_type: payload.content_type,
+          to_emails: toEmails,
+          cc_emails: payload.cc && payload.cc.length > 0 ? payload.cc : undefined,
+          bcc_emails: payload.bcc && payload.bcc.length > 0 ? payload.bcc : undefined,
+        });
+        newReplyId = res?.data?.reply?.id ?? null;
+      }
+    } else if (attachments.length > 0) {
       const res = await eb.sendReplyMultipart(Number(lastInbound.emailbison_reply_id), {
         message: payload.body,
         content_type: payload.content_type,
@@ -319,9 +379,7 @@ export async function POST(
         bcc_emails: payload.bcc && payload.bcc.length > 0 ? payload.bcc : undefined,
         reply_all: payload.reply_all,
         inject_previous_email_body: payload.inject_previous_email_body,
-        sender_email_id: payload.reply_all
-          ? null
-          : senderOverride?.emailbisonSenderEmailId ?? senderEmailId,
+        sender_email_id: payload.reply_all ? null : effectiveSenderEmailId,
         attachments,
       });
       // Response shape: { data: { success, reply: { id } } }
@@ -335,9 +393,7 @@ export async function POST(
         bcc_emails: payload.bcc && payload.bcc.length > 0 ? payload.bcc : undefined,
         reply_all: payload.reply_all,
         inject_previous_email_body: payload.inject_previous_email_body,
-        sender_email_id: payload.reply_all
-          ? null
-          : senderOverride?.emailbisonSenderEmailId ?? senderEmailId,
+        sender_email_id: payload.reply_all ? null : effectiveSenderEmailId,
       });
       // Response shape: { data: { success, reply: { id } } }
       newReplyId = res?.data?.reply?.id ?? null;

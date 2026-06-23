@@ -286,6 +286,84 @@ export function createEmailBisonClient(opts: ClientOpts = {}) {
       return data as { data: { success?: boolean; reply?: { id?: number } } };
     },
 
+    // POST /api/replies/new — fresh-send variant used when the operator
+    // changes the Subject on a reply. EmailBison's normal reply endpoint
+    // (/api/replies/{id}/reply) silently drops `subject` because it
+    // inherits from the original conversation. /api/replies/new accepts
+    // a subject, at the cost of creating a brand-new thread on
+    // EmailBison's side (no parent_id / in_reply_to on the spec). Lead
+    // linkage is preserved because EmailBison matches the recipient by
+    // email. Use the reply endpoint when subject is unchanged; reach
+    // for this one only when the operator has deliberately edited it.
+    composeNewEmail: (input: {
+      subject: string;
+      message: string;
+      sender_email_id: number;
+      content_type?: "html" | "text";
+      to_emails?: Array<{ name?: string | null; email_address: string }>;
+      cc_emails?: Array<{ name?: string | null; email_address: string }>;
+      bcc_emails?: Array<{ name?: string | null; email_address: string }>;
+      use_dedicated_ips?: boolean;
+    }) =>
+      // Same response shape as sendReply: { data: { success, reply: { id } } }.
+      request<{ data: { success?: boolean; reply?: { id?: number } } }>(
+        "POST",
+        `/replies/new`,
+        input,
+      ),
+
+    // Multipart variant of /replies/new for attachment uploads. Mirrors
+    // sendReplyMultipart's PHP-style nested fields so EmailBison's
+    // validator accepts to_emails[0][email_address] etc. as arrays.
+    composeNewEmailMultipart: async (input: {
+      subject: string;
+      message: string;
+      sender_email_id: number;
+      content_type?: "html" | "text";
+      to_emails?: Array<{ name?: string | null; email_address: string }>;
+      cc_emails?: Array<{ name?: string | null; email_address: string }>;
+      bcc_emails?: Array<{ name?: string | null; email_address: string }>;
+      attachments: Array<{ name: string; blob: Blob }>;
+    }): Promise<{ data: { success?: boolean; reply?: { id?: number } } }> => {
+      const form = new FormData();
+      form.append("subject", input.subject);
+      form.append("message", input.message);
+      form.append("sender_email_id", String(input.sender_email_id));
+      if (input.content_type) form.append("content_type", input.content_type);
+      const appendRecipients = (
+        key: "to_emails" | "cc_emails" | "bcc_emails",
+        rows?: Array<{ name?: string | null; email_address: string }>,
+      ) => {
+        if (!rows || rows.length === 0) return;
+        rows.forEach((r, i) => {
+          if (r.name) form.append(`${key}[${i}][name]`, r.name);
+          form.append(`${key}[${i}][email_address]`, r.email_address);
+        });
+      };
+      appendRecipients("to_emails", input.to_emails);
+      appendRecipients("cc_emails", input.cc_emails);
+      appendRecipients("bcc_emails", input.bcc_emails);
+      for (const f of input.attachments) {
+        form.append("attachments[]", f.blob, f.name);
+      }
+      const res = await fetch(`${baseUrl}/api/replies/new`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+        body: form,
+        cache: "no-store",
+      });
+      const text = await res.text();
+      const data = text ? safeJSON(text) : null;
+      if (!res.ok) {
+        throw new EmailBisonError(
+          `EmailBison POST /replies/new (multipart) -> ${res.status}`,
+          res.status,
+          data ?? text,
+        );
+      }
+      return data as { data: { success?: boolean; reply?: { id?: number } } };
+    },
+
     // Blacklist (Do-Not-Contact). POST /api/blacklisted-emails with the
     // raw email — blocks the address from all current + future campaigns
     // in the active team.
