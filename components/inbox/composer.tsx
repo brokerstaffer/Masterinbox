@@ -156,9 +156,12 @@ export function Composer({
   );
   const [composerSubject, setComposerSubject] = useState(subject || "");
   const [to, setTo] = useState(toEmail);
-  // Pre-fill the auto-CC so operators see who's being looped in. The
-  // server (app/api/threads/[threadId]/reply/route.ts) also runs the
-  // same merge as a safety net — UI is the canonical source.
+  // Pre-fill the workspace auto-CC so operators see who's being
+  // looped in by default. As of 2026-06-23 the server no longer
+  // re-adds this address — if the operator deliberately removes it
+  // before sending (sensitive client, internal-note reply), that
+  // intent reaches the provider verbatim. The composer is the only
+  // canonical source.
   const [cc, setCc] = useState(() => mergeAlwaysCcString(ccInitial, toEmail));
   const [bcc, setBcc] = useState(bccInitial);
   // Pre-select the channel whose display_name / instantly_account_id

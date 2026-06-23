@@ -4,7 +4,6 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { createEmailBisonClient } from "@/lib/emailbison/client";
 import { createInstantlyClient, InstantlyError } from "@/lib/instantly/client";
-import { ALWAYS_CC_EMAIL } from "@/lib/inbox/auto-cc";
 
 // Sends an outbound reply for the given thread via EmailBison's
 // POST /api/replies/{id}/reply endpoint.
@@ -25,36 +24,20 @@ export const maxDuration = 300;
 const PER_FILE_MAX = 25 * 1024 * 1024; // 25 MB
 const COMBINED_MAX = 50 * 1024 * 1024; // 50 MB
 
-// Workspace-wide auto-CC. The composer already pre-fills the same
-// address (lib/inbox/auto-cc.ts) so operators see who's looped in.
-// This server-side merge is the safety net: any direct API client
-// + the rare case where the operator removes Nicole from the cc
-// field still gets enforced here.
+// Workspace-wide auto-CC. The composer pre-fills the workspace
+// CC address (lib/inbox/auto-cc.ts) so operators always see Nicole
+// looped in by default and can leave her checked.
+//
+// IMPORTANT (2026-06-23): The server-side merge that used to
+// re-add Nicole here was removed at Stephanie's request. The
+// composer is the canonical source — when an operator
+// deliberately removes Nicole from the CC field for a sensitive
+// client, that intent now reaches EmailBison/Instantly verbatim
+// instead of getting silently overridden by a server safety net.
+// If we ever need to support direct API callers that bypass the
+// composer, they're responsible for setting CC explicitly.
 
 type Recipient = { name?: string | null; email_address: string };
-
-// Merge a fixed always-CC address into the payload's cc array.
-// Lower-cases for comparison + dedupes. Skips when the address is
-// already the To recipient (e.g. replying to a thread WHERE Nicole
-// IS the lead) so she only ever appears once.
-function mergeAlwaysCc(
-  cc: Recipient[] | undefined,
-  to: Recipient[] | undefined,
-): Recipient[] {
-  const norm = (s: string) => s.toLowerCase().trim();
-  const inTo = new Set((to ?? []).map((r) => norm(r.email_address)));
-  const seen = new Set<string>();
-  const out: Recipient[] = [];
-  const push = (r: Recipient) => {
-    const k = norm(r.email_address);
-    if (!k || inTo.has(k) || seen.has(k)) return;
-    seen.add(k);
-    out.push(r);
-  };
-  for (const r of cc ?? []) push(r);
-  push({ email_address: ALWAYS_CC_EMAIL });
-  return out;
-}
 
 const recipientSchema = z.object({
   name: z.string().nullable().optional(),
@@ -168,12 +151,11 @@ export async function POST(
     );
   }
 
-  // Inject the workspace-wide auto-CC. Runs once for both transport
-  // modes (JSON + multipart) and downstream code (EmailBison send,
-  // Instantly send, the outbound `messages` snapshot at the bottom of
-  // this route) reads payload.cc, so a single point of insertion is
-  // enough.
-  payload = { ...payload, cc: mergeAlwaysCc(payload.cc, payload.to) };
+  // Server-side auto-CC injection was removed 2026-06-23 — see the
+  // import block at the top of this file. payload.cc is now sent
+  // verbatim downstream (EmailBison send, Instantly send, the
+  // outbound `messages` snapshot). The composer remains the
+  // canonical pre-fill source for the always-CC address.
 
   // Membership check via user-scoped RLS — only members of the workspace
   // owning this thread can see/reply to it.
