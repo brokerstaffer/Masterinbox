@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -56,6 +56,59 @@ interface DraftSeed {
   generated_body: string | null;
 }
 
+// Auto-saved user draft, loaded from the composer_drafts table via
+// the thread-detail loader. When present, takes precedence over the
+// AI draft for initial state — represents what the user was last
+// typing when they left the thread.
+interface ComposerDraftSeed {
+  subject: string | null;
+  body_html: string | null;
+  body_text: string | null;
+  to_addresses: string | null;
+  cc_addresses: string | null;
+  bcc_addresses: string | null;
+  selected_channel_id: string | null;
+  add_signature: boolean;
+  updated_at: string;
+}
+
+// Wire shape posted to the composer-draft route. Matches the table
+// column set minus the server-controlled fields (workspace_id,
+// thread_id, updated_at).
+interface DraftPayload {
+  subject: string | null;
+  body_html: string | null;
+  body_text: string | null;
+  to_addresses: string | null;
+  cc_addresses: string | null;
+  bcc_addresses: string | null;
+  selected_channel_id: string | null;
+  add_signature: boolean;
+}
+
+// Stable serialisation of a payload used to skip duplicate saves.
+// JSON.stringify is fine because every value is a string|null|boolean.
+function payloadKey(p: DraftPayload): string {
+  return JSON.stringify(p);
+}
+
+// Project a ComposerDraftSeed onto the same key shape so we can
+// initialise lastSavedKeyRef to "what's already on the server" —
+// otherwise the first render would treat the seeded fields as a
+// change and trigger a spurious save.
+function composerDraftKey(d: ComposerDraftSeed): string {
+  return payloadKey({
+    subject: d.subject,
+    body_html: d.body_html,
+    body_text: d.body_text,
+    to_addresses: d.to_addresses,
+    cc_addresses: d.cc_addresses,
+    bcc_addresses: d.bcc_addresses,
+    selected_channel_id: d.selected_channel_id,
+    add_signature: d.add_signature,
+  });
+}
+
 export function Composer({
   threadId,
   subject,
@@ -69,6 +122,7 @@ export function Composer({
   channels = [],
   quoted,
   draft,
+  composerDraft = null,
   initialBody,
   forwardedBlock = null,
   mode = "reply",
@@ -100,6 +154,11 @@ export function Composer({
   channels?: ChannelOption[];
   quoted?: QuotedMessage | null;
   draft?: DraftSeed | null;
+  // Auto-saved user draft from the composer_drafts table. When
+  // present, takes precedence over `draft` (AI suggestion) for
+  // initial state — the operator's typed text is the truth they
+  // most recently expressed.
+  composerDraft?: ComposerDraftSeed | null;
   // Provider this thread came from. Drives provider-specific UX: Instantly
   // does not support sending attachments, so we hide the Attach buttons for
   // Instantly threads. EmailBison keeps them.
@@ -141,35 +200,66 @@ export function Composer({
   onClose: () => void;
 }) {
   const router = useRouter();
+  // Initial state precedence (highest first):
+  //   1. composerDraft  — what the operator last typed and left behind
+  //   2. initialBody    — Forward-mode quoted seed
+  //   3. draft          — AI-suggested body (`pending_draft`)
+  //   4. empty
+  //
+  // Forward mode always uses (2); reply mode chooses between (1)/(3).
   // Body is rich-text (HTML). bodyText is the plain-text projection
   // TipTap gives us — used for empty-body checks and the forward-marker
   // safety net (which scans for the "----- Forwarded message -----"
   // string regardless of formatting).
   const initialPlain = initialBody ?? draft?.generated_body ?? "";
+  const initialBodyHtmlFromDraft = composerDraft?.body_html ?? null;
+  const initialBodyTextFromDraft = composerDraft?.body_text ?? null;
   const editorRef = useRef<ComposerBodyHandle | null>(null);
-  const [bodyHtml, setBodyHtml] = useState<string>(() =>
-    initialPlain ? plainTextToHtml(initialPlain) : "",
-  );
-  const [bodyText, setBodyText] = useState<string>(initialPlain);
+  const [bodyHtml, setBodyHtml] = useState<string>(() => {
+    if (initialBodyHtmlFromDraft) return initialBodyHtmlFromDraft;
+    return initialPlain ? plainTextToHtml(initialPlain) : "";
+  });
+  const [bodyText, setBodyText] = useState<string>(() => {
+    if (initialBodyTextFromDraft) return initialBodyTextFromDraft;
+    return initialPlain;
+  });
+  // `usingDraft` only refers to the AI suggestion banner. A user
+  // draft is by definition the operator's own work — never wrapped
+  // in the "Draft by <agent>" amber chrome.
   const [usingDraft, setUsingDraft] = useState(
-    !initialBody && Boolean(draft?.generated_body),
+    !composerDraft && !initialBody && Boolean(draft?.generated_body),
   );
-  const [composerSubject, setComposerSubject] = useState(subject || "");
-  const [to, setTo] = useState(toEmail);
+  const [composerSubject, setComposerSubject] = useState(
+    composerDraft?.subject ?? subject ?? "",
+  );
+  const [to, setTo] = useState(composerDraft?.to_addresses ?? toEmail);
   // Pre-fill the workspace auto-CC so operators see who's being
   // looped in by default. As of 2026-06-23 the server no longer
   // re-adds this address — if the operator deliberately removes it
   // before sending (sensitive client, internal-note reply), that
   // intent reaches the provider verbatim. The composer is the only
   // canonical source.
-  const [cc, setCc] = useState(() => mergeAlwaysCcString(ccInitial, toEmail));
-  const [bcc, setBcc] = useState(bccInitial);
+  //
+  // When a saved composer_draft is present, restore the CC field
+  // verbatim — that includes the case where the operator
+  // previously removed Nicole. Don't re-merge the auto-CC on top
+  // or we'd undo their choice.
+  const [cc, setCc] = useState(() =>
+    composerDraft?.cc_addresses != null
+      ? composerDraft.cc_addresses
+      : mergeAlwaysCcString(ccInitial, toEmail),
+  );
+  const [bcc, setBcc] = useState(composerDraft?.bcc_addresses ?? bccInitial);
   // Pre-select the channel whose display_name / instantly_account_id
   // matches the thread's pinned sender. Falls back to null (use the
   // thread's default) when no match — typically because the channel
   // pinned on the thread is no longer in the workspace's channel list.
+  // Composer draft wins when present (the operator already picked).
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(
     () => {
+      if (composerDraft?.selected_channel_id) {
+        return composerDraft.selected_channel_id;
+      }
       if (!fromEmail) return null;
       const match = channels.find(
         (c) =>
@@ -184,13 +274,197 @@ export function Composer({
   // it, so this is effectively always true; left as state so future per-
   // thread variants (e.g. internal-note send) can opt out.
   const [showCc, setShowCc] = useState(true);
-  const [showBcc, setShowBcc] = useState(bccInitial.trim().length > 0);
-  const [addSignature, setAddSignature] = useState(false);
+  const [showBcc, setShowBcc] = useState(
+    bccInitial.trim().length > 0 ||
+      (composerDraft?.bcc_addresses?.trim().length ?? 0) > 0,
+  );
+  const [addSignature, setAddSignature] = useState(
+    composerDraft?.add_signature ?? false,
+  );
   const [sending, setSending] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [generating, setGenerating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+
+  // --- Draft auto-save -----------------------------------------------------
+  //
+  // Goal: every keystroke is safely persisted within ~1.5s, and a
+  // genuine "I'm leaving now" exit (clicking away, closing the tab)
+  // still flushes the latest snapshot.
+  //
+  // Save state lifecycle:
+  //   • savingState: idle → saving → saved → idle (with a small
+  //     "Saved <relative>" pulse)
+  //   • savedAt: timestamp of the most recent successful upsert,
+  //     drives the indicator copy
+  //   • hasServerDraft: true when the server has a row for this
+  //     thread — controls whether the Discard button shows.
+  //     Initialised from props; flips true after the first save.
+  type SavingState = "idle" | "saving" | "saved" | "error";
+  const [savingState, setSavingState] = useState<SavingState>("idle");
+  const [savedAt, setSavedAt] = useState<string | null>(
+    composerDraft?.updated_at ?? null,
+  );
+  const [hasServerDraft, setHasServerDraft] = useState<boolean>(
+    Boolean(composerDraft),
+  );
+  // Refs that need to survive renders without driving them:
+  //   • latestPayloadRef: most recent in-memory snapshot, used by the
+  //     unmount beacon so it ships whatever the user typed last
+  //   • lastSavedKeyRef: serialised "what we already saved" so a
+  //     debounce tick that sees no change is a no-op
+  //   • sentDuringThisLifetimeRef: when the operator hits Send, the
+  //     server deletes the draft row — the unmount beacon would
+  //     resurrect it. This flag suppresses the beacon in that case.
+  const latestPayloadRef = useRef<DraftPayload | null>(null);
+  const lastSavedKeyRef = useRef<string | null>(
+    composerDraft ? composerDraftKey(composerDraft) : null,
+  );
+  const sentDuringThisLifetimeRef = useRef<boolean>(false);
+
+  // Debounced save effect. Trigger on any persisted-field change;
+  // skip when nothing's typed yet AND nothing has ever been saved.
+  // 1500ms gives the operator room to bash out a sentence without
+  // hammering the API, but is short enough that flicking to another
+  // thread still snapshots before the unmount-beacon runs.
+  useEffect(() => {
+    // Forward mode doesn't get drafted — composer is one-shot.
+    if (mode === "forward") return;
+    const payload: DraftPayload = {
+      subject: composerSubject.trim() ? composerSubject : null,
+      body_html: bodyHtml.trim() ? bodyHtml : null,
+      body_text: bodyText.trim() ? bodyText : null,
+      to_addresses: to.trim() ? to : null,
+      cc_addresses: cc.trim() ? cc : null,
+      bcc_addresses: bcc.trim() ? bcc : null,
+      selected_channel_id: selectedChannelId,
+      add_signature: addSignature,
+    };
+    latestPayloadRef.current = payload;
+    const key = payloadKey(payload);
+
+    // Nothing to save and nothing previously saved → silent no-op.
+    const everythingEmpty =
+      !payload.subject &&
+      !payload.body_text &&
+      !payload.to_addresses &&
+      !payload.cc_addresses &&
+      !payload.bcc_addresses;
+    if (everythingEmpty && !hasServerDraft) return;
+    if (key === lastSavedKeyRef.current) return;
+
+    // Fully cleared after having content → DELETE the row.
+    if (everythingEmpty && hasServerDraft) {
+      const handle = setTimeout(() => {
+        void deleteDraft();
+      }, 1500);
+      return () => clearTimeout(handle);
+    }
+
+    const handle = setTimeout(() => {
+      void saveDraft(payload, key);
+    }, 1500);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bodyHtml, bodyText, composerSubject, to, cc, bcc, selectedChannelId, addSignature, mode]);
+
+  async function saveDraft(payload: DraftPayload, key: string) {
+    setSavingState("saving");
+    try {
+      const res = await fetch(`/api/threads/${threadId}/composer-draft`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        setSavingState("error");
+        return;
+      }
+      const json = (await res.json().catch(() => ({}))) as { saved_at?: string };
+      lastSavedKeyRef.current = key;
+      setHasServerDraft(true);
+      setSavedAt(json.saved_at ?? new Date().toISOString());
+      setSavingState("saved");
+    } catch {
+      setSavingState("error");
+    }
+  }
+
+  async function deleteDraft() {
+    setSavingState("saving");
+    try {
+      const res = await fetch(`/api/threads/${threadId}/composer-draft`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        setSavingState("error");
+        return;
+      }
+      lastSavedKeyRef.current = null;
+      latestPayloadRef.current = null;
+      setHasServerDraft(false);
+      setSavedAt(null);
+      setSavingState("idle");
+    } catch {
+      setSavingState("error");
+    }
+  }
+
+  // Unmount flush — covers "operator clicked another thread" /
+  // "operator closed the tab" / "operator navigated away". The
+  // debounced effect's setTimeout is cleared on unmount, so without
+  // this the last 1.5s of typing would be lost.
+  useEffect(() => {
+    return () => {
+      if (sentDuringThisLifetimeRef.current) return;
+      const payload = latestPayloadRef.current;
+      if (!payload) return;
+      const key = payloadKey(payload);
+      if (key === lastSavedKeyRef.current) return;
+      // sendBeacon is the right tool for "leaving the page now" —
+      // the browser ships it on a best-effort basis even after the
+      // tab is gone. Falls back to a regular fetch when sendBeacon
+      // isn't available (server-side render won't hit this path
+      // anyway, but stay defensive).
+      try {
+        const body = new Blob([JSON.stringify(payload)], {
+          type: "application/json",
+        });
+        if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+          navigator.sendBeacon(
+            `/api/threads/${threadId}/composer-draft`,
+            body,
+          );
+        } else {
+          void fetch(`/api/threads/${threadId}/composer-draft`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            keepalive: true,
+          });
+        }
+      } catch {
+        // Best-effort — don't block unmount on a failed flush.
+      }
+    };
+  }, [threadId]);
+
+  async function discardDraft() {
+    if (!hasServerDraft && !composerSubject && !bodyText.trim()) return;
+    if (!confirm("Discard this draft? This can't be undone.")) return;
+    await deleteDraft();
+    editorRef.current?.setContent("");
+    setBodyHtml("");
+    setBodyText("");
+    setComposerSubject(subject || "");
+    setTo(toEmail);
+    setCc(mergeAlwaysCcString(ccInitial, toEmail));
+    setBcc(bccInitial);
+    setUsingDraft(Boolean(draft?.generated_body));
+    setSavedAt(null);
+    setSavingState("idle");
+  }
 
   async function generateAiReply() {
     if (generating) return;
@@ -338,6 +612,14 @@ export function Composer({
         console.error("[composer] send failed:", json);
         return;
       }
+      // Suppress the unmount beacon — the server deletes the
+      // composer_drafts row in the reply handler, and beaconing a
+      // stale snapshot would just resurrect it. Also clear the
+      // last-saved key so any debounced timeout fires through to a
+      // no-op rather than racing the server delete.
+      sentDuringThisLifetimeRef.current = true;
+      lastSavedKeyRef.current = null;
+      latestPayloadRef.current = null;
       toast.success("Reply sent");
       router.refresh();
       onClose();
@@ -655,13 +937,83 @@ export function Composer({
             }}
           />
         </div>
-        <Button onClick={onSend} disabled={sending} className="gap-1.5">
-          {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-          Send
-        </Button>
+        <div className="flex items-center gap-3">
+          {mode === "reply" ? (
+            <DraftStatusIndicator
+              state={savingState}
+              savedAt={savedAt}
+              hasServerDraft={hasServerDraft}
+              onDiscard={discardDraft}
+            />
+          ) : null}
+          <Button onClick={onSend} disabled={sending} className="gap-1.5">
+            {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+            Send
+          </Button>
+        </div>
       </div>
     </div>
   );
+}
+
+// Inline auto-save status copy + Discard control. Lives in the
+// composer footer next to the Send button. Stays invisible when
+// the operator hasn't typed yet AND has no saved draft, so an
+// empty Reply window looks the same as it always has.
+function DraftStatusIndicator({
+  state,
+  savedAt,
+  hasServerDraft,
+  onDiscard,
+}: {
+  state: "idle" | "saving" | "saved" | "error";
+  savedAt: string | null;
+  hasServerDraft: boolean;
+  onDiscard: () => void;
+}) {
+  if (state === "idle" && !hasServerDraft) return null;
+  let label: string;
+  if (state === "saving") label = "Saving…";
+  else if (state === "error") label = "Save failed";
+  else if (savedAt) label = `Saved ${formatSavedAgo(savedAt)}`;
+  else label = "";
+  return (
+    <div className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
+      {label ? <span>{label}</span> : null}
+      {hasServerDraft ? (
+        <button
+          type="button"
+          onClick={onDiscard}
+          className="text-[#1565C0] hover:underline"
+        >
+          Discard draft
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+// "Saved 5s ago" style copy. Hand-rolled (instead of pulling in
+// date-fns / dayjs) because the composer only needs a few buckets:
+// just-now, seconds, minutes, hours. Falls back to a calendar
+// timestamp for anything older than a day — drafts that stale are
+// already past the point where "ago" is useful information.
+function formatSavedAgo(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "just now";
+  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function FieldRow({

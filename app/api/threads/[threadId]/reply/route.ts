@@ -413,6 +413,20 @@ export async function POST(
     .eq("thread_id", threadId)
     .eq("status", "pending");
 
+  // Delete any composer auto-save on this thread — the operator
+  // just sent, so the typed body is no longer "in progress".
+  // Best-effort: a failure here MUST NOT fail the user-visible
+  // send, the row will simply linger until the next save / discard.
+  try {
+    await admin
+      .from("composer_drafts")
+      .delete()
+      .eq("workspace_id", thread.workspace_id)
+      .eq("thread_id", threadId);
+  } catch (err) {
+    console.error("[reply] composer_drafts cleanup failed", err);
+  }
+
   return NextResponse.json({ ok: true });
 }
 
@@ -601,6 +615,19 @@ async function sendInstantlyReply(args: {
     .update({ status: "sent", sent_at: new Date().toISOString() })
     .eq("thread_id", threadId)
     .eq("status", "pending");
+
+  // Same cleanup as the EmailBison path — delete the composer
+  // auto-save row best-effort. See the corresponding block above
+  // for the rationale.
+  try {
+    await admin
+      .from("composer_drafts")
+      .delete()
+      .eq("workspace_id", workspaceId)
+      .eq("thread_id", threadId);
+  } catch (err) {
+    console.error("[reply] composer_drafts cleanup failed", err);
+  }
 
   return NextResponse.json({ ok: true });
 }

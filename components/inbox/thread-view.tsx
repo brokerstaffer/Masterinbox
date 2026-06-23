@@ -345,6 +345,7 @@ export function ThreadView({
             composeState.mode === "reply" ? composeState.source?.id ?? null : null
           }
           draft={composeState.mode === "reply" ? detail.pending_draft : null}
+          composerDraft={composeState.mode === "reply" ? detail.composer_draft : null}
           // Forward seeds the body with a quoted block of the source message
           // so the user just types their note above it.
           initialBody={composeState.mode === "forward" ? buildForwardBody(composeState.source, detail) : undefined}

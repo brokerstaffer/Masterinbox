@@ -24,6 +24,21 @@ export interface PendingDraft {
   created_at: string;
 }
 
+// User-typed draft auto-saved from the composer (separate from
+// PendingDraft, which is AI-generated). Workspace-scoped via the
+// composer_drafts table's unique (workspace_id, thread_id).
+export interface ComposerDraft {
+  subject: string | null;
+  body_html: string | null;
+  body_text: string | null;
+  to_addresses: string | null;
+  cc_addresses: string | null;
+  bcc_addresses: string | null;
+  selected_channel_id: string | null;
+  add_signature: boolean;
+  updated_at: string;
+}
+
 export interface ThreadDetail {
   id: string;
   workspace_id: string;
@@ -39,6 +54,7 @@ export interface ThreadDetail {
   campaign_name: string | null;
   client_name: string | null;
   pending_draft: PendingDraft | null;
+  composer_draft: ComposerDraft | null;
   lead: {
     id: string | null;
     full_name: string | null;
@@ -69,6 +85,7 @@ export async function loadThreadDetail(
     { data: signatureRow },
     { data: labelAssignments },
     { data: drafts },
+    composerDraftResult,
   ] = await Promise.all([
     supabase
       .from("threads")
@@ -111,6 +128,22 @@ export async function loadThreadDetail(
       .not("generated_body", "is", null)
       .order("created_at", { ascending: false })
       .limit(1),
+    // Composer auto-save (table from migration 0055). Defensively
+    // catches any error — if the column / table is somehow missing
+    // (deploy lands before migration in a rebuild, etc.) we fall
+    // back to null instead of breaking the entire thread view.
+    supabase
+      .from("composer_drafts")
+      .select(
+        "subject, body_html, body_text, to_addresses, cc_addresses, bcc_addresses, selected_channel_id, add_signature, updated_at",
+      )
+      .eq("workspace_id", workspaceId)
+      .eq("thread_id", threadId)
+      .maybeSingle()
+      .then(
+        (r) => r,
+        () => ({ data: null, error: null }) as const,
+      ),
   ]);
   if (error || !thread) return null;
 
@@ -156,6 +189,21 @@ export async function loadThreadDetail(
           agent_name: (draftAgent?.name as string | undefined) ?? null,
           generated_body: (draftRow.generated_body as string | null) ?? null,
           created_at: draftRow.created_at as string,
+        }
+      : null,
+    composer_draft: composerDraftResult?.data
+      ? {
+          subject: (composerDraftResult.data.subject as string | null) ?? null,
+          body_html: (composerDraftResult.data.body_html as string | null) ?? null,
+          body_text: (composerDraftResult.data.body_text as string | null) ?? null,
+          to_addresses: (composerDraftResult.data.to_addresses as string | null) ?? null,
+          cc_addresses: (composerDraftResult.data.cc_addresses as string | null) ?? null,
+          bcc_addresses: (composerDraftResult.data.bcc_addresses as string | null) ?? null,
+          selected_channel_id:
+            (composerDraftResult.data.selected_channel_id as string | null) ?? null,
+          add_signature:
+            (composerDraftResult.data.add_signature as boolean | null) ?? true,
+          updated_at: composerDraftResult.data.updated_at as string,
         }
       : null,
     lead: {
