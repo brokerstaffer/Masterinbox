@@ -24,6 +24,50 @@ interface SyncContext {
   channelId: string | null;
 }
 
+// Normalise an EmailBison recipient field (to / cc / bcc) to a flat
+// string[] of email addresses. Matches the canonical shape Instantly
+// stores (`{to: [], cc: [], bcc: []}`) so the thread-view UI's
+// recipientField helper at components/inbox/thread-view.tsx renders
+// the row correctly. EmailBison ships these in several runtime shapes
+// depending on event source — and the two TypeScript declarations
+// for the field (EmailBisonReply at lib/emailbison/types.ts:58-60 vs
+// ConvReply at lib/emailbison/client.ts:28-31) disagree on the
+// element shape — so we accept `unknown` and decide at runtime:
+//   • Array<{name?: string, address?: string}>  — webhook envelope + REST API
+//   • Array<string>                              — already-normalised paths
+//   • string (comma- or semicolon-joined)        — some legacy paths
+//   • null / undefined                           — no recipients
+function normalizeRecipientList(raw: unknown): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    const out: string[] = [];
+    for (const r of raw) {
+      if (typeof r === "string") {
+        if (r.includes("@")) out.push(r.trim());
+        continue;
+      }
+      if (r && typeof r === "object") {
+        const rec = r as { address?: unknown; email?: unknown };
+        const addr =
+          typeof rec.address === "string"
+            ? rec.address
+            : typeof rec.email === "string"
+              ? rec.email
+              : null;
+        if (addr && addr.includes("@")) out.push(addr.trim());
+      }
+    }
+    return out;
+  }
+  if (typeof raw === "string") {
+    return raw
+      .split(/[,;]/)
+      .map((s) => s.trim())
+      .filter((s) => s.includes("@"));
+  }
+  return [];
+}
+
 async function resolveContext(
   ebTeamId: number | undefined,
   senderEmail:
@@ -280,13 +324,17 @@ function inboundFromReply(reply: EmailBisonReply, leadEmail: string | null = nul
   // Use the reply id directly — single canonical scheme across send-time
   // inserts and conversation-thread backfill so dedupe is reliable.
   const externalMessageId = `eb:reply:${reply.id}`;
-  const to = reply.primary_to_email_address
-    ? [reply.primary_to_email_address]
-    : Array.isArray(reply.to)
-      ? reply.to
-      : reply.to
-        ? [reply.to]
-        : [];
+  // TO precedence: structured reply.to[] first (preserves multiple
+  // recipients when the lead sent to multiple addresses, e.g. when
+  // they CC'd both us and a colleague back), with the
+  // primary_to_email_address as the fallback for shapes where only
+  // that scalar field is set.
+  const toFromArray = normalizeRecipientList(reply.to);
+  const to = toFromArray.length > 0
+    ? toFromArray
+    : reply.primary_to_email_address
+      ? [reply.primary_to_email_address]
+      : [];
   // EmailBison ships from_name on most reply payloads — store it so
   // the thread view doesn't have to fall back to titlecasing the
   // local-part of the From address.
@@ -303,7 +351,11 @@ function inboundFromReply(reply: EmailBisonReply, leadEmail: string | null = nul
     // lead.email so we never end up with a null sender.
     sender: reply.from_email_address ?? leadEmail ?? reply.from_name ?? null,
     sender_name: senderName,
-    recipients: { to, cc: reply.cc ?? null, bcc: reply.bcc ?? null },
+    recipients: {
+      to,
+      cc: normalizeRecipientList(reply.cc),
+      bcc: normalizeRecipientList(reply.bcc),
+    },
     subject: reply.email_subject ?? null,
     body_html: reply.html_body ?? null,
     body_text: reply.text_body ?? null,
@@ -440,6 +492,13 @@ async function backfillConversation(
         direction === "outbound" && r.sender_email_id
           ? senderEmailMap.get(r.sender_email_id) ?? null
           : null;
+      // Recipients: pull the full to/cc/bcc shape from the conversation
+      // thread reply instead of just primary_to_email_address. Prior to
+      // 2026-06-24 this site overwrote our send-time {to, cc, bcc}
+      // snapshot with {to: [primary]} and silently dropped every CC.
+      // See lib/sync/emailbison.ts normalizeRecipientList for the
+      // shape normalization.
+      const backfillTo = normalizeRecipientList(r.to);
       await upsertMessage({
         ctx,
         threadId,
@@ -447,7 +506,13 @@ async function backfillConversation(
         externalMessageId,
         sender: r.from_email_address ?? r.from_name ?? fallbackSender,
         recipients: {
-          to: r.primary_to_email_address ? [r.primary_to_email_address] : [],
+          to: backfillTo.length > 0
+            ? backfillTo
+            : r.primary_to_email_address
+              ? [r.primary_to_email_address]
+              : [],
+          cc: normalizeRecipientList(r.cc),
+          bcc: normalizeRecipientList(r.bcc),
         },
         subject: r.subject ?? null,
         body_html: r.html_body ?? null,
