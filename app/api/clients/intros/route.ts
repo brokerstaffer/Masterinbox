@@ -18,7 +18,8 @@ import { env } from "@/lib/env";
 //   - assigned_at : ISO 8601 UTC timestamp the label landed on the thread
 //
 // Nice-to-have fields included (consumer can ignore):
-//   - client_slug, client_id, thread_id, lead_email, lead_name
+//   - client_slug, client_id, thread_id, lead_email, lead_name,
+//     campaign_id, campaign_name
 //
 // Sort: most-recent assignment first.
 //
@@ -37,6 +38,12 @@ interface IntroRow {
   thread_id: string;
   lead_email: string | null;
   lead_name: string | null;
+  // Campaign that originally surfaced the thread (snapshot at
+  // ingestion time — never re-derived from EmailBison/Instantly).
+  // Both fields are null for threads we received without a campaign
+  // hint (one-off external intros, manual portal adds, etc.).
+  campaign_id: string | null;
+  campaign_name: string | null;
 }
 
 export async function GET(request: Request) {
@@ -111,26 +118,38 @@ export async function GET(request: Request) {
     });
   }
 
-  // Bulk-resolve threads → client_id + lead_id in chunks (PostgREST URL
-  // length cap on `in()`).
+  // Bulk-resolve threads → client_id + lead_id + campaign in chunks
+  // (PostgREST URL length cap on `in()`).
   const threadIds = Array.from(new Set(assignmentList.map((a) => a.target_id)));
   const threadMeta = new Map<
     string,
-    { client_id: string | null; lead_id: string | null }
+    {
+      client_id: string | null;
+      lead_id: string | null;
+      campaign_id: string | null;
+      campaign_name: string | null;
+    }
   >();
   const CHUNK = 500;
   for (let i = 0; i < threadIds.length; i += CHUNK) {
     const slice = threadIds.slice(i, i + CHUNK);
     const { data: threads } = await admin
       .from("threads")
-      .select("id, client_id, lead_id")
+      .select("id, client_id, lead_id, campaign_id, campaign_name")
       .in("id", slice);
     for (const t of (threads ?? []) as Array<{
       id: string;
       client_id: string | null;
       lead_id: string | null;
+      campaign_id: string | null;
+      campaign_name: string | null;
     }>) {
-      threadMeta.set(t.id, { client_id: t.client_id, lead_id: t.lead_id });
+      threadMeta.set(t.id, {
+        client_id: t.client_id,
+        lead_id: t.lead_id,
+        campaign_id: t.campaign_id,
+        campaign_name: t.campaign_name,
+      });
     }
   }
 
@@ -195,6 +214,8 @@ export async function GET(request: Request) {
       thread_id: a.target_id,
       lead_email: lead?.email ?? null,
       lead_name: lead?.full_name ?? null,
+      campaign_id: meta.campaign_id ?? null,
+      campaign_name: meta.campaign_name ?? null,
     });
   }
 
