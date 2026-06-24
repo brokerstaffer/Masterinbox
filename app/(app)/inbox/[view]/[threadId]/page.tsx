@@ -165,6 +165,7 @@ export default async function ThreadDetailPage(props: {
             total={threadPage.total}
             page={threadPage.page}
             pageSize={threadPage.pageSize}
+            view={view}
           />
         </aside>
         <ThreadView

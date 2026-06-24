@@ -53,6 +53,7 @@ export function ThreadList({
   total,
   page,
   pageSize,
+  view,
 }: {
   threads: ThreadRow[];
   basePath: string;
@@ -63,6 +64,9 @@ export function ThreadList({
   total?: number;
   page?: number;
   pageSize?: number;
+  // Current view slug, forwarded to BulkActionsBar so the trash view
+  // can opt in to the "Delete forever" action.
+  view?: string;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // Track thread ids the user just opened. Optimistic so the blue dot
@@ -253,6 +257,7 @@ export function ThreadList({
             onClear={() => setSelected(new Set())}
             labels={labels}
             lists={lists}
+            view={view}
           />
         ) : (
           <CountAndRange

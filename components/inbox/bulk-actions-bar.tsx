@@ -11,6 +11,7 @@ import {
   Plus,
   Check,
   ChevronDown,
+  AlertTriangle,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -18,6 +19,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { LabelChip } from "@/components/inbox/label-chip";
 import { CreateListDialog } from "@/components/inbox/create-list-dialog";
 import { cn } from "@/lib/utils";
@@ -29,16 +39,26 @@ export function BulkActionsBar({
   onClear,
   labels,
   lists,
+  view,
 }: {
   selected: string[];
   onClear: () => void;
   labels: LabelRow[];
   lists: ListRow[];
+  // The current inbox view slug (open / archived / trash / spam / custom).
+  // "Delete forever" is rendered only when view === "trash".
+  view?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [createListOpen, setCreateListOpen] = useState(false);
   const [labelFilter, setLabelFilter] = useState("");
+  // Permanent-delete confirmation modal. Snapshots the count + ids at
+  // open time so a checkbox change while the dialog is up can't shift
+  // what "Delete N" refers to.
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmIds, setConfirmIds] = useState<string[]>([]);
+  const [confirmPending, setConfirmPending] = useState(false);
 
   // Case-insensitive substring match — same pattern as the
   // thread-level label picker so both dropdowns feel the same.
@@ -79,6 +99,27 @@ export function BulkActionsBar({
     if (!confirm(`Move ${selected.length} thread(s) to trash?`)) return;
     const ok = await bulk({ action: "delete", thread_ids: selected });
     if (ok) {
+      onClear();
+      startTransition(() => router.refresh());
+    }
+  }
+
+  function openDeleteForever() {
+    setConfirmIds(selected);
+    setConfirmOpen(true);
+  }
+
+  async function confirmDeleteForever() {
+    if (confirmIds.length === 0) return;
+    setConfirmPending(true);
+    const ok = await bulk({
+      action: "delete_permanent",
+      thread_ids: confirmIds,
+    });
+    setConfirmPending(false);
+    if (ok) {
+      setConfirmOpen(false);
+      setConfirmIds([]);
       onClear();
       startTransition(() => router.refresh());
     }
@@ -256,13 +297,35 @@ export function BulkActionsBar({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Delete */}
+        {/* Delete (soft delete → move to trash). Kept identical across
+            every view, including the trash view itself (no-op there but
+            harmless). Stephanie's constraint: permanent delete is its
+            own button, only in trash, never the default action. */}
         <ToolbarButton
           icon={Trash2}
           label="Delete"
           onClick={doDelete}
           disabled={pending}
         />
+
+        {/* Delete forever — only in the Trash view. Distinct icon, red
+            tone, label always visible so it can't be mistaken for the
+            soft-delete button above. */}
+        {view === "trash" ? (
+          <button
+            type="button"
+            onClick={openDeleteForever}
+            disabled={pending || selected.length === 0}
+            aria-label="Delete forever"
+            className={cn(
+              "h-8 px-2 inline-flex items-center gap-1 rounded-md text-destructive hover:bg-destructive/10 hover:text-destructive transition-colors",
+              (pending || selected.length === 0) && "opacity-50 cursor-not-allowed",
+            )}
+          >
+            <AlertTriangle className="size-[15px]" strokeWidth={2} />
+            <span className="text-[13px] font-medium">Delete forever</span>
+          </button>
+        ) : null}
 
         {/* Export */}
         <ToolbarButton
@@ -289,6 +352,51 @@ export function BulkActionsBar({
           doList(listId);
         }}
       />
+
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={(v) => {
+          if (confirmPending) return;
+          setConfirmOpen(v);
+          if (!v) setConfirmIds([]);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Delete {confirmIds.length}{" "}
+              {confirmIds.length === 1 ? "thread" : "threads"} forever?
+            </DialogTitle>
+            <DialogDescription>
+              This permanently removes the selected{" "}
+              {confirmIds.length === 1 ? "thread" : "threads"} and all
+              messages, drafts, and notes attached to{" "}
+              {confirmIds.length === 1 ? "it" : "them"}. This action
+              cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmOpen(false)}
+              disabled={confirmPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={confirmDeleteForever}
+              disabled={confirmPending || confirmIds.length === 0}
+            >
+              {confirmPending
+                ? "Deleting…"
+                : `Delete ${confirmIds.length}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

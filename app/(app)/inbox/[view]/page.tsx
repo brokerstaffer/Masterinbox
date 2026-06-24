@@ -69,6 +69,7 @@ export default async function InboxView(props: {
           total={threadPage.total}
           page={threadPage.page}
           pageSize={threadPage.pageSize}
+          view={view}
         />
       )}
       <RealtimeRefresher workspaceId={session.activeWorkspace.id} />

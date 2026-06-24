@@ -20,6 +20,7 @@ export const dynamic = "force-dynamic";
 //   labels: { thread_ids: [], action: "labels", label_ids: [], op: "add" | "remove" }
 //   list:   { thread_ids: [], action: "list", list_id: uuid, op: "add" | "remove" }
 //   delete: { thread_ids: [], action: "delete" }
+//   delete_permanent: { thread_ids: [], action: "delete_permanent" }
 
 const idsSchema = z.array(z.string().uuid()).min(1).max(500);
 
@@ -50,6 +51,10 @@ const schemas = {
     action: z.literal("delete"),
     thread_ids: idsSchema,
   }),
+  delete_permanent: z.object({
+    action: z.literal("delete_permanent"),
+    thread_ids: idsSchema,
+  }),
 };
 
 const dispatcher = z.discriminatedUnion("action", [
@@ -58,6 +63,7 @@ const dispatcher = z.discriminatedUnion("action", [
   schemas.labels,
   schemas.list,
   schemas.delete,
+  schemas.delete_permanent,
 ]);
 
 export async function POST(request: Request) {
@@ -106,11 +112,29 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
     case "delete": {
-      // Soft delete — move to trash. We can wire hard-delete behind a flag later.
+      // Soft delete — move to trash. The permanent removal lives behind
+      // the explicit "delete_permanent" action below (operator-confirmed,
+      // bulk-select only, surfaced only in the Trash view).
       const results = await chunkedRun(data.thread_ids, (slice) =>
         supabase
           .from("threads")
           .update({ status: "trash" })
+          .in("id", slice)
+          .eq("workspace_id", wsId),
+      );
+      const failed = results.find((r) => r.error);
+      if (failed?.error) return NextResponse.json({ error: failed.error.message }, { status: 400 });
+      return NextResponse.json({ ok: true });
+    }
+    case "delete_permanent": {
+      // Hard delete. FK cascades handle messages / reminders / reply_drafts /
+      // thread_list_items; client_pipeline_entries.thread_id is ON DELETE
+      // SET NULL so the pipeline row keeps its history minus the back-link.
+      // workspace_id scope keeps a crafted id from reaching cross-tenant rows.
+      const results = await chunkedRun(data.thread_ids, (slice) =>
+        supabase
+          .from("threads")
+          .delete()
           .in("id", slice)
           .eq("workspace_id", wsId),
       );
