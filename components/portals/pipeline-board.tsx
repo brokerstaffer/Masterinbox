@@ -69,6 +69,10 @@ import {
 } from "@/components/portals/portal-ui";
 import { PipelineDetailInline } from "@/components/portals/pipeline-detail-inline";
 import { PipelineKanban } from "@/components/portals/pipeline-kanban";
+import {
+  pickFirstString,
+  PHONE_KEYS,
+} from "@/components/portals/custom-field-helpers";
 import { PipelineDetailSheet } from "@/components/portals/pipeline-detail-sheet";
 import { ConversationSheet } from "@/components/portals/conversation-sheet";
 import { SourceBadge } from "@/components/portals/source-badge";
@@ -1149,7 +1153,12 @@ function PipelineRow({
   sourceSplitEnabled?: boolean;
   onLocalUpdate: (patch: Partial<PipelineEntry>) => void;
 }) {
-  const phone = entry.lead_phone ?? null;
+  // EmailBison key names vary ("Phone Number" vs "phone" vs ...).
+  // Resolve from custom_fields first, fall back to the snapshot column.
+  const cf =
+    ((entry.lead_detail as { custom_fields?: Record<string, unknown> } | null)
+      ?.custom_fields ?? {}) as Record<string, unknown>;
+  const phone = pickFirstString(cf, PHONE_KEYS) ?? entry.lead_phone ?? null;
   return (
     <div
       className={cn(
@@ -1358,7 +1367,11 @@ function PipelineMobileCard({
   fubConnected: boolean;
   sourceSplitEnabled?: boolean;
 }) {
-  const phone = entry.lead_phone ?? null;
+  // Mobile card: same broadened phone resolution as the desktop row.
+  const cf =
+    ((entry.lead_detail as { custom_fields?: Record<string, unknown> } | null)
+      ?.custom_fields ?? {}) as Record<string, unknown>;
+  const phone = pickFirstString(cf, PHONE_KEYS) ?? entry.lead_phone ?? null;
   return (
     <div
       className={cn(
@@ -1711,7 +1724,12 @@ function NotesSheet({
     onApply(next);
   }
 
-  const phone = entry.lead_phone;
+  // Detail bottom sheet (Kanban detail view): same broadened phone
+  // resolution as the desktop row + mobile card.
+  const cf =
+    ((entry.lead_detail as { custom_fields?: Record<string, unknown> } | null)
+      ?.custom_fields ?? {}) as Record<string, unknown>;
+  const phone = pickFirstString(cf, PHONE_KEYS) ?? entry.lead_phone;
   const isReplacement = entry.stage === "no_show" || entry.needs_replacement;
   const stageStyle = STAGE_STYLE[entry.stage];
 

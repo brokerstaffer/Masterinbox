@@ -2,6 +2,14 @@
 
 import type { PipelineEntry } from "@/lib/portals/portal-data";
 import { cn } from "@/lib/utils";
+import {
+  pickFirstString,
+  pickProfileUrl,
+  PHONE_KEYS,
+  AGENT_PROFILE_PREFERRED_KEYS,
+  LICENSE_KEYS,
+  YEARS_KEYS,
+} from "@/components/portals/custom-field-helpers";
 
 // Inline expandable detail block for a Recruiting Pipeline row.
 // Renders every meaningful field on the lead, including the enriched
@@ -71,27 +79,59 @@ export function PipelineDetailInline({
 
   tryPush("Email", entry.lead_email, "email");
 
-  const phone = cf.phone ?? entry.lead_phone;
-  tryPush("Phone", phone, "phone");
+  // Phone — EmailBison stores it under varying keys ("Phone Number",
+  // "phone number", "phone", etc.). The snapshot column only
+  // populates from a narrow subset, so we always check custom_fields
+  // first and fall back to the snapshot.
+  const phone =
+    pickFirstString(cf, PHONE_KEYS) ?? entry.lead_phone;
+  tryPush("Phone", phone, [
+    "phone",
+    "phone number",
+    "phonenumber",
+    "phone_number",
+    "mobile",
+    "cell",
+  ]);
+
+  // License # — surface as its own labeled field so it doesn't drown
+  // in the generic "Custom variables" grid below. Dedup the matching
+  // keys so they don't double-render.
+  const license = pickFirstString(cf, LICENSE_KEYS);
+  tryPush("License", license, ["license number", "licensenumber"]);
+
+  // Years in business — same pattern: hoist out of the generic grid.
+  const years = pickFirstString(cf, YEARS_KEYS);
+  tryPush("Years in business", years, [
+    "years in business",
+    "years in industry",
+    "industry tenure",
+    "est. time in industry",
+    "experience",
+    "years_experience",
+  ]);
 
   const company = entry.current_brokerage ?? detail.company;
   tryPush("Company", company, "company");
 
   tryPush("Title", detail.title, "title");
 
-  // Coalesce agent profile from every place a URL might live so the
-  // expanded card always renders ONE clean "Agent profile" link, not
-  // a duplicate "Website" plain-text fallback. portal-data.ts already
-  // does this for entry.agent_profile_url, but only at trigger time —
-  // leads enriched later only have it in cf.website / cf.url here.
+  // Agent profile URL — pattern-aware so any future "<Name> Profile"
+  // key (Zillow Profile, Realtor.com Profile, etc.) surfaces here
+  // without a code change. The preferred list above controls
+  // precedence when more than one profile-style key is present.
   const agentProfile =
     (entry.agent_profile_url as string | null) ??
-    (typeof cf.website === "string" ? cf.website : null) ??
-    (typeof cf.Website === "string" ? cf.Website : null) ??
-    (typeof cf.url === "string" ? cf.url : null) ??
-    (typeof cf.URL === "string" ? cf.URL : null) ??
-    null;
-  tryPush("Agent profile", agentProfile, ["website", "url"]);
+    pickProfileUrl(cf, AGENT_PROFILE_PREFERRED_KEYS);
+  // Dedup every "* Profile" key as well as the website/url aliases so
+  // the generic grid below doesn't reprint a "Streeteasy Profile" row
+  // alongside the dedicated Agent profile link.
+  const profileDedupKeys = [
+    "website",
+    "url",
+    ...Object.keys(cf).filter((k) => /profile$/i.test(k)),
+  ];
+  tryPush("Agent profile", agentProfile, profileDedupKeys);
 
   tryPush("Location", entry.lead_location, "location");
 
