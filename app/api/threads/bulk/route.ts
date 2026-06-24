@@ -3,7 +3,10 @@ import { z } from "zod";
 import { requireSession } from "@/lib/auth/workspace";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { chunkedRun } from "@/lib/db/chunked-in";
-import { markEmailBisonReplyInterested } from "@/lib/inbox/interest";
+import {
+  isInterestedLabel,
+  markEmailBisonReplyInterested,
+} from "@/lib/inbox/interest";
 import { notifyIntroductionForThreads } from "@/lib/webhooks/n8n-introduction";
 
 export const dynamic = "force-dynamic";
@@ -117,6 +120,27 @@ export async function POST(request: Request) {
     }
     case "labels": {
       if (data.op === "add") {
+        // BEFORE the wipe, snapshot which selected threads currently
+        // carry an "Interested" label. After the new labels are
+        // applied, any of those threads whose new label set doesn't
+        // include Interested needs its EmailBison interested flag
+        // cleared so the lead drops off the Health Dashboard.
+        const priorInterestedThreadIds = new Set<string>();
+        {
+          const { data: priors } = await supabase
+            .from("label_assignments")
+            .select("target_id, labels:label_id (name)")
+            .eq("target_type", "thread")
+            .in("target_id", data.thread_ids);
+          for (const row of priors ?? []) {
+            const lbl = Array.isArray(row.labels) ? row.labels[0] : row.labels;
+            const name = (lbl as { name?: string | null } | null)?.name ?? null;
+            if (isInterestedLabel(name)) {
+              priorInterestedThreadIds.add(row.target_id as string);
+            }
+          }
+        }
+
         // Single-label-per-thread semantics (matches the single-thread
         // POST /api/threads/[id]/labels path) — wipe every existing
         // label assignment on the selected threads first, then upsert
@@ -198,8 +222,51 @@ export async function POST(request: Request) {
             }
           });
         }
+        // Transition cleanup: any thread that WAS Interested but
+        // whose new label set ISN'T Interested needs its EB flag
+        // cleared. Skip when names already includes "interested"
+        // (the prior-Interested-and-new-Interested case is a no-op
+        // round trip we don't need to make).
+        if (!names.includes("interested") && priorInterestedThreadIds.size > 0) {
+          const transitioning = data.thread_ids.filter((tid) =>
+            priorInterestedThreadIds.has(tid),
+          );
+          if (transitioning.length > 0) {
+            after(async () => {
+              for (const tid of transitioning) {
+                await markEmailBisonReplyInterested(tid, false);
+              }
+            });
+          }
+        }
         return NextResponse.json({ ok: true });
       } else {
+        // Snapshot which threads in this batch currently carry the
+        // Interested label AND a label being removed in this op. We
+        // need this BEFORE the delete: after the delete, we can no
+        // longer tell which threads lost Interested specifically.
+        const interestedThreadsLosingIt = new Set<string>();
+        {
+          const { data: removedLabels } = await supabase
+            .from("labels")
+            .select("id, name")
+            .in("id", data.label_ids);
+          const interestedLabelId = (removedLabels ?? []).find((l) =>
+            isInterestedLabel((l.name as string | null) ?? null),
+          )?.id as string | undefined;
+          if (interestedLabelId) {
+            const { data: priors } = await supabase
+              .from("label_assignments")
+              .select("target_id")
+              .eq("target_type", "thread")
+              .eq("label_id", interestedLabelId)
+              .in("target_id", data.thread_ids);
+            for (const row of priors ?? []) {
+              interestedThreadsLosingIt.add(row.target_id as string);
+            }
+          }
+        }
+
         const results = await chunkedRun(data.thread_ids, (slice) =>
           supabase
             .from("label_assignments")
@@ -210,6 +277,18 @@ export async function POST(request: Request) {
         );
         const failed = results.find((r) => r.error);
         if (failed?.error) return NextResponse.json({ error: failed.error.message }, { status: 400 });
+
+        // Clear EB interested flag for every thread that just lost
+        // the Interested label.
+        if (interestedThreadsLosingIt.size > 0) {
+          const transitioning = Array.from(interestedThreadsLosingIt);
+          after(async () => {
+            for (const tid of transitioning) {
+              await markEmailBisonReplyInterested(tid, false);
+            }
+          });
+        }
+
         return NextResponse.json({ ok: true });
       }
     }

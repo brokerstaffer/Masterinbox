@@ -29,6 +29,33 @@ export async function POST(
 
   const supabase = await createServerSupabase();
 
+  // Snapshot the prior label name BEFORE we wipe it. Needed to detect
+  // "transitioning AWAY from Interested" so we can clear the
+  // corresponding interested flag on EmailBison's side — otherwise a
+  // thread that was Interested and is now Hostile / Keep Warm /
+  // anything else would stay interested=true on EmailBison and inflate
+  // the Health Dashboard interest count.
+  let priorLabelName: string | null = null;
+  const { data: priorAssignments } = await supabase
+    .from("label_assignments")
+    .select("labels:label_id (name)")
+    .eq("target_type", "thread")
+    .eq("target_id", threadId)
+    .neq("label_id", parsed.data.label_id);
+  if (priorAssignments && priorAssignments.length > 0) {
+    // Single-label semantics → at most one row, but tolerate the
+    // pre-May-2026 case where multiple labels existed (we just look
+    // for any prior Interested).
+    for (const row of priorAssignments) {
+      const lbl = Array.isArray(row.labels) ? row.labels[0] : row.labels;
+      const name = (lbl as { name?: string | null } | null)?.name ?? null;
+      if (isInterestedLabel(name)) {
+        priorLabelName = name;
+        break;
+      }
+    }
+  }
+
   // Single-label-per-thread semantics (May 2026 client decision):
   // applying any label wipes every existing label on the thread first,
   // including AI-assigned guesses. The chip in the inbox row always
@@ -82,9 +109,19 @@ export async function POST(
   // EmailBison so the reply's interested flag matches what the
   // operator just set. EmailBison-only; the helper bails for
   // Instantly threads.
-  if (isInterestedLabel(label?.name as string | null)) {
+  //
+  // Three transition cases handled together:
+  //   • new = Interested      → set EB interested=true
+  //   • new = Not Interested  → set EB interested=false
+  //   • new = anything else BUT old was Interested → set EB
+  //     interested=false (clears the flag so the lead doesn't keep
+  //     showing as Interested on EmailBison's smart lists / our
+  //     Health Dashboard after the operator moved them elsewhere).
+  const newLabelName = (label?.name as string | null) ?? null;
+  const priorWasInterested = isInterestedLabel(priorLabelName);
+  if (isInterestedLabel(newLabelName)) {
     after(() => markEmailBisonReplyInterested(threadId, true));
-  } else if (isNotInterestedLabel(label?.name as string | null)) {
+  } else if (isNotInterestedLabel(newLabelName) || priorWasInterested) {
     after(() => markEmailBisonReplyInterested(threadId, false));
   }
 
@@ -113,5 +150,18 @@ export async function DELETE(
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
+
+  // If the operator just removed the "Interested" label entirely
+  // (vs. replacing it via POST), clear the corresponding EmailBison
+  // interested flag so the lead drops off the Health Dashboard.
+  const { data: removedLabel } = await supabase
+    .from("labels")
+    .select("name")
+    .eq("id", parsed.data.label_id)
+    .maybeSingle();
+  if (isInterestedLabel((removedLabel?.name as string | null) ?? null)) {
+    after(() => markEmailBisonReplyInterested(threadId, false));
+  }
+
   return NextResponse.json({ ok: true });
 }
