@@ -4,6 +4,7 @@ import { resolvePortalClient } from "@/lib/portals/token";
 import { loadPortalCounts } from "@/lib/portals/portal-data";
 import { clientHasFeature } from "@/lib/portals/feature-flags";
 import { PortalShell } from "@/components/portals/portal-shell";
+import { ClarityScript } from "@/components/portals/clarity-script";
 
 // Wraps every page under /portal/[token]/ with the shared sidebar nav.
 // The token resolves once here; each child page calls
@@ -76,14 +77,21 @@ export default async function PortalTokenLayout(props: {
   }
   const counts = await loadPortalCounts(client.id);
 
+  // Demo Portal is our internal QA surface, exclude it so our own
+  // testing sessions don't pollute real-client Clarity recordings.
+  const enableClarity = client.slug !== "demo-portal";
+
   return (
-    <PortalShell
-      token={token}
-      clientName={client.name}
-      counts={counts}
-      integrationsLabelEnabled={clientHasFeature(client, "nav_integrations_label")}
-    >
-      {props.children}
-    </PortalShell>
+    <>
+      {enableClarity ? <ClarityScript /> : null}
+      <PortalShell
+        token={token}
+        clientName={client.name}
+        counts={counts}
+        integrationsLabelEnabled={clientHasFeature(client, "nav_integrations_label")}
+      >
+        {props.children}
+      </PortalShell>
+    </>
   );
 }
