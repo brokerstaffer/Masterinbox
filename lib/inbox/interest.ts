@@ -4,12 +4,18 @@ import { createEmailBisonClient } from "@/lib/emailbison/client";
 // "Interested" / "Not Interested" — mirrors the label decision back
 // to EmailBison so the reply's interested flag round-trips to
 // EmailBison's smart lists + sequence rules. Wired to the same
-// labels routes that already trigger DNC + introduction notify
-// (mirrors lib/inbox/dnc.ts in shape on purpose).
+// labels routes that already trigger DNC + introduction notify.
 //
 // EmailBison endpoints (verified against docs/emailbison-openapi.json):
 //   PATCH /api/replies/{reply_id}/mark-as-interested      { skip_webhooks }
 //   PATCH /api/replies/{reply_id}/mark-as-not-interested  { skip_webhooks }
+//
+// No switchWorkspace dance: BrokerStaffer is single-team on
+// EmailBison ("BrokerStaffer's Team", id 2) — every
+// channels.emailbison_team_id is 2, so the API token is
+// effectively pinned to team 2 by every other call site.
+// Matches the lib/portals/enforce-blocklist.ts pattern that
+// already skips the switch for the same reason.
 //
 // Returns an InterestResult so the caller (single + bulk label
 // routes) can log the outcome per thread. Errors are caught — a
@@ -47,7 +53,7 @@ export async function markEmailBisonReplyInterested(
     const admin = createAdminSupabase();
     const { data: thread } = await admin
       .from("threads")
-      .select("id, source_provider, channel_id")
+      .select("id, source_provider")
       .eq("id", threadId)
       .maybeSingle();
     if (!thread) {
@@ -83,19 +89,6 @@ export async function markEmailBisonReplyInterested(
     replyId = parsed;
 
     const eb = createEmailBisonClient();
-    // mark-as-interested is team-scoped (same as the blacklist
-    // endpoint in dnc.ts). Switch into the thread's team first or
-    // EmailBison rejects the PATCH with 403/404.
-    if (thread.channel_id) {
-      const { data: ch } = await admin
-        .from("channels")
-        .select("emailbison_team_id")
-        .eq("id", thread.channel_id)
-        .maybeSingle();
-      const teamId = ch?.emailbison_team_id as number | null;
-      if (teamId) await eb.switchWorkspace(teamId);
-    }
-
     if (interested) {
       await eb.markReplyAsInterested(replyId);
     } else {
