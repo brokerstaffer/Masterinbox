@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
@@ -7,6 +7,7 @@ import {
   enforceDomainBlocklist,
   normalizeDomain,
 } from "@/lib/portals/enforce-blocklist";
+import { notifyPortalDncChange } from "@/lib/webhooks/slack-portal";
 
 // PATCH / DELETE /api/portal/[token]/dnc/[id]
 //
@@ -125,11 +126,34 @@ export async function DELETE(
     return NextResponse.json({ error: "Portal not found" }, { status: 404 });
   }
   const admin = createAdminSupabase();
+  // Read the row BEFORE the delete so we can surface useful fields
+  // in the Slack message — name + handle disappear with the row.
+  const { data: existing } = await admin
+    .from("client_dnc_entries")
+    .select("name, email, phone, domain, kind")
+    .eq("id", id)
+    .eq("client_id", client.id)
+    .maybeSingle();
   const { error } = await admin
     .from("client_dnc_entries")
     .delete()
     .eq("id", id)
     .eq("client_id", client.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (existing) {
+    const clientId = client.id;
+    after(() =>
+      notifyPortalDncChange({
+        clientId,
+        name: (existing.name as string | null) ?? null,
+        email: (existing.email as string | null) ?? null,
+        phone: (existing.phone as string | null) ?? null,
+        domain: (existing.domain as string | null) ?? null,
+        kind: (existing.kind as "agent" | "company" | null) ?? null,
+        notes: null,
+        op: "removed",
+      }),
+    );
+  }
   return NextResponse.json({ ok: true });
 }

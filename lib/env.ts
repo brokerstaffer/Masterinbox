@@ -56,6 +56,21 @@ export const env = {
   get N8N_INTRODUCTION_WEBHOOK_URL() {
     return lazyOptional("N8N_INTRODUCTION_WEBHOOK_URL")();
   },
+  // Slack bot token + channel ids for the portal-activity notifier.
+  // All three are optional — when any is missing the helper silently
+  // skips (dev / preview / unconfigured envs don't spam Slack).
+  // SLACK_CHANNEL_HIRING is the "stage → Hired" channel; everything
+  // else (stage changes, notes, DNC / agent edits) lands in
+  // SLACK_CHANNEL_PORTAL.
+  get SLACK_BOT_TOKEN() {
+    return lazyOptional("SLACK_BOT_TOKEN")();
+  },
+  get SLACK_CHANNEL_HIRING() {
+    return lazyOptional("SLACK_CHANNEL_HIRING")();
+  },
+  get SLACK_CHANNEL_PORTAL() {
+    return lazyOptional("SLACK_CHANNEL_PORTAL")();
+  },
   // Hard-pinned singleton workspace UUID. Setting this lets requireSession
   // skip the per-request Supabase query that resolves "which workspace am
   // I in" — saving ~280ms × every page render on the single-tenant

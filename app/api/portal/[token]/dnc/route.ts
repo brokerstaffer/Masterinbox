@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
@@ -7,6 +7,7 @@ import {
   enforceDomainBlocklist,
   normalizeDomain,
 } from "@/lib/portals/enforce-blocklist";
+import { notifyPortalDncChange } from "@/lib/webhooks/slack-portal";
 
 // POST /api/portal/[token]/dnc — add a DNC entry.
 //
@@ -95,6 +96,24 @@ export async function POST(
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
+
+  // Slack: announce the new DNC entry. Pre-fetched fields (we
+  // already have them from the insert payload), so no extra DB
+  // read. Runs inside after().
+  const clientId = client.id;
+  after(() =>
+    notifyPortalDncChange({
+      clientId,
+      name,
+      email: email ?? null,
+      phone: phone ?? null,
+      domain,
+      kind,
+      notes: notes ?? null,
+      op: "added",
+    }),
+  );
+
   return NextResponse.json({
     ok: true,
     id: data.id,

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
 import { notifyIntroduction } from "@/lib/webhooks/n8n-introduction";
+import { notifyPortalStageChange } from "@/lib/webhooks/slack-portal";
 import { pushPipelineEntryToFub } from "@/lib/integrations/push-pipeline-entry";
 import { clientHasFeature } from "@/lib/portals/feature-flags";
 
@@ -165,6 +166,17 @@ export async function PATCH(
       return NextResponse.json({ error: "stage required" }, { status: 400 });
     }
     const newStage = parsed.data.stage;
+    // Snapshot prior stages on the affected rows so the Slack
+    // notification can show "from → to" per entry. Indexed read.
+    const { data: priorRows } = await admin
+      .from("client_pipeline_entries")
+      .select("id, stage")
+      .eq("client_id", client.id)
+      .in("id", parsed.data.ids);
+    const priorStageById = new Map<string, string | null>();
+    for (const r of (priorRows ?? []) as Array<{ id: string; stage: string | null }>) {
+      priorStageById.set(r.id, r.stage);
+    }
     // .select("id") so downstream notifications only cover rows that
     // actually belong to this client (foreign ids fall out of the
     // update silently).
@@ -175,6 +187,31 @@ export async function PATCH(
       .in("id", parsed.data.ids)
       .select("id");
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+    // Slack: one message per actually-changed entry (skip rows that
+    // were already on the target stage). Runs inside after() so the
+    // user-visible response returns immediately.
+    if (updated && updated.length > 0) {
+      const entryIds = (updated as { id: string }[]).map((r) => r.id);
+      const clientId = client.id;
+      const transitioned = entryIds.filter(
+        (eid) => priorStageById.get(eid) !== newStage,
+      );
+      if (transitioned.length > 0) {
+        after(async () => {
+          for (const eid of transitioned) {
+            await notifyPortalStageChange({
+              clientId,
+              entryId: eid,
+              fromStage: priorStageById.get(eid) ?? null,
+              toStage: newStage,
+            });
+            // Polite pacing for Slack's 1/sec per-channel cap.
+            await new Promise((r) => setTimeout(r, 120));
+          }
+        });
+      }
+    }
 
     if (newStage === "introduction" && updated && updated.length > 0) {
       const entryIds = (updated as { id: string }[]).map((r) => r.id);

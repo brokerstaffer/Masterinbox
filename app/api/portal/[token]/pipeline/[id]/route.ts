@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
 import { notifyIntroduction } from "@/lib/webhooks/n8n-introduction";
+import { notifyPortalStageChange } from "@/lib/webhooks/slack-portal";
 import { pushPipelineEntryToFub } from "@/lib/integrations/push-pipeline-entry";
 
 // PATCH /api/portal/[token]/pipeline/[id]
@@ -64,6 +65,20 @@ export async function PATCH(
   }
 
   const admin = createAdminSupabase();
+  // Snapshot pre-update stage so the Slack notification can show
+  // "from → to". One row, indexed lookup — negligible cost. Reading
+  // BEFORE the update is the only way; the UPDATE…RETURNING shape
+  // PostgREST exposes only returns post-image columns.
+  let priorStage: string | null = null;
+  if (parsed.data.stage !== undefined) {
+    const { data: prior } = await admin
+      .from("client_pipeline_entries")
+      .select("stage")
+      .eq("id", id)
+      .eq("client_id", client.id)
+      .maybeSingle();
+    priorStage = (prior?.stage as string | null) ?? null;
+  }
   const patch: Record<string, unknown> = { ...parsed.data, updated_at: new Date().toISOString() };
   const { data, error } = await admin
     .from("client_pipeline_entries")
@@ -74,6 +89,27 @@ export async function PATCH(
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   if (!data) return NextResponse.json({ error: "Entry not found" }, { status: 404 });
+
+  // Notify Slack on any stage transition (Hired routes to its own
+  // channel inside the helper). Fires only when stage actually
+  // changed, not when the operator PATCH'd only a name/email/etc.
+  if (
+    parsed.data.stage !== undefined &&
+    priorStage !== (data.stage as string)
+  ) {
+    const entryId = data.id as string;
+    const fromStage = priorStage;
+    const toStage = data.stage as string;
+    const clientId = client.id;
+    after(() =>
+      notifyPortalStageChange({
+        clientId,
+        entryId,
+        fromStage,
+        toStage,
+      }),
+    );
+  }
 
   // Stage → Introduction is a meaningful event for two downstream
   // listeners. Both run inside `after(...)` so the user's request

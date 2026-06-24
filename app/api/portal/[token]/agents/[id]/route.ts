@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
 import { enforceBlocklist } from "@/lib/portals/enforce-blocklist";
+import { notifyPortalAgentChange } from "@/lib/webhooks/slack-portal";
 
 // PATCH / DELETE /api/portal/[token]/agents/[id]
 //
@@ -93,11 +94,30 @@ export async function DELETE(
     return NextResponse.json({ error: "Portal not found" }, { status: 404 });
   }
   const admin = createAdminSupabase();
+  // Read name + email BEFORE the delete so the Slack message has
+  // something to say about who was removed.
+  const { data: existing } = await admin
+    .from("client_agents")
+    .select("name, email")
+    .eq("id", id)
+    .eq("client_id", client.id)
+    .maybeSingle();
   const { error } = await admin
     .from("client_agents")
     .delete()
     .eq("id", id)
     .eq("client_id", client.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (existing) {
+    const clientId = client.id;
+    after(() =>
+      notifyPortalAgentChange({
+        clientId,
+        name: (existing.name as string | null) ?? null,
+        email: (existing.email as string | null) ?? null,
+        op: "removed",
+      }),
+    );
+  }
   return NextResponse.json({ ok: true });
 }

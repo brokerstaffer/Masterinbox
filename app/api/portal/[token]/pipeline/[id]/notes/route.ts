@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
+import { notifyPortalNoteAdded } from "@/lib/webhooks/slack-portal";
 
 // POST /api/portal/[token]/pipeline/[id]/notes  → append a note
 // Body: { body: string }
@@ -43,11 +44,21 @@ export async function POST(
     return NextResponse.json({ error: "Entry not found" }, { status: 404 });
   }
 
+  const noteBody = parsed.data.body.trim();
   const { data, error } = await admin
     .from("client_pipeline_notes")
-    .insert({ entry_id: id, body: parsed.data.body.trim() })
+    .insert({ entry_id: id, body: noteBody })
     .select("id, body, created_at, updated_at")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  // Slack: announce the new note. The helper resolves lead name +
+  // email from the entry. Runs inside after() — failure can't break
+  // the operator-visible note add.
+  const clientId = client.id;
+  after(() =>
+    notifyPortalNoteAdded({ clientId, entryId: id, noteBody }),
+  );
+
   return NextResponse.json({ ok: true, note: data });
 }
