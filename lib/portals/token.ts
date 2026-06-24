@@ -33,6 +33,13 @@ export interface PortalClient {
   // below reads the column DEFENSIVELY so a pre-migration deploy
   // still resolves portals normally with empty flags.
   feature_flags: Record<string, unknown>;
+  // Brokerage's answers for the "Define Your Ideal Agent Profile"
+  // form (production range, MLS list, target markets, etc.). Empty
+  // {} means "not yet filled in" — the UI renders empty placeholders
+  // rather than treating it as an error. Backed by
+  // clients.ideal_agent_profile (added in migration 0056). Same
+  // defensive-read contract as feature_flags above.
+  ideal_agent_profile: Record<string, unknown>;
 }
 
 export const resolvePortalClient = cache(
@@ -50,18 +57,28 @@ export const resolvePortalClient = cache(
     // the WRONG deploy order — code before migration — degrades to
     // "feature flags are empty for everyone" rather than 404-ing
     // every portal page like the FUB-columns regression did.
-    const SELECT_WITH_FLAGS =
-      "id, name, slug, portal_enabled, stage_label_overrides, fub_api_key, fub_connected_at, feature_flags";
+    // Two new-ish nullable columns: feature_flags (0053) and
+    // ideal_agent_profile (0056). Either may be missing in a
+    // pre-migration environment. Try the full list first; on a
+    // missing-column error, drop to the base list and zero-fill
+    // both. Order: code deploy AFTER migration; this fallback exists
+    // so the wrong order is a graceful no-op rather than an outage.
+    const SELECT_WITH_NEW =
+      "id, name, slug, portal_enabled, stage_label_overrides, fub_api_key, fub_connected_at, feature_flags, ideal_agent_profile";
     const SELECT_BASE =
       "id, name, slug, portal_enabled, stage_label_overrides, fub_api_key, fub_connected_at";
 
     let { data, error } = await admin
       .from("clients")
-      .select(SELECT_WITH_FLAGS)
+      .select(SELECT_WITH_NEW)
       .eq("portal_token", token)
       .maybeSingle();
 
-    if (error && isMissingColumnError(error, "feature_flags")) {
+    if (
+      error &&
+      (isMissingColumnError(error, "feature_flags") ||
+        isMissingColumnError(error, "ideal_agent_profile"))
+    ) {
       const retry = await admin
         .from("clients")
         .select(SELECT_BASE)
@@ -70,7 +87,11 @@ export const resolvePortalClient = cache(
       data = retry.data
         ? // Re-shape the retry row so the rest of the function reads
           // the same field set regardless of which branch ran.
-          ({ ...retry.data, feature_flags: {} } as typeof data)
+          ({
+            ...retry.data,
+            feature_flags: {},
+            ideal_agent_profile: {},
+          } as typeof data)
         : null;
       error = retry.error;
     }
@@ -82,6 +103,8 @@ export const resolvePortalClient = cache(
     const rawOverrides = data.stage_label_overrides;
     const rawKey = data.fub_api_key as string | null | undefined;
     const rawFlags = (data as { feature_flags?: unknown }).feature_flags;
+    const rawIdeal = (data as { ideal_agent_profile?: unknown })
+      .ideal_agent_profile;
     return {
       id: data.id as string,
       name: data.name as string,
@@ -95,6 +118,10 @@ export const resolvePortalClient = cache(
       feature_flags:
         rawFlags && typeof rawFlags === "object" && !Array.isArray(rawFlags)
           ? (rawFlags as Record<string, unknown>)
+          : {},
+      ideal_agent_profile:
+        rawIdeal && typeof rawIdeal === "object" && !Array.isArray(rawIdeal)
+          ? (rawIdeal as Record<string, unknown>)
           : {},
     };
   },

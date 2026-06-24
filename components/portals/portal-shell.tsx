@@ -3,10 +3,12 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Workflow, UserCheck, Ban, Users, Menu, X, Sparkles, Settings2 } from "lucide-react";
+import { Workflow, UserCheck, Ban, Users, Menu, X, Sparkles, Settings2, Target } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PortalLogo } from "@/components/portals/portal-logo";
 import { CalendlyBanner } from "@/components/portals/calendly-banner";
+import { TourProvider } from "@/components/portals/tour/tour-provider";
+import { TakeTheTourButton } from "@/components/portals/tour/take-the-tour-button";
 
 interface Props {
   token: string;
@@ -19,6 +21,14 @@ interface Props {
   // the flag never receive this as true, so the "Integrations"
   // string never enters the SSR'd HTML.
   integrationsLabelEnabled?: boolean;
+  // Demo-Portal-only: adds an "Ideal Agent Profile" nav item that
+  // links to the recruiting-target spec page (Stephanie's June 2026
+  // request). Real clients never receive this as true until the
+  // flag is rolled out for them.
+  idealAgentProfileEnabled?: boolean;
+  // Demo-Portal-only: mounts the product tour (auto-start on first
+  // visit, replay button in the sidebar). Same flag-rollout story.
+  tourEnabled?: boolean;
   children: React.ReactNode;
 }
 
@@ -30,6 +40,8 @@ export function PortalShell({
   clientName,
   counts,
   integrationsLabelEnabled = false,
+  idealAgentProfileEnabled = false,
+  tourEnabled = false,
   children,
 }: Props) {
   const pathname = usePathname();
@@ -53,18 +65,62 @@ export function PortalShell({
     }
   }, [drawerOpen]);
 
-  const items = [
+  // tourTarget threads each nav item's id into a data attribute so
+  // the TourStep can anchor itself. undefined → no attribute, no tour
+  // step pointing at it.
+  type NavItem = {
+    href: string;
+    label: string;
+    icon: typeof Workflow;
+    count?: number;
+    tone?: "danger";
+    tourTarget?: string;
+    show?: boolean;
+  };
+  const items: NavItem[] = [
     { href: `${base}/welcome`, label: "Welcome", icon: Sparkles },
-    { href: base, label: "Recruiting Pipeline", icon: Workflow, count: counts.pipeline },
-    { href: `${base}/agents`, label: "Your Agents", icon: UserCheck, count: counts.agents },
-    { href: `${base}/dnc`, label: "DNC List", icon: Ban, count: counts.dnc, tone: "danger" as const },
-    { href: `${base}/team`, label: "Team", icon: Users, count: counts.team },
+    {
+      href: base,
+      label: "Recruiting Pipeline",
+      icon: Workflow,
+      count: counts.pipeline,
+      tourTarget: "pipeline",
+    },
+    {
+      href: `${base}/agents`,
+      label: "Your Agents",
+      icon: UserCheck,
+      count: counts.agents,
+      tourTarget: "agents",
+    },
+    {
+      href: `${base}/dnc`,
+      label: "DNC List",
+      icon: Ban,
+      count: counts.dnc,
+      tone: "danger" as const,
+      tourTarget: "dnc",
+    },
+    {
+      href: `${base}/team`,
+      label: "Team",
+      icon: Users,
+      count: counts.team,
+      tourTarget: "team",
+    },
+    {
+      href: `${base}/ideal-agent-profile`,
+      label: "Ideal Agent Profile",
+      icon: Target,
+      tourTarget: "ideal-agent-profile",
+      show: idealAgentProfileEnabled,
+    },
     {
       href: `${base}/settings`,
       label: integrationsLabelEnabled ? "Integrations" : "Settings",
       icon: Settings2,
     },
-  ];
+  ].filter((it) => it.show !== false);
 
   const activeItem = items.find((it) => isActive(pathname, it.href, base));
 
@@ -143,6 +199,7 @@ export function PortalShell({
               <Link
                 key={it.href}
                 href={it.href}
+                data-tour-target={it.tourTarget}
                 className={cn(
                   "group flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors",
                   active
@@ -178,13 +235,27 @@ export function PortalShell({
         </nav>
 
         <div className="mt-auto border-t border-[#ebecf0] px-5 py-3 text-[11px] text-[#9aa0ab]">
-          Powered by BrokerStaffer
+          <div className="flex items-center justify-between gap-2">
+            <span>Powered by BrokerStaffer</span>
+            {tourEnabled ? <TakeTheTourButton /> : null}
+          </div>
         </div>
       </aside>
 
       {/* Main column. pt-14 reserves space for the mobile top bar; on md+
           the bar is hidden and the sidebar lives inline so no offset. */}
       <main className="min-w-0 flex-1 pt-14 md:pt-0">{children}</main>
+
+      {/* Demo-Portal-only product tour. Renders nothing when
+          inactive; auto-starts on first visit per the TourProvider
+          rules. tourEnabled gates both the bubbles and the replay
+          button so real clients see nothing. */}
+      {tourEnabled ? (
+        <TourProvider
+          token={token}
+          idealAgentProfileEnabled={idealAgentProfileEnabled}
+        />
+      ) : null}
       </div>
     </>
   );

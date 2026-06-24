@@ -89,6 +89,8 @@ export default async function PortalTokenLayout(props: {
         clientName={client.name}
         counts={counts}
         integrationsLabelEnabled={clientHasFeature(client, "nav_integrations_label")}
+        idealAgentProfileEnabled={clientHasFeature(client, "ideal_agent_profile")}
+        tourEnabled={clientHasFeature(client, "portal_tour")}
       >
         {props.children}
       </PortalShell>
