@@ -3,6 +3,11 @@ import { z } from "zod";
 import { requireSession } from "@/lib/auth/workspace";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { isHostileLabel, markThreadLeadDoNotContact } from "@/lib/inbox/dnc";
+import {
+  isInterestedLabel,
+  isNotInterestedLabel,
+  markEmailBisonReplyInterested,
+} from "@/lib/inbox/interest";
 import { notifyIntroductionForThreads } from "@/lib/webhooks/n8n-introduction";
 
 export const dynamic = "force-dynamic";
@@ -71,6 +76,16 @@ export async function POST(
   // the pipeline row inside the upsert above; resolve it post-response.
   if ((label?.name as string | null)?.toLowerCase() === "introduction") {
     after(() => notifyIntroductionForThreads([threadId], "inbox_label"));
+  }
+
+  // Interested / Not Interested → round-trip the decision back to
+  // EmailBison so the reply's interested flag matches what the
+  // operator just set. EmailBison-only; the helper bails for
+  // Instantly threads.
+  if (isInterestedLabel(label?.name as string | null)) {
+    after(() => markEmailBisonReplyInterested(threadId, true));
+  } else if (isNotInterestedLabel(label?.name as string | null)) {
+    after(() => markEmailBisonReplyInterested(threadId, false));
   }
 
   return NextResponse.json({ ok: true });

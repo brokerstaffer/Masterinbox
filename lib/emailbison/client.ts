@@ -172,6 +172,39 @@ export function createEmailBisonClient(opts: ClientOpts = {}) {
         input,
       ),
 
+    // PATCH /api/replies/{reply_id}/mark-as-interested — flips the
+    // reply's `interested` flag to true on EmailBison's side so the
+    // sentiment classification round-trips back to operator-facing
+    // smart lists + sequence rules in EmailBison. Defaults match
+    // Stephanie's curl examples (skip_webhooks=false here so
+    // downstream automations still fire). Wired into the labels
+    // route so applying the "Interested" label in MasterInbox
+    // pushes the same decision back to EmailBison.
+    markReplyAsInterested: (
+      replyId: number,
+      opts?: { skip_webhooks?: boolean },
+    ) =>
+      request<{ data: { success?: boolean; message?: string } }>(
+        "PATCH",
+        `/replies/${replyId}/mark-as-interested`,
+        { skip_webhooks: opts?.skip_webhooks ?? false },
+      ),
+
+    // PATCH /api/replies/{reply_id}/mark-as-not-interested — sister
+    // endpoint to the above. Default skip_webhooks=true (per
+    // Stephanie's example) so EmailBison doesn't fire
+    // lead_not_interested webhooks back to subscribers that already
+    // know via MasterInbox.
+    markReplyAsNotInterested: (
+      replyId: number,
+      opts?: { skip_webhooks?: boolean },
+    ) =>
+      request<{ data: { success?: boolean; message?: string } }>(
+        "PATCH",
+        `/replies/${replyId}/mark-as-not-interested`,
+        { skip_webhooks: opts?.skip_webhooks ?? true },
+      ),
+
     // Replies
     listReplies: (params: { page?: number; sender_email_id?: number; campaign_id?: number } = {}) => {
       const q = new URLSearchParams();

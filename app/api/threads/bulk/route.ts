@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSession } from "@/lib/auth/workspace";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { chunkedRun } from "@/lib/db/chunked-in";
+import { markEmailBisonReplyInterested } from "@/lib/inbox/interest";
 import { notifyIntroductionForThreads } from "@/lib/webhooks/n8n-introduction";
 
 export const dynamic = "force-dynamic";
@@ -162,20 +163,40 @@ export async function POST(request: Request) {
             });
           if (error) return NextResponse.json({ error: error.message }, { status: 400 });
         }
-        // Introduction among the applied labels → notify n8n for the
-        // selected threads. The 0023 trigger created pipeline rows
-        // during the upserts above; threads without one (e.g. no
-        // client) drop out inside the helper.
-        const { data: introLabels } = await supabase
+        // Introduction / Interested / Not Interested among the
+        // applied labels → fan out the matching side-effect for
+        // every selected thread. One SELECT pulls all three names
+        // at once so we don't make three round trips for the same
+        // label_ids list. Done after the upsert + inside after() so
+        // the user-visible response returns immediately.
+        const { data: triggerLabels } = await supabase
           .from("labels")
-          .select("id")
-          .in("id", data.label_ids)
-          .ilike("name", "introduction");
-        if (introLabels && introLabels.length > 0) {
+          .select("id, name")
+          .in("id", data.label_ids);
+        const names = (triggerLabels ?? []).map((l) =>
+          (l.name as string | null)?.trim().toLowerCase() ?? "",
+        );
+        if (names.includes("introduction")) {
           const threadIds = data.thread_ids;
           after(() =>
             notifyIntroductionForThreads(threadIds, "inbox_bulk_label"),
           );
+        }
+        if (names.includes("interested")) {
+          const threadIds = data.thread_ids;
+          after(async () => {
+            for (const tid of threadIds) {
+              await markEmailBisonReplyInterested(tid, true);
+            }
+          });
+        }
+        if (names.includes("not interested")) {
+          const threadIds = data.thread_ids;
+          after(async () => {
+            for (const tid of threadIds) {
+              await markEmailBisonReplyInterested(tid, false);
+            }
+          });
         }
         return NextResponse.json({ ok: true });
       } else {
