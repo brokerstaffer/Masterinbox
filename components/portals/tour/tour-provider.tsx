@@ -32,25 +32,25 @@ function buildSteps(idealAgentProfileEnabled: boolean): Step[] {
       targetId: "pipeline",
       title: "Recruiting Pipeline",
       description:
-        "Every agent who replies to our outreach lands here. Move them through stages as you interview, schedule, and hire.",
+        "Every introduction we make appears here. Move agents through each stage as you connect, interview, and hire.",
     },
     {
       targetId: "agents",
       title: "Your Agents",
       description:
-        "Add your existing team here. We'll never reach out to anyone on this list, so your current agents are protected.",
+        "Add your brokerage's own agents — we never reach out to anyone on this list.",
     },
     {
       targetId: "dnc",
       title: "DNC List",
       description:
-        "Block any agent or company from outreach. Useful when an agent asks to stop, or when you want to exclude a competitor.",
+        "Add Agents and companies we should never reach out to.",
     },
     {
       targetId: "team",
       title: "Team",
       description:
-        "Decide who at your office gets notified when there's activity in this portal.",
+        "Manage who at your office receives introductions.",
     },
   ];
   if (idealAgentProfileEnabled) {
@@ -58,7 +58,7 @@ function buildSteps(idealAgentProfileEnabled: boolean): Step[] {
       targetId: "ideal-agent-profile",
       title: "Ideal Agent Profile",
       description:
-        "Tell us exactly what kind of agent you want, sales volume, MLS, target markets, so our sourcing focuses on the right people.",
+        "Tell us exactly what kind of agent you're looking for (Including sales volume, target markets, MLS affiliations, experience, and more). We'll use these filters to find agents that fit your needs.",
     });
   }
   return steps;

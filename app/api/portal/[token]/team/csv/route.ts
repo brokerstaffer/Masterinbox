@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
+import { notifyPortalTeamChange } from "@/lib/webhooks/slack-portal";
 
 // POST /api/portal/[token]/team/csv — bulk-import team-roster rows
 // from the portal's CSV dialog.
@@ -82,8 +83,25 @@ export async function POST(
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
+  const insertedCount = inserted?.length ?? 0;
+  if (insertedCount > 0) {
+    // One summary Slack message per CSV upload so a 200-row file
+    // doesn't fan out into 200 individual pings.
+    const clientId = client.id;
+    after(() =>
+      notifyPortalTeamChange({
+        clientId,
+        name: null,
+        email: null,
+        op: "added",
+        count: insertedCount,
+        via: "csv",
+      }),
+    );
+  }
+
   return NextResponse.json({
     ok: true,
-    inserted: inserted?.length ?? 0,
+    inserted: insertedCount,
   });
 }

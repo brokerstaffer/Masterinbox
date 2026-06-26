@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
+import { notifyPortalTeamChange } from "@/lib/webhooks/slack-portal";
 
 // POST /api/portal/[token]/team — add a team member to the intro
 // notification roster. Team is NOT a blocklist anymore (per May 2026
@@ -61,5 +62,18 @@ export async function POST(
     }
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
+
+  // Slack: announce the new Team roster entry. after() so a Slack
+  // hiccup can't break the user-visible Add action.
+  const clientId = client.id;
+  after(() =>
+    notifyPortalTeamChange({
+      clientId,
+      name,
+      email,
+      op: "added",
+    }),
+  );
+
   return NextResponse.json({ ok: true, id: data.id });
 }

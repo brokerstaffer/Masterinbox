@@ -7,11 +7,12 @@ import type { PipelineStage } from "@/lib/portals/portal-data";
 // Slack notifications for client portal activity.
 //
 // Stephanie approved these message designs:
-//   📋 Pipeline stage updated (general channel)
+//   ⏩ Pipeline stage updated (general channel)
 //   🎉 Agent hired (hiring channel)
 //   📝 Note added (general channel)
 //   🚫 / ✅ DNC list add/remove (general channel)
 //   👥 Your Agents list add/remove (general channel)
+//   💼 Team Updates — roster add/remove (general channel)
 //
 // All exports:
 //   • Never throw — try/catch wraps every DB read and the Slack
@@ -117,7 +118,7 @@ export async function notifyPortalStageChange(args: {
     }
 
     const lines = [
-      `📋  *Pipeline stage updated — ${clientName}*`,
+      `⏩  *Pipeline stage updated — ${clientName}*`,
       leadEmail ? `*${leadName}*  ·  ${leadEmail}` : `*${leadName}*`,
       `   *${fromLabel}*  →  *${toLabel}*`,
     ];
@@ -259,5 +260,63 @@ export async function notifyPortalAgentChange(args: {
     }
   } catch (err) {
     console.error("[slack-portal] notifyPortalAgentChange failed", err);
+  }
+}
+
+// --- Team (roster of office members) add / remove ----------------------
+
+export async function notifyPortalTeamChange(args: {
+  clientId: string;
+  // Pre-fetched so the helper works for DELETE / bulk-DELETE paths
+  // where the row no longer exists by the time we run. Ignored when
+  // `count` is set (the summary form).
+  name: string | null;
+  email: string | null;
+  op: "added" | "removed";
+  // When set (≥ 2), emit a single summary line instead of a
+  // per-member message. Used by the CSV importer and the bulk
+  // delete endpoint so a 20-row action doesn't spam the channel.
+  count?: number;
+  // Optional source tag — set to "csv" for CSV-import path so the
+  // summary message reads "via CSV". Free-form; falls back to a
+  // plain summary when omitted.
+  via?: string;
+}): Promise<void> {
+  try {
+    const clientName = await loadClientName(args.clientId);
+    if (!clientName) return;
+
+    if (typeof args.count === "number" && args.count >= 2) {
+      const viaTag = args.via ? ` via ${args.via.toUpperCase()}` : "";
+      const verb = args.op === "added" ? "added to" : "removed from";
+      await postSlackMessage({
+        channel: env.SLACK_CHANNEL_PORTAL,
+        text: `💼  *Team Updates — ${args.count} members ${verb} ${clientName}${viaTag}*`,
+      });
+      return;
+    }
+
+    const who = (args.name && args.name.trim()) || args.email || "(unknown)";
+    if (args.op === "added") {
+      const lines = [
+        `💼  *Team Updates — added to ${clientName}*`,
+        args.email ? `*${who}*  ·  ${args.email}` : `*${who}*`,
+      ];
+      await postSlackMessage({
+        channel: env.SLACK_CHANNEL_PORTAL,
+        text: lines.join("\n"),
+      });
+    } else {
+      const lines = [
+        `💼  *Team Updates — removed from ${clientName}*`,
+        `*${who}*`,
+      ];
+      await postSlackMessage({
+        channel: env.SLACK_CHANNEL_PORTAL,
+        text: lines.join("\n"),
+      });
+    }
+  } catch (err) {
+    console.error("[slack-portal] notifyPortalTeamChange failed", err);
   }
 }
