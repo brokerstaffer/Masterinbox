@@ -38,7 +38,7 @@ function buildSteps(idealAgentProfileEnabled: boolean): Step[] {
       targetId: "agents",
       title: "Your Agents",
       description:
-        "Add your brokerage's own agents — we never reach out to anyone on this list.",
+        "Add your brokerage's own agents - we never reach out to anyone on this list.",
     },
     {
       targetId: "dnc",
