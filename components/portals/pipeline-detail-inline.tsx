@@ -79,12 +79,15 @@ export function PipelineDetailInline({
 
   tryPush("Email", entry.lead_email, "email");
 
-  // Phone — EmailBison stores it under varying keys ("Phone Number",
-  // "phone number", "phone", etc.). The snapshot column only
-  // populates from a narrow subset, so we always check custom_fields
-  // first and fall back to the snapshot.
+  // Phone — the snapshot column `entry.lead_phone` is the source of
+  // truth because it's what the Edit dialog writes to. We fall back
+  // to custom_fields ONLY when the snapshot is empty / null (the
+  // case the EmailBison key-name fix was originally addressing —
+  // EB sometimes stores phone under "Phone Number" instead of the
+  // narrow set the intro-time trigger captures). Using `||` rather
+  // than `??` so a literal empty-string snapshot also falls through.
   const phone =
-    pickFirstString(cf, PHONE_KEYS) ?? entry.lead_phone;
+    entry.lead_phone || pickFirstString(cf, PHONE_KEYS);
   tryPush("Phone", phone, [
     "phone",
     "phone number",

@@ -1153,12 +1153,15 @@ function PipelineRow({
   sourceSplitEnabled?: boolean;
   onLocalUpdate: (patch: Partial<PipelineEntry>) => void;
 }) {
-  // EmailBison key names vary ("Phone Number" vs "phone" vs ...).
-  // Resolve from custom_fields first, fall back to the snapshot column.
+  // Snapshot column `entry.lead_phone` is the source of truth (the
+  // Edit dialog writes to it); custom_fields is a fallback for the
+  // case where the intro trigger missed phone because EB used a key
+  // name like "Phone Number" the trigger doesn't recognise. `||` so
+  // a literal empty-string snapshot also falls through.
   const cf =
     ((entry.lead_detail as { custom_fields?: Record<string, unknown> } | null)
       ?.custom_fields ?? {}) as Record<string, unknown>;
-  const phone = pickFirstString(cf, PHONE_KEYS) ?? entry.lead_phone ?? null;
+  const phone = entry.lead_phone || pickFirstString(cf, PHONE_KEYS) || null;
   return (
     <div
       className={cn(
@@ -1367,11 +1370,13 @@ function PipelineMobileCard({
   fubConnected: boolean;
   sourceSplitEnabled?: boolean;
 }) {
-  // Mobile card: same broadened phone resolution as the desktop row.
+  // Mobile card: same resolution rules as the desktop row — snapshot
+  // wins (Edit dialog's target), cf is the fallback when snapshot is
+  // empty.
   const cf =
     ((entry.lead_detail as { custom_fields?: Record<string, unknown> } | null)
       ?.custom_fields ?? {}) as Record<string, unknown>;
-  const phone = pickFirstString(cf, PHONE_KEYS) ?? entry.lead_phone ?? null;
+  const phone = entry.lead_phone || pickFirstString(cf, PHONE_KEYS) || null;
   return (
     <div
       className={cn(
@@ -1724,12 +1729,12 @@ function NotesSheet({
     onApply(next);
   }
 
-  // Detail bottom sheet (Kanban detail view): same broadened phone
-  // resolution as the desktop row + mobile card.
+  // Detail bottom sheet (Kanban detail view): same resolution rules
+  // as the desktop row + mobile card — snapshot wins, cf fallback.
   const cf =
     ((entry.lead_detail as { custom_fields?: Record<string, unknown> } | null)
       ?.custom_fields ?? {}) as Record<string, unknown>;
-  const phone = pickFirstString(cf, PHONE_KEYS) ?? entry.lead_phone;
+  const phone = entry.lead_phone || pickFirstString(cf, PHONE_KEYS);
   const isReplacement = entry.stage === "no_show" || entry.needs_replacement;
   const stageStyle = STAGE_STYLE[entry.stage];
 
