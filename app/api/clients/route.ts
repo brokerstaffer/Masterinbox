@@ -6,6 +6,8 @@ import { createAdminSupabase } from "@/lib/supabase/admin";
 import { requireSession } from "@/lib/auth/workspace";
 import { _invalidateClientCache, deriveClientIdFromCampaign } from "@/lib/clients/derive";
 import { CLIENT_PORTALS_ENABLED } from "@/lib/portals/flag";
+import { publicPortalUrl } from "@/lib/portals/public-url";
+import { env } from "@/lib/env";
 
 // GET  /api/clients          -> list every client (id, name, slug, aliases, thread_count)
 // POST /api/clients          -> create a new client { name, aliases? }
@@ -85,9 +87,40 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  // requireSession gives both the user AND the active workspace so we
-  // can auto-create the matching sidebar list below.
-  const session = await requireSession();
+  // Dual-auth (mirrors GET /api/clients/portals): a signed-in staff
+  // session OR the SUPABASE_SERVICE_ROLE_KEY via `x-admin-token`
+  // header / `?token=` query param. The token path lets external
+  // callers (n8n / scripts) create clients end-to-end without a
+  // browser session. Under the token path we default the workspace
+  // to env.WORKSPACE_ID (the pinned singleton on prod) and leave
+  // owner_user_id NULL — the `lists` column is nullable and 24
+  // existing rows already carry NULL, so this stays consistent.
+  const url = new URL(request.url);
+  const suppliedToken =
+    url.searchParams.get("token") ?? request.headers.get("x-admin-token");
+  const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
+  const usingServiceRole = Boolean(
+    suppliedToken && serviceKey && suppliedToken === serviceKey,
+  );
+
+  let workspaceId: string;
+  let ownerUserId: string | null;
+  if (usingServiceRole) {
+    workspaceId = url.searchParams.get("workspace") ?? env.WORKSPACE_ID ?? "";
+    if (!workspaceId) {
+      return NextResponse.json(
+        { error: "workspace param required when using service-role token" },
+        { status: 400 },
+      );
+    }
+    ownerUserId = null;
+  } else {
+    // requireSession gives both the user AND the active workspace so
+    // we can auto-create the matching sidebar list below.
+    const session = await requireSession();
+    workspaceId = session.activeWorkspace.id;
+    ownerUserId = session.user.id;
+  }
 
   const parsed = createSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -113,10 +146,16 @@ export async function POST(request: Request) {
     insertRow.portal_token = `${slug}-${randomHex(10)}`;
     insertRow.portal_enabled = true;
   }
+  // Widen the returned column set so the caller gets everything
+  // they'll need to hit the portal endpoints next (token + URL) and
+  // to render admin UIs (feature flags, stage overrides, FUB state,
+  // timestamps). fub_api_key is fetched but NEVER returned verbatim
+  // — it's reshaped into fub_connected: boolean below, same policy
+  // as GET /api/clients/portals.
   const { data, error } = await admin
     .from("clients")
     .insert(insertRow)
-    .select("id, name, slug, aliases")
+    .select("id, name, slug, aliases, portal_token, portal_enabled, feature_flags, stage_label_overrides, fub_api_key, fub_connected_at, created_at, updated_at")
     .single();
   if (error) {
     return NextResponse.json(
@@ -138,14 +177,38 @@ export async function POST(request: Request) {
     // list to click into. The unique partial index on
     // (workspace_id, client_id) makes this idempotent.
     await ensureListForClient(admin, {
-      workspaceId: session.activeWorkspace.id,
-      ownerUserId: session.user.id,
+      workspaceId,
+      ownerUserId,
       clientId: data.id,
       clientName: data.name,
     });
   }
 
-  return NextResponse.json({ ok: true, client: data });
+  // Reshape the returned row into a stable outward-facing envelope.
+  // The pre-existing keys (id / name / slug / aliases) keep their old
+  // shape verbatim so the single internal caller
+  // (components/settings/clients-manager.tsx) stays bit-identical.
+  const portalToken = (data.portal_token as string | null) ?? null;
+  const rawApiKey = (data.fub_api_key as string | null) ?? null;
+  const client = {
+    id: data.id as string,
+    name: data.name as string,
+    slug: data.slug as string,
+    aliases: (data.aliases as string[] | null) ?? [],
+    portal_token: portalToken,
+    portal_url: publicPortalUrl(portalToken),
+    portal_enabled: Boolean(data.portal_enabled),
+    fub_connected: typeof rawApiKey === "string" && rawApiKey.trim().length > 0,
+    fub_connected_at: (data.fub_connected_at as string | null) ?? null,
+    feature_flags:
+      (data.feature_flags as Record<string, unknown> | null) ?? {},
+    stage_label_overrides:
+      (data.stage_label_overrides as Record<string, unknown> | null) ?? {},
+    created_at: data.created_at as string,
+    updated_at: data.updated_at as string,
+  };
+
+  return NextResponse.json({ ok: true, client });
 }
 
 // Idempotent: ensures a `lists` row exists for the given client_id in
@@ -156,7 +219,9 @@ async function ensureListForClient(
   admin: ReturnType<typeof createAdminSupabase>,
   args: {
     workspaceId: string;
-    ownerUserId: string;
+    // NULL under the service-role auth path (no session). The column
+    // is nullable and 24 existing rows already carry NULL.
+    ownerUserId: string | null;
     clientId: string;
     clientName: string;
   },
