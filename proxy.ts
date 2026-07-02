@@ -40,6 +40,21 @@ export async function proxy(request: NextRequest) {
       (p) => pathname === p || pathname.startsWith(`${p}/`),
     );
     if (!allowed) {
+      // Service-role escape hatch for /api/* only: automation
+      // callers (n8n, scripts) may hit portal.brokerstaffer.com/api/…
+      // with x-admin-token / ?token=<SUPABASE_SERVICE_ROLE_KEY>.
+      // Without this carve-out the host gate rewrites them to
+      // /portal-locked and the route handler never sees the request.
+      // Non-/api/* paths still fail-closed to /portal-locked.
+      if (pathname.startsWith("/api/")) {
+        const supplied =
+          request.nextUrl.searchParams.get("token") ??
+          request.headers.get("x-admin-token");
+        const expected = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        if (supplied && expected && supplied === expected) {
+          return NextResponse.next();
+        }
+      }
       const url = request.nextUrl.clone();
       url.pathname = "/portal-locked";
       url.search = "";
