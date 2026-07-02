@@ -21,7 +21,45 @@ export const dynamic = "force-dynamic";
 const createSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(80),
   aliases: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+  // Optional "Intro Macro" reply-template seed. When present, we
+  // create a per-client reply_templates row with these values baked
+  // in and the {{lead.*}} / {{sender.name}} tokens left for the
+  // composer to resolve at insert time. Omit this key and the
+  // request behaves bit-identically to before.
+  intro_macro: z
+    .object({
+      brokerage: z.string().trim().min(1).max(160),
+      client_full_name: z.string().trim().min(1).max(160),
+      client_first_name: z.string().trim().min(1).max(80),
+      client_role: z.string().trim().min(1).max(120),
+    })
+    .optional(),
 });
+
+// Pure body renderer for the Intro Macro reply template. The
+// brokerage / client_* values are baked in at create time; the
+// {{lead.*}} + {{sender.name}} tokens are the canonical composer
+// placeholders (see lib/inbox/template-variables.ts). Kept as a
+// verbatim string so the shape can be diffed / golden-tested
+// later without any fixture machinery.
+function renderIntroMacroBody(macro: {
+  brokerage: string;
+  client_full_name: string;
+  client_first_name: string;
+  client_role: string;
+}): string {
+  const { brokerage, client_full_name, client_first_name, client_role } = macro;
+  return (
+    `Hey {{lead.name}},\n\n` +
+    `I'd like to introduce you to ${client_full_name}, ${client_role} at ${brokerage}\n\n` +
+    `${client_first_name}, I recently connected with {{lead.first_name}}, ` +
+    `who can be reached directly at {{lead.phone_number}} and is currently with {{lead.company}}.\n\n` +
+    `{{lead.first_name}}, ${client_first_name} will be in touch directly to ` +
+    `learn more about your business and discuss the opportunity in greater detail.\n\n` +
+    `I hope you have a productive conversation!\n\n` +
+    `Best,\n{{sender.name}}\nTalent Acquisition | ${brokerage}`
+  );
+}
 
 function toSlug(name: string): string {
   return name
@@ -184,6 +222,59 @@ export async function POST(request: Request) {
     });
   }
 
+  // Optional Intro Macro reply-template seeding. Fires only when the
+  // caller opts in via `intro_macro`. Wrapped in try/catch so a
+  // template insert failure never rolls back the already-committed
+  // client + sidebar list — the caller can always retry via
+  // POST /api/reply-templates if it ever matters.
+  let introTemplate:
+    | { id: string; name: string; category: string | null }
+    | null = null;
+  if (parsed.data.intro_macro) {
+    try {
+      const body = renderIntroMacroBody(parsed.data.intro_macro);
+      const { data: maxOrder } = await admin
+        .from("reply_templates")
+        .select("sort_order")
+        .eq("workspace_id", workspaceId)
+        .order("sort_order", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const nextOrder =
+        ((maxOrder?.sort_order as number | null) ?? -1) + 1;
+      const templateName = `Intro Macro - ${data.name}`;
+      const { data: tmpl, error: tmplErr } = await admin
+        .from("reply_templates")
+        .insert({
+          workspace_id: workspaceId,
+          name: templateName,
+          body,
+          body_html: null,
+          subject: null,
+          cc: null,
+          bcc: null,
+          category: data.name,
+          sort_order: nextOrder,
+        })
+        .select("id, name, category")
+        .single();
+      if (tmplErr) {
+        console.error(
+          "[clients] intro macro template insert failed",
+          tmplErr,
+        );
+      } else if (tmpl) {
+        introTemplate = {
+          id: tmpl.id as string,
+          name: tmpl.name as string,
+          category: (tmpl.category as string | null) ?? null,
+        };
+      }
+    } catch (err) {
+      console.error("[clients] intro macro template create failed", err);
+    }
+  }
+
   // Reshape the returned row into a stable outward-facing envelope.
   // The pre-existing keys (id / name / slug / aliases) keep their old
   // shape verbatim so the single internal caller
@@ -208,7 +299,7 @@ export async function POST(request: Request) {
     updated_at: data.updated_at as string,
   };
 
-  return NextResponse.json({ ok: true, client });
+  return NextResponse.json({ ok: true, client, intro_template: introTemplate });
 }
 
 // Idempotent: ensures a `lists` row exists for the given client_id in
