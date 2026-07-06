@@ -128,6 +128,20 @@ export async function GET(request: Request) {
 
   // Bulk-resolve threads → client_id + lead_id + campaign in chunks
   // (PostgREST URL length cap on `in()`).
+  //
+  // Chunk size math: a uuid encodes to 37 bytes in the URL (36 + comma).
+  // With the `select=id,client_id,lead_id,campaign_id,campaign_name`
+  // clause + apikey/auth headers + PostgREST wrapper, the request URL
+  // header hits the ~16 KB PostgREST cap at roughly 407 ids. undici
+  // reports "HTTP headers exceeded server limits (typically 16KB)"
+  // and supabase-js returns `data: null` on the failing chunk —
+  // silently dropping every assignment in the batch.
+  //
+  // 200 keeps a full-select in.() URL under ~8 KB with ample headroom
+  // for auth/select growth. Same size used for the leads bulk-lookup
+  // below because it has an equally wide select clause. See the
+  // 2026-07-07 investigation on /api/clients/intros returning 0
+  // Introduction rows once the campaign crossed ~400 assignments.
   const threadIds = Array.from(new Set(assignmentList.map((a) => a.target_id)));
   const threadMeta = new Map<
     string,
@@ -138,7 +152,7 @@ export async function GET(request: Request) {
       campaign_name: string | null;
     }
   >();
-  const CHUNK = 500;
+  const CHUNK = 200;
   for (let i = 0; i < threadIds.length; i += CHUNK) {
     const slice = threadIds.slice(i, i + CHUNK);
     const { data: threads } = await admin
