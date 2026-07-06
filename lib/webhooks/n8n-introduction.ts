@@ -1,21 +1,29 @@
-// Outbound n8n notification for human-initiated Introductions.
+// Outbound webhook notification for human-initiated Introductions.
 //
-// Fires a POST to N8N_INTRODUCTION_WEBHOOK_URL whenever a HUMAN marks a
-// lead as Introduction — inbox label (single/bulk), portal Add Lead, or a
-// portal stage move. AI auto-labeling is excluded by construction: the AI
-// path (lib/ai/run.ts) writes label_assignments directly and never passes
-// through the route handlers that call this helper. Do NOT move this into
-// the client_pipeline_on_intro_label DB trigger — that trigger also fires
+// Fires POST(s) whenever a HUMAN marks a lead as Introduction — inbox
+// label (single/bulk), portal Add Lead, or a portal stage move. AI
+// auto-labeling is excluded by construction: the AI path (lib/ai/run.ts)
+// writes label_assignments directly and never passes through the route
+// handlers that call this helper. Do NOT move this into the
+// client_pipeline_on_intro_label DB trigger — that trigger also fires
 // for assigned_by='ai' and would re-include AI intros.
 //
-// Callers invoke this inside next/server `after(...)` so the POST runs
-// post-response and never adds latency to (or breaks) the user's request.
-// Every failure mode here is swallowed: a dead n8n must never block
-// labeling or portal edits.
+// Two independent destinations, both optional, both fire in parallel
+// per pipeline entry:
+//   1. N8N_INTRODUCTION_WEBHOOK_URL — legacy n8n workflow. Payload
+//      shape is bit-identical to what it's always received.
+//   2. BISON_INTRODUCTION_WEBHOOK_URL — Corofy orchestrator. Payload
+//      is a superset of n8n: adds thread_id, campaign, introduced_at,
+//      lead.title/location/custom_fields, client.slug/portal_url,
+//      and assigned_recruiter.
+// Either failing never affects the other; both failing never affects
+// the caller — every fetch is wrapped in try/catch, and callers
+// already invoke this inside next/server `after(...)`.
 
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { chunkedRun } from "@/lib/db/chunked-in";
 import { env } from "@/lib/env";
+import { publicPortalUrl } from "@/lib/portals/public-url";
 
 export type IntroductionSource =
   | "inbox_label"
@@ -24,6 +32,24 @@ export type IntroductionSource =
   | "portal_stage_change"
   | "portal_csv_upload";
 
+type LeadEmbed = {
+  company: string | null;
+  email: string | null;
+  phone: string | null;
+  title: string | null;
+  custom_fields: Record<string, unknown> | null;
+};
+type ClientEmbed = {
+  id: string;
+  name: string;
+  slug: string | null;
+  portal_token: string | null;
+};
+type RecruiterEmbed = {
+  id: string;
+  name: string | null;
+};
+
 type PipelineRow = {
   id: string;
   client_id: string;
@@ -31,14 +57,16 @@ type PipelineRow = {
   lead_name: string | null;
   lead_email: string | null;
   lead_phone: string | null;
+  lead_location: string | null;
   current_brokerage: string | null;
+  thread_id: string | null;
+  introduced_at: string | null;
+  campaign_name: string | null;
   // Embedded relations come back as object or array depending on the
   // FK cardinality PostgREST infers — handle both (see portal-data.ts).
-  leads:
-    | { company: string | null }
-    | { company: string | null }[]
-    | null;
-  clients: { id: string; name: string } | { id: string; name: string }[] | null;
+  leads: LeadEmbed | LeadEmbed[] | null;
+  clients: ClientEmbed | ClientEmbed[] | null;
+  assigned_team_member: RecruiterEmbed | RecruiterEmbed[] | null;
 };
 
 function first<T>(v: T | T[] | null): T | null {
@@ -54,16 +82,25 @@ export async function notifyIntroduction(
   source: IntroductionSource,
 ): Promise<void> {
   try {
-    const url = env.N8N_INTRODUCTION_WEBHOOK_URL;
-    if (!url || entryIds.length === 0) return;
+    const n8nUrl = env.N8N_INTRODUCTION_WEBHOOK_URL;
+    const bisonUrl = env.BISON_INTRODUCTION_WEBHOOK_URL;
+    // Both unset = silent no-op. Same behaviour as before for the
+    // n8n-only case; adds the Bison branch without cost.
+    if ((!n8nUrl && !bisonUrl) || entryIds.length === 0) return;
 
     const admin = createAdminSupabase();
 
+    // Widened SELECT — adds thread_id, campaign snapshot, lead
+    // location + introduced_at, richer leads embed (title / phone /
+    // custom_fields), richer clients embed (slug / portal_token),
+    // and the assigned recruiter. Every new field is optional in
+    // the n8n payload path (unused there) and populated in the
+    // Bison payload path.
     const chunks = await chunkedRun(entryIds, (slice) =>
       admin
         .from("client_pipeline_entries")
         .select(
-          "id, client_id, stage, lead_name, lead_email, lead_phone, current_brokerage, leads:lead_id (company), clients:client_id (id, name)",
+          "id, client_id, stage, lead_name, lead_email, lead_phone, lead_location, current_brokerage, thread_id, introduced_at, campaign_name, leads:lead_id (company, email, phone, title, custom_fields), clients:client_id (id, name, slug, portal_token), assigned_team_member:assigned_team_member_id (id, name)",
         )
         .in("id", slice),
     );
@@ -100,7 +137,13 @@ export async function notifyIntroduction(
       rows.map(async (row) => {
         const client = first(row.clients);
         const lead = first(row.leads);
-        const payload = {
+        const recruiter = first(row.assigned_team_member);
+        const team = teamByClient.get(row.client_id) ?? [];
+        const company = lead?.company || row.current_brokerage || null;
+
+        // n8n payload — SAME shape as before (bit-identical keys).
+        // Existing n8n workflows read exactly these fields.
+        const n8nPayload = {
           event: "lead.introduction",
           occurred_at: occurredAt,
           source,
@@ -108,32 +151,81 @@ export async function notifyIntroduction(
           lead: {
             name: row.lead_name,
             email: row.lead_email,
-            // Portal-added rows have no leads link — fall back to the
-            // brokerage snapshot. Truthy check so '' doesn't shadow it.
-            company: lead?.company || row.current_brokerage || null,
+            company,
             phone: row.lead_phone,
           },
           client: { id: row.client_id, name: client?.name ?? null },
-          team: teamByClient.get(row.client_id) ?? [],
+          team,
         };
-        try {
-          const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(10_000),
-          });
-          if (!res.ok) {
-            console.error(
-              `[n8n-introduction] webhook responded ${res.status} for entry ${row.id}`,
-            );
-          }
-        } catch (err) {
-          console.error(
-            `[n8n-introduction] webhook POST failed for entry ${row.id}:`,
-            err,
-          );
+
+        // Bison payload — additive superset. Everything the
+        // orchestrator might want to route on / enrich with.
+        const bisonPayload = {
+          ...n8nPayload,
+          thread_id: row.thread_id ?? null,
+          introduced_at: row.introduced_at ?? null,
+          campaign: row.campaign_name ? { name: row.campaign_name } : null,
+          lead: {
+            ...n8nPayload.lead,
+            title: lead?.title ?? null,
+            location: row.lead_location ?? null,
+            custom_fields: lead?.custom_fields ?? {},
+          },
+          client: {
+            ...n8nPayload.client,
+            slug: client?.slug ?? null,
+            portal_url: publicPortalUrl(client?.portal_token ?? null),
+          },
+          assigned_recruiter: recruiter?.id
+            ? { id: recruiter.id, name: recruiter.name }
+            : null,
+        };
+
+        const targets: Array<{
+          label: "n8n" | "bison";
+          url: string;
+          body: unknown;
+        }> = [];
+        if (n8nUrl) targets.push({ label: "n8n", url: n8nUrl, body: n8nPayload });
+        // Bison / orchestrator ONLY fires for MasterInbox-originated
+        // Introduction labels ("inbox_label" / "inbox_bulk_label").
+        // Portal-driven events (portal_add_lead, portal_stage_change,
+        // portal_csv_upload) intentionally do NOT hit Bison — those
+        // originate from the brokerage client acting inside their
+        // portal and the orchestrator only wants staff-triggered
+        // intros. n8n still receives every source, unchanged.
+        const isInboxSource =
+          source === "inbox_label" || source === "inbox_bulk_label";
+        if (bisonUrl && isInboxSource) {
+          targets.push({ label: "bison", url: bisonUrl, body: bisonPayload });
         }
+
+        // Independent try/catch per target so a dead n8n never
+        // affects Bison, and vice versa. Fire both in parallel —
+        // typical 10s cap dominates wall-clock so serialising would
+        // double the tail latency for no benefit.
+        await Promise.all(
+          targets.map(async (t) => {
+            try {
+              const res = await fetch(t.url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(t.body),
+                signal: AbortSignal.timeout(10_000),
+              });
+              if (!res.ok) {
+                console.error(
+                  `[${t.label}-introduction] webhook responded ${res.status} for entry ${row.id}`,
+                );
+              }
+            } catch (err) {
+              console.error(
+                `[${t.label}-introduction] webhook POST failed for entry ${row.id}:`,
+                err,
+              );
+            }
+          }),
+        );
       }),
     );
   } catch (err) {
@@ -150,7 +242,14 @@ export async function notifyIntroductionForThreads(
   source: IntroductionSource,
 ): Promise<void> {
   try {
-    if (!env.N8N_INTRODUCTION_WEBHOOK_URL || threadIds.length === 0) return;
+    // Same "either webhook configured?" gate as notifyIntroduction —
+    // was previously n8n-only, now supports Bison too.
+    if (
+      (!env.N8N_INTRODUCTION_WEBHOOK_URL &&
+        !env.BISON_INTRODUCTION_WEBHOOK_URL) ||
+      threadIds.length === 0
+    )
+      return;
     const admin = createAdminSupabase();
     const chunks = await chunkedRun(threadIds, (slice) =>
       admin

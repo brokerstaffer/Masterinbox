@@ -56,6 +56,16 @@ export const env = {
   get N8N_INTRODUCTION_WEBHOOK_URL() {
     return lazyOptional("N8N_INTRODUCTION_WEBHOOK_URL")();
   },
+  // Bison / Corofy orchestrator webhook, notified on the SAME
+  // human-initiated Introduction event as n8n. Payload is richer
+  // (custom_fields, thread_id, campaign, portal_url, recruiter,
+  // etc.) but fires from the same call site — see
+  // lib/webhooks/n8n-introduction.ts. Optional — silent no-op
+  // when unset. Include any auth query string (e.g. ?token=…)
+  // as part of the URL so credential rotation is env-var only.
+  get BISON_INTRODUCTION_WEBHOOK_URL() {
+    return lazyOptional("BISON_INTRODUCTION_WEBHOOK_URL")();
+  },
   // Slack bot token + channel ids for the portal-activity notifier.
   // All three are optional — when any is missing the helper silently
   // skips (dev / preview / unconfigured envs don't spam Slack).
