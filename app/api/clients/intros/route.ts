@@ -28,6 +28,14 @@ import { env } from "@/lib/env";
 // which is already wired for any token-bearing /api/* request).
 
 export const dynamic = "force-dynamic";
+// Belt + suspenders vs Next.js's Data Cache. `force-dynamic` above
+// only disables the route-level render cache; it does NOT disable
+// caching of the `fetch()` calls supabase-js makes under the hood.
+// This directive tells Next.js "no fetch call inside this route
+// may be cached." createAdminSupabase() also passes cache: "no-store"
+// on every outgoing call, so this is a second guardrail, not the
+// primary one.
+export const fetchCache = "force-no-store";
 
 interface IntroRow {
   client_name: string;
