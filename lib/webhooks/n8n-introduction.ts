@@ -32,10 +32,13 @@ export type IntroductionSource =
   | "portal_stage_change"
   | "portal_csv_upload";
 
+// Embed shapes. Every field here maps to a REAL column on the
+// underlying table — verified against the schema, not derived at
+// render time. leads.phone / leads.email don't exist as columns
+// (phone lives on cpe.lead_phone; email on cpe.lead_email); so
+// nothing on this embed duplicates the pipeline-entry snapshot.
 type LeadEmbed = {
   company: string | null;
-  email: string | null;
-  phone: string | null;
   title: string | null;
   custom_fields: Record<string, unknown> | null;
 };
@@ -49,6 +52,13 @@ type RecruiterEmbed = {
   id: string;
   name: string | null;
 };
+// Threads carry the campaign snapshot (client_pipeline_entries does
+// NOT). Embed the thread via cpe.thread_id and read campaign_name off
+// that. Threads without a campaign hint (portal manual-add, etc.)
+// come back with campaign_name null.
+type ThreadEmbed = {
+  campaign_name: string | null;
+};
 
 type PipelineRow = {
   id: string;
@@ -57,16 +67,15 @@ type PipelineRow = {
   lead_name: string | null;
   lead_email: string | null;
   lead_phone: string | null;
-  lead_location: string | null;
   current_brokerage: string | null;
   thread_id: string | null;
   introduced_at: string | null;
-  campaign_name: string | null;
   // Embedded relations come back as object or array depending on the
   // FK cardinality PostgREST infers — handle both (see portal-data.ts).
   leads: LeadEmbed | LeadEmbed[] | null;
   clients: ClientEmbed | ClientEmbed[] | null;
   assigned_team_member: RecruiterEmbed | RecruiterEmbed[] | null;
+  threads: ThreadEmbed | ThreadEmbed[] | null;
 };
 
 function first<T>(v: T | T[] | null): T | null {
@@ -90,17 +99,18 @@ export async function notifyIntroduction(
 
     const admin = createAdminSupabase();
 
-    // Widened SELECT — adds thread_id, campaign snapshot, lead
-    // location + introduced_at, richer leads embed (title / phone /
-    // custom_fields), richer clients embed (slug / portal_token),
-    // and the assigned recruiter. Every new field is optional in
-    // the n8n payload path (unused there) and populated in the
-    // Bison payload path.
+    // SELECT includes only fields that map to REAL columns on the
+    // underlying tables (verified July 7 after the deployed
+    // webhook was silently 400-ing on phantom columns like
+    // client_pipeline_entries.lead_location,
+    // client_pipeline_entries.campaign_name (lives on threads),
+    // and leads.phone (lives on cpe.lead_phone).
+    // The threads embed here is only used for campaign_name.
     const chunks = await chunkedRun(entryIds, (slice) =>
       admin
         .from("client_pipeline_entries")
         .select(
-          "id, client_id, stage, lead_name, lead_email, lead_phone, lead_location, current_brokerage, thread_id, introduced_at, campaign_name, leads:lead_id (company, email, phone, title, custom_fields), clients:client_id (id, name, slug, portal_token), assigned_team_member:assigned_team_member_id (id, name)",
+          "id, client_id, stage, lead_name, lead_email, lead_phone, current_brokerage, thread_id, introduced_at, leads:lead_id (company, title, custom_fields), clients:client_id (id, name, slug, portal_token), assigned_team_member:assigned_team_member_id (id, name), threads:thread_id (campaign_name)",
         )
         .in("id", slice),
     );
@@ -138,8 +148,10 @@ export async function notifyIntroduction(
         const client = first(row.clients);
         const lead = first(row.leads);
         const recruiter = first(row.assigned_team_member);
+        const thread = first(row.threads);
         const team = teamByClient.get(row.client_id) ?? [];
         const company = lead?.company || row.current_brokerage || null;
+        const campaignName = thread?.campaign_name ?? null;
 
         // n8n payload — SAME shape as before (bit-identical keys).
         // Existing n8n workflows read exactly these fields.
@@ -160,15 +172,17 @@ export async function notifyIntroduction(
 
         // Bison payload — additive superset. Everything the
         // orchestrator might want to route on / enrich with.
+        // Only fields backed by real DB columns land here; if a
+        // useful field can't be sourced without derivation, we
+        // leave it out rather than silently ship null.
         const bisonPayload = {
           ...n8nPayload,
           thread_id: row.thread_id ?? null,
           introduced_at: row.introduced_at ?? null,
-          campaign: row.campaign_name ? { name: row.campaign_name } : null,
+          campaign: campaignName ? { name: campaignName } : null,
           lead: {
             ...n8nPayload.lead,
             title: lead?.title ?? null,
-            location: row.lead_location ?? null,
             custom_fields: lead?.custom_fields ?? {},
           },
           client: {
@@ -187,16 +201,24 @@ export async function notifyIntroduction(
           body: unknown;
         }> = [];
         if (n8nUrl) targets.push({ label: "n8n", url: n8nUrl, body: n8nPayload });
-        // Bison / orchestrator ONLY fires for MasterInbox-originated
-        // Introduction labels ("inbox_label" / "inbox_bulk_label").
-        // Portal-driven events (portal_add_lead, portal_stage_change,
-        // portal_csv_upload) intentionally do NOT hit Bison — those
-        // originate from the brokerage client acting inside their
-        // portal and the orchestrator only wants staff-triggered
-        // intros. n8n still receives every source, unchanged.
+        // Bison / orchestrator ONLY fires when:
+        //   (a) source is MasterInbox-originated (inbox_label or
+        //       inbox_bulk_label). Portal-driven events
+        //       (portal_add_lead, portal_stage_change,
+        //       portal_csv_upload) intentionally do NOT hit Bison —
+        //       those are the brokerage client acting inside their
+        //       portal and the orchestrator only wants
+        //       staff-triggered intros.
+        //   (b) lead_email is set. The orchestrator requires a
+        //       lead email to enrich / route; sending without one
+        //       just wastes a POST. n8n keeps receiving every
+        //       source and every lead as before.
         const isInboxSource =
           source === "inbox_label" || source === "inbox_bulk_label";
-        if (bisonUrl && isInboxSource) {
+        const hasLeadEmail = Boolean(
+          row.lead_email && row.lead_email.trim().length > 0,
+        );
+        if (bisonUrl && isInboxSource && hasLeadEmail) {
           targets.push({ label: "bison", url: bisonUrl, body: bisonPayload });
         }
 
