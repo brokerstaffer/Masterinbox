@@ -17,7 +17,13 @@ import { loadExternalIntrosByClient } from "@/lib/portals/external-intros";
 //   leads. Threads are chunked through `in()` to stay under PostgREST's
 //   URL-length cap.
 
-const CHUNK = 500;
+// PostgREST URL length cap (~16 KB) means an `id=in.(<uuid×N>)` clause
+// tips over at roughly 407 ids for a full-select query. At that point
+// undici raises "HTTP headers exceeded server limits" and supabase-js
+// surfaces it as `data: null`, silently dropping every id in the batch.
+// 200 keeps the URL comfortably under ~8 KB. Same size / same reason
+// as /api/clients/intros — see the 2026-07-07 fix on that endpoint.
+const CHUNK = 200;
 const INTRO_LABEL_NAME = "Introduction";
 
 export interface IntroLead {

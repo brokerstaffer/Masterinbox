@@ -111,8 +111,11 @@ export async function GET(request: Request) {
   if (assignmentList.length > 0) {
     const threadIds = Array.from(new Set(assignmentList.map((a) => a.target_id)));
     const threadClient = new Map<string, string | null>();
-    // PostgREST URL length cap → chunk the in() filter.
-    const CHUNK = 500;
+    // PostgREST URL length cap → chunk the in() filter. 200 keeps the
+    // request URL comfortably under the 16 KB header cap even for wide
+    // select clauses (same reason as /api/clients/intros — see the
+    // 2026-07-07 fix on that route).
+    const CHUNK = 200;
     for (let i = 0; i < threadIds.length; i += CHUNK) {
       const slice = threadIds.slice(i, i + CHUNK);
       const { data: threads } = await admin
