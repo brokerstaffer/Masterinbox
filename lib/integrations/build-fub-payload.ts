@@ -1,5 +1,9 @@
 import type { PipelineEntry } from "@/lib/portals/portal-data";
 import type { FubPerson } from "@/lib/integrations/followup-boss";
+import {
+  pickFirstString,
+  PHONE_KEYS,
+} from "@/components/portals/custom-field-helpers";
 
 // Build the FUB person payload for a pipeline entry.
 //
@@ -35,8 +39,21 @@ export function buildFubPayload(entry: PipelineEntry): FubPerson {
   }
 
   // -- Phone --
-  if (entry.lead_phone && entry.lead_phone.trim()) {
-    person.phones = [{ type: "mobile", value: entry.lead_phone.trim() }];
+  // Snapshot column `entry.lead_phone` is the primary source (the
+  // portal Edit dialog writes to it and the intro-label trigger
+  // pre-fills it from custom_fields.phone / Phone). But EmailBison
+  // campaigns store phone under "phone number" (lowercase, with a
+  // space) which the trigger does NOT recognise, so 89 pipeline
+  // entries currently have lead_phone NULL while the real number
+  // sits in leads.custom_fields untouched. Fall back to the same
+  // widened key list the pipeline-board display already uses.
+  // Same shape as commit 9536473 (2026-06-27) on the display side.
+  const cf =
+    ((entry.lead_detail as { custom_fields?: Record<string, unknown> } | null)
+      ?.custom_fields ?? {}) as Record<string, unknown>;
+  const phone = entry.lead_phone || pickFirstString(cf, PHONE_KEYS);
+  if (phone && phone.trim()) {
+    person.phones = [{ type: "mobile", value: phone.trim() }];
   }
 
   // -- Tags --
