@@ -25,6 +25,7 @@ import {
   Send,
   CircleCheck,
   TriangleAlert,
+  Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -101,6 +102,23 @@ export const STAGE_STYLE: Record<PipelineStage, { bg: string; text: string }> = 
   we_they_rejected:       { bg: "bg-[#e23a3a]", text: "text-white" },
   no_show:                { bg: "bg-[#8b95a3]", text: "text-white" },
 };
+
+// Build a copy-to-clipboard string for a single lead. Format is
+// "Name Phone" on one line — space-separated — matching Stephanie's
+// July 2026 spec. Phone resolution mirrors what the pipeline row
+// displays: snapshot column first (edit-dialog target), fall back to
+// leads.custom_fields via the same PHONE_KEYS list the display uses.
+// Leads without any phone fall through to name-only rather than
+// emitting a stray "undefined" or empty parenthesis.
+function formatLeadForCopy(entry: PipelineEntry): string {
+  const name = (entry.lead_name || entry.lead_email || "").trim();
+  const cf = ((entry.lead_detail as { custom_fields?: Record<string, unknown> } | null)
+    ?.custom_fields ?? {}) as Record<string, unknown>;
+  const phone = entry.lead_phone || pickFirstString(cf, PHONE_KEYS);
+  if (!name && !phone) return "";
+  if (!phone) return name;
+  return `${name} ${phone.trim()}`.trim();
+}
 
 type EditTarget = { mode: "create" } | { mode: "edit"; entry: PipelineEntry };
 
@@ -469,6 +487,50 @@ export function PipelineBoard({
     URL.revokeObjectURL(url);
   }
 
+  // Bulk copy: newline-separated "Name Phone" lines for every selected
+  // lead. When nothing is selected, copies the currently-visible filter
+  // set (mirrors bulkExport's fallback so the button always has a
+  // sensible payload). Never throws — clipboard failure surfaces as a
+  // toast, not an unhandled error.
+  async function bulkCopy() {
+    const rows = selected.size > 0
+      ? entries.filter((e) => selected.has(e.id))
+      : filtered;
+    if (rows.length === 0) return;
+    const lines = rows.map(formatLeadForCopy).filter((s) => s.length > 0);
+    if (lines.length === 0) {
+      toast.error("Nothing to copy");
+      return;
+    }
+    const text = lines.join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(
+        lines.length === 1
+          ? `Copied: ${lines[0]}`
+          : `Copied ${lines.length} leads`,
+      );
+    } catch {
+      toast.error("Could not access clipboard");
+    }
+  }
+
+  // Per-row single copy — called from the icon next to a lead name.
+  // Uses the same formatter as bulk so the two paths never diverge.
+  async function copyOneLead(entry: PipelineEntry) {
+    const text = formatLeadForCopy(entry);
+    if (!text) {
+      toast.error("Nothing to copy");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`Copied: ${text}`);
+    } catch {
+      toast.error("Could not access clipboard");
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl px-4 pb-12 pt-6 sm:px-6">
       <StageLabelEditor
@@ -684,6 +746,15 @@ export function PipelineBoard({
               <Button
                 size="sm"
                 variant="outline"
+                onClick={bulkCopy}
+                disabled={bulkBusy || selected.size === 0}
+                title="Copy selected leads' name + phone"
+              >
+                <Copy className="mr-1 size-3.5" /> Copy
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
                 onClick={bulkExport}
                 disabled={bulkBusy || selected.size === 0}
               >
@@ -794,6 +865,7 @@ export function PipelineBoard({
                         onToggleExpand={() =>
                           setExpandedId((cur) => (cur === e.id ? null : e.id))
                         }
+                        onCopyLead={() => copyOneLead(e)}
                         token={token}
                         fubConnected={fubConnected}
                         sourceSplitEnabled={sourceSplitEnabled}
@@ -847,6 +919,7 @@ export function PipelineBoard({
                   onToggleExpand={() =>
                     setExpandedId((cur) => (cur === e.id ? null : e.id))
                   }
+                  onCopyLead={() => copyOneLead(e)}
                   token={token}
                   onLocalUpdate={(p) => applyEntryEdit(e.id, p)}
                   fubConnected={fubConnected}
@@ -1132,6 +1205,7 @@ function PipelineRow({
   onOpenConversation,
   onEdit,
   onToggleExpand,
+  onCopyLead,
   token,
   fubConnected,
   sourceSplitEnabled = false,
@@ -1148,6 +1222,7 @@ function PipelineRow({
   onOpenConversation: () => void;
   onEdit: () => void;
   onToggleExpand: () => void;
+  onCopyLead: () => void;
   token: string;
   fubConnected: boolean;
   sourceSplitEnabled?: boolean;
@@ -1207,6 +1282,21 @@ function PipelineRow({
             >
               {entry.lead_name || entry.lead_email || "Unknown"}
             </span>
+            {/* Copy "Name Phone" to clipboard — one-click hand-off
+                for dialers / CRMs. stopPropagation so it doesn't
+                also trigger the row-expand click. */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCopyLead();
+              }}
+              title="Copy name + phone"
+              aria-label="Copy name and phone"
+              className="inline-flex size-5 shrink-0 items-center justify-center rounded text-[#9aa0ab] hover:bg-[#eef0f3] hover:text-[#5b6472]"
+            >
+              <Copy className="size-3.5" />
+            </button>
             {entry.stage === "no_show" || entry.needs_replacement ? (
               // Discreet replacement marker: muted Repeat icon with a
               // hover tooltip so the brokerage understands this intro
@@ -1349,6 +1439,7 @@ function PipelineMobileCard({
   onOpenConversation,
   onEdit,
   onToggleExpand,
+  onCopyLead,
   token,
   onLocalUpdate,
   fubConnected,
@@ -1365,6 +1456,7 @@ function PipelineMobileCard({
   onOpenConversation: () => void;
   onEdit: () => void;
   onToggleExpand: () => void;
+  onCopyLead: () => void;
   token: string;
   onLocalUpdate: (patch: Partial<PipelineEntry>) => void;
   fubConnected: boolean;
@@ -1398,6 +1490,19 @@ function PipelineMobileCard({
             <span className="truncate text-[14px] font-medium">
               {entry.lead_name || entry.lead_email || "Unknown"}
             </span>
+            {/* Copy "Name Phone" — same as desktop row. */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCopyLead();
+              }}
+              title="Copy name + phone"
+              aria-label="Copy name and phone"
+              className="inline-flex size-5 shrink-0 items-center justify-center rounded text-[#9aa0ab] hover:bg-[#eef0f3] hover:text-[#5b6472]"
+            >
+              <Copy className="size-3.5" />
+            </button>
             {entry.stage === "no_show" || entry.needs_replacement ? (
               <span
                 title="This introduction will be replaced."
