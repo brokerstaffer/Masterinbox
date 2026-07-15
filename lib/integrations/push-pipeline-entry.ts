@@ -2,6 +2,7 @@ import { createAdminSupabase } from "@/lib/supabase/admin";
 import { loadPipelineEntries } from "@/lib/portals/portal-data";
 import { pushPersonEvent } from "@/lib/integrations/followup-boss";
 import { buildFubPayload } from "@/lib/integrations/build-fub-payload";
+import { chunkedRun } from "@/lib/db/chunked-in";
 
 // Shared push helper called from the manual "Push to FUB" route and
 // from the inline auto-push hook on stage transitions. Wraps:
@@ -104,4 +105,70 @@ export async function pushPipelineEntryToFub(
     mode: result.status === 201 ? "created" : "updated",
     personId: result.personId,
   };
+}
+
+// Called from the MasterInbox label endpoints (single + bulk) after
+// a lead is labeled Introduction. Resolves the thread ids to the
+// pipeline_entries the DB trigger just created, filters out anything
+// already-pushed or client-less, then serially pushes each to FUB.
+//
+// Every failure mode is swallowed — this must NEVER break labeling.
+// Callers wrap in `after()` from next/server so the user's request
+// is unaffected by push latency or errors.
+//
+// Guardrails (all inherited from pushPipelineEntryToFub):
+//   * short-circuits when the client has no fub_api_key
+//   * writes fub_pushed_at + fub_event_id on success
+//   * writes fub_last_error on API failure (visible in the portal)
+//   * FUB API is upsert on email — even if this ran twice for the
+//     same lead somehow, the same person record gets updated (no
+//     duplicates)
+// Additional guardrails HERE:
+//   * skips entries where fub_pushed_at is already set (belt +
+//     suspenders on top of the API's own idempotency, so we don't
+//     even spend the round trip)
+//   * sequential loop with a 200 ms gap between calls so a bulk
+//     label of 20 leads doesn't fire 20 parallel POSTs at a single
+//     FUB tenant (their per-account rate limit is ~120/min)
+export async function pushIntroPipelineEntriesForThreadsToFub(
+  threadIds: string[],
+): Promise<void> {
+  try {
+    if (threadIds.length === 0) return;
+    const admin = createAdminSupabase();
+    // chunkedRun to stay under the PostgREST URL-length cap even when
+    // an operator bulk-labels a very large batch (schema max is 500,
+    // realistically < 20 at a time).
+    const chunks = await chunkedRun(threadIds, (slice) =>
+      admin
+        .from("client_pipeline_entries")
+        .select("id, client_id")
+        .in("thread_id", slice)
+        .eq("stage", "introduction")
+        .is("fub_pushed_at", null),
+    );
+    const rows = chunks.flatMap((c) =>
+      (c.data ?? []) as Array<{ id: string; client_id: string }>,
+    );
+    if (rows.length === 0) return;
+    for (const row of rows) {
+      try {
+        await pushPipelineEntryToFub(row.client_id, row.id);
+      } catch (err) {
+        console.error(
+          "[fub] inbox-label auto-push failed for entry",
+          row.id,
+          err,
+        );
+      }
+      // Pacing gap between successive pushes to different clients'
+      // FUB accounts. 200 ms = ~5/sec, well under FUB's ceiling.
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  } catch (err) {
+    console.error(
+      "[fub] pushIntroPipelineEntriesForThreadsToFub failed",
+      err,
+    );
+  }
 }

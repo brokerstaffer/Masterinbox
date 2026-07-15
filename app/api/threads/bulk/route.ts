@@ -8,6 +8,7 @@ import {
   markEmailBisonReplyInterested,
 } from "@/lib/inbox/interest";
 import { notifyIntroductionForThreads } from "@/lib/webhooks/n8n-introduction";
+import { pushIntroPipelineEntriesForThreadsToFub } from "@/lib/integrations/push-pipeline-entry";
 
 export const dynamic = "force-dynamic";
 
@@ -229,6 +230,10 @@ export async function POST(request: Request) {
           after(() =>
             notifyIntroductionForThreads(threadIds, "inbox_bulk_label"),
           );
+          // Auto-push each newly-introduced lead to the client's FUB
+          // (if connected). Idempotent — skips entries already pushed;
+          // errors land on fub_last_error and never break labeling.
+          after(() => pushIntroPipelineEntriesForThreadsToFub(threadIds));
         }
         if (names.includes("interested")) {
           const threadIds = data.thread_ids;

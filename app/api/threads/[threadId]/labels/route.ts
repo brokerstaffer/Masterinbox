@@ -9,6 +9,7 @@ import {
   markEmailBisonReplyInterested,
 } from "@/lib/inbox/interest";
 import { notifyIntroductionForThreads } from "@/lib/webhooks/n8n-introduction";
+import { pushIntroPipelineEntriesForThreadsToFub } from "@/lib/integrations/push-pipeline-entry";
 
 export const dynamic = "force-dynamic";
 
@@ -99,10 +100,17 @@ export async function POST(
     await markThreadLeadDoNotContact(threadId);
   }
 
-  // Introduction → notify n8n. The 0023 DB trigger has already created
-  // the pipeline row inside the upsert above; resolve it post-response.
+  // Introduction → notify n8n + Bison orchestrator + auto-push to
+  // Follow Up Boss (if the receiving client has FUB connected). The
+  // 0023 DB trigger has already created the pipeline row inside the
+  // upsert above; both helpers resolve it post-response.
+  //
+  // The FUB push is idempotent (skips entries with fub_pushed_at
+  // already set) and non-fatal (any error lands on fub_last_error,
+  // never bubbles back to the labeling request).
   if ((label?.name as string | null)?.toLowerCase() === "introduction") {
     after(() => notifyIntroductionForThreads([threadId], "inbox_label"));
+    after(() => pushIntroPipelineEntriesForThreadsToFub([threadId]));
   }
 
   // Interested / Not Interested → round-trip the decision back to
