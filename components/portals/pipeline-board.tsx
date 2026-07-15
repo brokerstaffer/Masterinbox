@@ -1399,8 +1399,9 @@ function PipelineRow({
                 <MessageSquare className="size-3" />
                 Text
               </a>
-              {/* Copy just the phone number to the clipboard. Matches
-                  the Call / Text visual weight so it reads as a peer. */}
+              {/* Copy just the phone number. Matches the subtle
+                  gray icon-only style used by the name-copy button
+                  so the two copy actions read as one system. */}
               <button
                 type="button"
                 onClick={(e) => {
@@ -1409,10 +1410,9 @@ function PipelineRow({
                 }}
                 aria-label="Copy phone"
                 title="Copy phone"
-                className="inline-flex h-5 items-center gap-1 rounded border border-[#d4e4f8] bg-white px-1.5 text-[10.5px] font-medium text-[#1565C0] hover:bg-[#eaf2fd]"
+                className="inline-flex size-5 shrink-0 items-center justify-center rounded text-[#9aa0ab] hover:bg-[#eef0f3] hover:text-[#5b6472]"
               >
-                <Copy className="size-3" />
-                Copy
+                <Copy className="size-3.5" />
               </button>
             </div>
           </div>
@@ -1612,7 +1612,8 @@ function PipelineMobileCard({
             >
               <MessageSquare className="size-3.5" />
             </a>
-            {/* Copy just the phone number to the clipboard. */}
+            {/* Copy just the phone number. Same subtle gray icon
+                treatment as the name-copy button. */}
             <button
               type="button"
               onClick={(e) => {
@@ -1621,7 +1622,7 @@ function PipelineMobileCard({
               }}
               aria-label="Copy phone"
               title="Copy phone"
-              className="inline-flex size-6 items-center justify-center rounded text-[#1565C0] hover:bg-[#eaf2fd]"
+              className="inline-flex size-5 shrink-0 items-center justify-center rounded text-[#9aa0ab] hover:bg-[#eef0f3] hover:text-[#5b6472]"
             >
               <Copy className="size-3.5" />
             </button>
