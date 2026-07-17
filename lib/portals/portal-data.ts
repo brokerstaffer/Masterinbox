@@ -145,7 +145,7 @@ export const loadPipelineEntries = cache(
     const { data, error } = await admin
       .from("client_pipeline_entries")
       .select(
-        "id, stage, needs_replacement, lead_name, lead_email, lead_phone, current_brokerage, agent_profile_url, introduced_at, thread_id, assigned_team_member_id, fub_event_id, fub_pushed_at, fub_last_error, source, assigned_team_member:assigned_team_member_id (id, name), external_intros:external_intro_id (lead_detail, campaign_name), leads:lead_id (custom_fields, company)",
+        "id, stage, needs_replacement, lead_name, lead_email, lead_phone, current_brokerage, agent_profile_url, introduced_at, thread_id, assigned_team_member_id, fub_event_id, fub_pushed_at, fub_last_error, source, custom_fields_overrides, assigned_team_member:assigned_team_member_id (id, name), external_intros:external_intro_id (lead_detail, campaign_name), leads:lead_id (custom_fields, company)",
       )
       .eq("client_id", clientId)
       .order("introduced_at", { ascending: false })
@@ -202,7 +202,14 @@ export const loadPipelineEntries = cache(
       const cf = (lead?.custom_fields ?? {}) as Record<string, unknown>;
       const extCf = ((ext?.lead_detail as { custom_fields?: Record<string, unknown> } | null)
         ?.custom_fields ?? {}) as Record<string, unknown>;
-      const merged = { ...cf, ...extCf };
+      // Client-authored per-entry overrides (migration 0057) win over
+      // the raw Bison/Instantly enrichment. `?? {}` so a pre-migration
+      // row (or a null column) is a no-op — display stays byte-identical
+      // to before overrides existed.
+      const overrides =
+        ((r as { custom_fields_overrides?: Record<string, unknown> | null })
+          .custom_fields_overrides ?? {}) as Record<string, unknown>;
+      const merged = { ...cf, ...extCf, ...overrides };
       const pickStr = (...keys: string[]) => {
         for (const k of keys) {
           const v = merged[k];

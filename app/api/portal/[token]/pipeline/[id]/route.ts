@@ -41,6 +41,21 @@ const schema = z.object({
   // null clears the assignment. FK is ON DELETE SET NULL so a deleted
   // team member unassigns automatically.
   assigned_team_member_id: z.string().uuid().nullable().optional(),
+  // Client-authored overrides for the raw Bison/Instantly enrichment
+  // fields (Sales Volume, MLS Affiliation, etc.). A partial map of
+  // key → new string value. Merged (not replaced) into the entry's
+  // custom_fields_overrides JSONB — sending {"Sales Volume": "$5M"}
+  // sets only that key and leaves the rest of the map intact. Bounded
+  // so a malformed payload can't bloat the row: ≤ 60 keys, keys ≤ 120
+  // chars, values ≤ 2000 chars. Empty-string value blanks the field
+  // (override wins → shows empty); to fully revert to the Bison
+  // value a future "reset" affordance would delete the key.
+  custom_fields: z
+    .record(z.string().max(120), z.string().max(2000))
+    .refine((m) => Object.keys(m).length <= 60, {
+      message: "Too many custom fields",
+    })
+    .optional(),
 });
 
 export async function PATCH(
@@ -65,6 +80,13 @@ export async function PATCH(
   }
 
   const admin = createAdminSupabase();
+
+  // Separate the custom-field override patch from the plain column
+  // edits — it targets the custom_fields_overrides JSONB, not a
+  // same-named column, and is merged (not replaced) so partial edits
+  // don't wipe previously-overridden keys.
+  const { custom_fields: customFieldsPatch, ...columnPatch } = parsed.data;
+
   // Snapshot pre-update stage so the Slack notification can show
   // "from → to". One row, indexed lookup — negligible cost. Reading
   // BEFORE the update is the only way; the UPDATE…RETURNING shape
@@ -79,7 +101,25 @@ export async function PATCH(
       .maybeSingle();
     priorStage = (prior?.stage as string | null) ?? null;
   }
-  const patch: Record<string, unknown> = { ...parsed.data, updated_at: new Date().toISOString() };
+
+  const patch: Record<string, unknown> = { ...columnPatch, updated_at: new Date().toISOString() };
+
+  // Read-modify-write the overrides map when a custom-field patch is
+  // present: load the current map, shallow-merge the patch on top
+  // (patch wins), and include the merged result in the single UPDATE
+  // below. Scoped by id + client_id so one client can never touch
+  // another's entry.
+  if (customFieldsPatch && Object.keys(customFieldsPatch).length > 0) {
+    const { data: cur } = await admin
+      .from("client_pipeline_entries")
+      .select("custom_fields_overrides")
+      .eq("id", id)
+      .eq("client_id", client.id)
+      .maybeSingle();
+    const existing =
+      ((cur?.custom_fields_overrides as Record<string, unknown> | null) ?? {});
+    patch.custom_fields_overrides = { ...existing, ...customFieldsPatch };
+  }
   const { data, error } = await admin
     .from("client_pipeline_entries")
     .update(patch)

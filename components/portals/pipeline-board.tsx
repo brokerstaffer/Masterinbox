@@ -119,6 +119,56 @@ function getLeadCopyPhone(entry: PipelineEntry): string {
   return (phone ?? "").trim();
 }
 
+// Keys that are NOT shown in the editable "Custom fields" section of
+// the Edit dialog — either because they already have a dedicated input
+// (name / email / phone / company / agent profile) or because they're
+// machine noise the detail card also hides. Mirrors the dedup + CF_SKIP
+// logic in pipeline-detail-inline.tsx so the dialog's editable set
+// matches exactly what the card renders in its generic grid.
+const CUSTOM_FIELD_SKIP = new Set([
+  "email",
+  "phone", "phone number", "phonenumber", "phone_number", "mobile", "cell",
+  "name", "first_name", "last_name", "full_name", "firstname", "lastname", "fullname",
+  "company", "companyname", "company_name", "brokerage", "current_brokerage",
+  "title", "jobtitle", "job_title",
+  "location",
+  "website", "url",
+  // Machine noise (kept in sync with CF_SKIP in the detail card):
+  "campaign", "campaign_id", "campaignid", "step", "variant",
+  "email_id", "emailid", "is_first", "isfirst", "unibox_url", "uniboxurl",
+  "source",
+]);
+
+// Returns the [key, value] pairs a client may edit for an entry —
+// every custom_fields key except the dedicated / noise ones above and
+// any "* Profile" alias (handled by the dedicated Agent profile input).
+// Values are stringified; null/undefined become "".
+function editableCustomFields(entry: PipelineEntry): Array<[string, string]> {
+  const cf = ((entry.lead_detail as { custom_fields?: Record<string, unknown> } | null)
+    ?.custom_fields ?? {}) as Record<string, unknown>;
+  return Object.entries(cf)
+    .filter(([k]) => {
+      const lk = k.toLowerCase();
+      if (CUSTOM_FIELD_SKIP.has(lk)) return false;
+      if (/profile$/i.test(k)) return false;
+      return true;
+    })
+    .map(([k, v]) => [k, v == null ? "" : String(v)] as [string, string]);
+}
+
+// Field-label prettifier — identical to prettyKey() in
+// pipeline-detail-inline.tsx so a field reads the same in the Edit
+// dialog as it does on the detail card ("buy-side" → "Buy-side",
+// "salesVolume" → "Sales Volume").
+function prettyFieldLabel(key: string): string {
+  return key
+    .replace(/_/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .replace(/^./, (c) => c.toUpperCase())
+    .trim();
+}
+
 type EditTarget = { mode: "create" } | { mode: "edit"; entry: PipelineEntry };
 
 export function PipelineBoard({
@@ -2224,10 +2274,25 @@ function EditLeadDialog({
   const [needsReplacement, setNeedsReplacement] = useState<boolean>(
     initial?.needs_replacement ?? false,
   );
+  // Editable custom fields (Sales Volume, MLS Affiliation, etc.). Only
+  // in edit mode — a brand-new manual candidate has no enrichment yet.
+  // `initialCustom` is frozen at open so we can compute which fields
+  // the client actually changed and send ONLY those (untouched fields
+  // keep flowing live from Bison).
+  const initialCustom = useMemo<Array<[string, string]>>(
+    () => (initial ? editableCustomFields(initial) : []),
+    [initial],
+  );
+  const [customValues, setCustomValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(initialCustom),
+  );
   const [pending, startTransition] = useTransition();
 
   async function submit() {
-    const body = {
+    // Typed column edits — kept in named locals so the create-mode
+    // optimistic row below reads them directly (not from an untyped
+    // request body).
+    const columnEdits = {
       lead_name: name.trim() || null,
       lead_email: email.trim() || null,
       lead_phone: phone.trim() || null,
@@ -2238,6 +2303,23 @@ function EditLeadDialog({
         : null,
       needs_replacement: needsReplacement,
     };
+
+    // Delta: only custom fields whose value the client changed from the
+    // value shown when the dialog opened. Untouched fields are omitted
+    // so they keep flowing from the Bison enrichment (and stay fresh on
+    // re-sync); the endpoint merges this patch into the override map.
+    const customFieldsDelta: Record<string, string> = {};
+    for (const [k, original] of initialCustom) {
+      const next = customValues[k] ?? "";
+      if (next !== original) customFieldsDelta[k] = next;
+    }
+    const hasCustomEdits = Object.keys(customFieldsDelta).length > 0;
+
+    const body: Record<string, unknown> = {
+      ...columnEdits,
+      ...(hasCustomEdits ? { custom_fields: customFieldsDelta } : {}),
+    };
+
     if (target.mode === "create") {
       const res = await fetch(`/api/portal/${token}/pipeline`, {
         method: "POST",
@@ -2253,14 +2335,14 @@ function EditLeadDialog({
       const newRow: PipelineEntry = {
         id: j.id,
         stage: "introduction",
-        needs_replacement: body.needs_replacement,
-        lead_name: body.lead_name,
-        lead_email: body.lead_email,
-        lead_phone: body.lead_phone,
-        current_brokerage: body.current_brokerage,
-        agent_profile_url: body.agent_profile_url,
+        needs_replacement: columnEdits.needs_replacement,
+        lead_name: columnEdits.lead_name,
+        lead_email: columnEdits.lead_email,
+        lead_phone: columnEdits.lead_phone,
+        current_brokerage: columnEdits.current_brokerage,
+        agent_profile_url: columnEdits.agent_profile_url,
         lead_location: null,
-        introduced_at: body.introduced_at,
+        introduced_at: columnEdits.introduced_at,
         lead_detail: null,
         campaign_name: null,
         // Manual adds never link a thread. The "View conversation"
@@ -2299,14 +2381,30 @@ function EditLeadDialog({
       toast.error(j.error ?? "Could not save");
       return;
     }
-    onApply(target.entry.id, body);
+
+    // Optimistic patch — column edits, plus (when custom fields
+    // changed) a rebuilt lead_detail.custom_fields so the expanded
+    // card reflects the edit immediately without a refetch.
+    const optimistic: Partial<PipelineEntry> = { ...columnEdits };
+    if (hasCustomEdits) {
+      const prevDetail =
+        (target.entry.lead_detail as {
+          custom_fields?: Record<string, unknown>;
+        } | null) ?? null;
+      const prevCf = (prevDetail?.custom_fields ?? {}) as Record<string, unknown>;
+      optimistic.lead_detail = {
+        ...(prevDetail ?? {}),
+        custom_fields: { ...prevCf, ...customFieldsDelta },
+      };
+    }
+    onApply(target.entry.id, optimistic);
     toast.success("Lead updated");
     onClose();
   }
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             {target.mode === "create" ? "Add a candidate" : "Edit lead"}
@@ -2364,6 +2462,33 @@ function EditLeadDialog({
             </span>
           </label>
         </div>
+
+        {/* Editable custom fields (Sales Volume, MLS Affiliation, etc.).
+            Only in edit mode, and only when the lead actually has
+            enrichment fields to edit. Edits are stored as per-entry
+            overrides — they never touch the shared lead or overwrite the
+            original Bison data, and clearing a value back to its original
+            reverts it. */}
+        {target.mode === "edit" && initialCustom.length > 0 ? (
+          <div className="mt-1 border-t border-[#ebecf0] pt-3">
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-[#9aa0ab]">
+              Custom fields
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {initialCustom.map(([key]) => (
+                <div key={key}>
+                  <Label className="text-[12px]">{prettyFieldLabel(key)}</Label>
+                  <Input
+                    value={customValues[key] ?? ""}
+                    onChange={(e) =>
+                      setCustomValues((cur) => ({ ...cur, [key]: e.target.value }))
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel
