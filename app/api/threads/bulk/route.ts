@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth/workspace";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { createAdminSupabase } from "@/lib/supabase/admin";
 import { chunkedRun } from "@/lib/db/chunked-in";
 import {
   isInterestedLabel,
@@ -9,6 +10,7 @@ import {
 } from "@/lib/inbox/interest";
 import { notifyIntroductionForThreads } from "@/lib/webhooks/n8n-introduction";
 import { pushIntroPipelineEntriesForThreadsToFub } from "@/lib/integrations/push-pipeline-entry";
+import { invalidateInboxClientsCache } from "@/lib/inbox/clients";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +24,7 @@ export const dynamic = "force-dynamic";
 //   list:   { thread_ids: [], action: "list", list_id: uuid, op: "add" | "remove" }
 //   delete: { thread_ids: [], action: "delete" }
 //   delete_permanent: { thread_ids: [], action: "delete_permanent" }
+//   move_client: { thread_ids: [], action: "move_client", client_id: uuid }
 
 const idsSchema = z.array(z.string().uuid()).min(1).max(500);
 
@@ -56,6 +59,11 @@ const schemas = {
     action: z.literal("delete_permanent"),
     thread_ids: idsSchema,
   }),
+  move_client: z.object({
+    action: z.literal("move_client"),
+    thread_ids: idsSchema,
+    client_id: z.string().uuid(),
+  }),
 };
 
 const dispatcher = z.discriminatedUnion("action", [
@@ -65,6 +73,7 @@ const dispatcher = z.discriminatedUnion("action", [
   schemas.list,
   schemas.delete,
   schemas.delete_permanent,
+  schemas.move_client,
 ]);
 
 export async function POST(request: Request) {
@@ -142,6 +151,104 @@ export async function POST(request: Request) {
       const failed = results.find((r) => r.error);
       if (failed?.error) return NextResponse.json({ error: failed.error.message }, { status: 400 });
       return NextResponse.json({ ok: true });
+    }
+    case "move_client": {
+      // Move agent(s) to a different client. Re-tags the thread in the
+      // inbox AND moves the matching portal pipeline entry so the inbox
+      // and the client portal never disagree on ownership.
+      //
+      // Durability: the sync layer (upsertThread in lib/sync/*) does
+      // "first match wins" on client_id, so a later reply on a moved
+      // thread never reverts this. The move is permanent.
+      const admin = createAdminSupabase();
+      const targetClientId = data.client_id;
+
+      // 1. Validate the target exists and isn't the "unknown" bucket.
+      const { data: target, error: targetErr } = await admin
+        .from("clients")
+        .select("id, slug")
+        .eq("id", targetClientId)
+        .maybeSingle();
+      if (targetErr) {
+        return NextResponse.json({ error: targetErr.message }, { status: 400 });
+      }
+      if (!target) {
+        return NextResponse.json({ error: "Target client not found" }, { status: 404 });
+      }
+      if (target.slug === "unknown") {
+        return NextResponse.json(
+          { error: "Agents can't be moved to the Unknown bucket." },
+          { status: 400 },
+        );
+      }
+
+      // 2. Move portal pipeline entries FIRST (admin — client_pipeline_entries
+      //    is RLS-gated with no session policy). Only entries that belong to
+      //    the caller's threads AND aren't already on the target move.
+      //
+      //    Collision guard for the unique (client_id, thread_id) index: if
+      //    the target somehow ALREADY has an entry for one of these threads
+      //    (only possible via a prior inconsistent state), delete the source
+      //    entry for that thread so the UPDATE below can't hit a duplicate.
+      const collisionRows = await chunkedRun(data.thread_ids, (slice) =>
+        admin
+          .from("client_pipeline_entries")
+          .select("thread_id")
+          .eq("client_id", targetClientId)
+          .in("thread_id", slice),
+      );
+      const alreadyOnTarget = new Set<string>(
+        collisionRows.flatMap((r) =>
+          ((r.data ?? []) as Array<{ thread_id: string | null }>)
+            .map((x) => x.thread_id)
+            .filter((v): v is string => Boolean(v)),
+        ),
+      );
+      if (alreadyOnTarget.size > 0) {
+        const dupThreadIds = [...alreadyOnTarget];
+        const delResults = await chunkedRun(dupThreadIds, (slice) =>
+          admin
+            .from("client_pipeline_entries")
+            .delete()
+            .neq("client_id", targetClientId)
+            .in("thread_id", slice),
+        );
+        const delFail = delResults.find((r) => r.error);
+        if (delFail?.error) {
+          return NextResponse.json({ error: delFail.error.message }, { status: 400 });
+        }
+      }
+
+      const pipelineResults = await chunkedRun(data.thread_ids, (slice) =>
+        admin
+          .from("client_pipeline_entries")
+          .update({ client_id: targetClientId, updated_at: new Date().toISOString() })
+          .neq("client_id", targetClientId)
+          .in("thread_id", slice),
+      );
+      const pipelineFail = pipelineResults.find((r) => r.error);
+      if (pipelineFail?.error) {
+        return NextResponse.json({ error: pipelineFail.error.message }, { status: 400 });
+      }
+
+      // 3. Move the threads (session client, workspace-scoped).
+      const threadResults = await chunkedRun(data.thread_ids, (slice) =>
+        supabase
+          .from("threads")
+          .update({ client_id: targetClientId })
+          .in("id", slice)
+          .eq("workspace_id", wsId),
+      );
+      const threadFail = threadResults.find((r) => r.error);
+      if (threadFail?.error) {
+        return NextResponse.json({ error: threadFail.error.message }, { status: 400 });
+      }
+
+      // 4. Refresh the inbox client-filter cache (a client may have just
+      //    gained or lost its last thread).
+      invalidateInboxClientsCache();
+
+      return NextResponse.json({ ok: true, moved: data.thread_ids.length });
     }
     case "labels": {
       if (data.op === "add") {

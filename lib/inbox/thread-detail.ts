@@ -52,6 +52,7 @@ export interface ThreadDetail {
   source_provider: "emailbison" | "instantly" | null;
   campaign_id: string | null;
   campaign_name: string | null;
+  client_id: string | null;
   client_name: string | null;
   pending_draft: PendingDraft | null;
   composer_draft: ComposerDraft | null;
@@ -93,7 +94,7 @@ export async function loadThreadDetail(
         `id, workspace_id, subject, status, outbound_sender_email, source_provider, campaign_id, campaign_name,
        leads:lead_id(id, full_name, email, company, title, linkedin_url, custom_fields),
        channels:channel_id(provider, display_name),
-       clients:client_id(name)`,
+       clients:client_id(id, name)`,
       )
       .eq("id", threadId)
       .eq("workspace_id", workspaceId)
@@ -181,6 +182,7 @@ export async function loadThreadDetail(
     source_provider: (thread.source_provider as ThreadDetail["source_provider"]) ?? null,
     campaign_id: (thread.campaign_id as string | null) ?? null,
     campaign_name: (thread.campaign_name as string | null) ?? null,
+    client_id: (client?.id as string | null) ?? null,
     client_name: (client?.name as string | null) ?? null,
     pending_draft: draftRow
       ? {

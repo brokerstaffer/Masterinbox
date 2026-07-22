@@ -33,6 +33,7 @@ import { CreateListDialog } from "@/components/inbox/create-list-dialog";
 import { cn } from "@/lib/utils";
 import type { LabelRow } from "@/lib/inbox/labels-shared";
 import type { ListRow } from "@/lib/inbox/lists-shared";
+import { MoveAgentMenu } from "@/components/inbox/move-agent-menu";
 
 export function BulkActionsBar({
   selected,
@@ -163,6 +164,17 @@ export function BulkActionsBar({
         <span className="text-sm text-muted-foreground mr-2">
           {selected.length} selected
         </span>
+
+        {/* Move agent — re-tag selected threads to a different client */}
+        <MoveAgentMenu
+          threadIds={selected}
+          currentClientId={null}
+          onMoved={() => {
+            onClear();
+            startTransition(() => router.refresh());
+          }}
+          disabled={pending}
+        />
 
         {/* Move to list */}
         <DropdownMenu>

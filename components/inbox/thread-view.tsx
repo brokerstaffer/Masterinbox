@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Composer } from "@/components/inbox/composer";
 import { LabelPickerButton } from "@/components/inbox/label-picker";
 import { SnoozeButton } from "@/components/inbox/snooze-button";
+import { MoveAgentMenu } from "@/components/inbox/move-agent-menu";
 import { cn } from "@/lib/utils";
 import { sanitizeEmailHtml } from "@/lib/inbox/sanitize-email-html";
 import type { ThreadDetail, MessageRow } from "@/lib/inbox/thread-detail";
@@ -214,6 +215,12 @@ export function ThreadView({
           icon={RefreshCw}
           label="Refresh"
           onClick={() => startTransition(() => router.refresh())}
+          disabled={pending}
+        />
+        <MoveAgentMenu
+          threadIds={[detail.id]}
+          currentClientId={detail.client_id}
+          onMoved={() => startTransition(() => router.refresh())}
           disabled={pending}
         />
         <LabelPickerButton
