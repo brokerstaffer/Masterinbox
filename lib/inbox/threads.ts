@@ -117,39 +117,15 @@ export async function loadThreads(
     }
   }
 
-  // Build a SINGLE filtered query. `count: 'exact'` MUST be on this first
-  // .select() — supabase-js only honors the count option on
-  // PostgrestQueryBuilder.select(); the chained .select(detailCols, …) later
-  // goes through PostgrestTransformBuilder.select() which silently ignores
-  // the options arg. Without count here the response Content-Range is
-  // omitted, `count` comes back null, and pagination caps at data.length.
-  let query = supabase
-    .from("threads")
-    .select("id, last_message_at", { count: "exact" })
-    .eq("workspace_id", workspaceId);
-
-  // Sidebar destinations (not custom_views).
-  //
-  // Fast paths: for the well-known system view slugs (sidebar destinations
-  // plus the seeded "all-email" tab) we apply the known filter directly
-  // and skip the loadViewBySlug Supabase round-trip. This is the common
-  // case — every active user spends most of their time on /inbox/all-email
-  // — and saves ~280ms per click. The slow path (custom user views) still
-  // works exactly as before.
+  // Resolve the custom view (non-system slugs) up front. Needed to apply
+  // the view's SQL preset AND to read its saved filter rows. System slugs
+  // (all-email / archive / spam / trash) skip this Supabase round-trip —
+  // the common case, since users live on /inbox/all-email.
   let cv: CustomView | null = null;
-  if (view === "archive") {
-    query = query.eq("status", "archived");
-  } else if (view === "spam") {
-    query = query.eq("status", "spam");
-  } else if (view === "trash") {
-    query = query.eq("status", "trash");
-  } else if (view === "all-email") {
-    // Seeded system view — preset 'all_email' maps to status='open'.
-    // Hardcoded to skip the cv lookup entirely.
-    query = query.eq("status", "open");
-  } else {
+  const systemView =
+    view === "archive" || view === "spam" || view === "trash" || view === "all-email";
+  if (!systemView) {
     cv = await loadViewBySlug(workspaceId, view);
-    query = applyViewPreset(query as unknown as Q, cv) as typeof query;
   }
 
   // "Open Responses" — an OR-of-two-conditions view the FilterBuilder
@@ -179,15 +155,36 @@ export async function loadThreads(
   // view / URL is applying on top".
   const activeRows: FilterRow[] = [...state.rows, ...listFilterRows];
 
-  // Apply each active filter row to the query. Some filters need post-query
-  // work (e.g. domain, message_counts). Build an `extraFilter` callback to run
-  // over results after the SQL pass.
+  // Post-SQL predicates (domain/name/email) run over the mapped page
+  // below via filterPredicateForRow; applyRowToQuery only needs this
+  // array to satisfy its signature.
   const postFilters: Array<(t: ThreadRow & { _raw: Record<string, unknown> }) => boolean> = [];
 
-  for (const row of activeRows) {
-    if (!row.enabled) continue;
-    query = applyRowToQuery(query as unknown as Q, row, workspaceId, supabase, postFilters) as typeof query;
-  }
+  // Query factory. supabase-js builders are single-use — awaiting one
+  // executes and mutates it — so every execution path and every chunk
+  // asks makeQuery for a fresh builder with the same filters applied.
+  //
+  // `count: 'exact'` is honored ONLY on this first .select()
+  // (PostgrestQueryBuilder); a chained .select() silently drops the
+  // option. So callers that need the total request withCount here.
+  const makeQuery = (cols: string, withCount: boolean) => {
+    let q = (
+      withCount
+        ? supabase.from("threads").select(cols, { count: "exact" })
+        : supabase.from("threads").select(cols)
+    ).eq("workspace_id", workspaceId);
+    if (view === "archive") q = q.eq("status", "archived") as typeof q;
+    else if (view === "spam") q = q.eq("status", "spam") as typeof q;
+    else if (view === "trash") q = q.eq("status", "trash") as typeof q;
+    else if (view === "all-email") q = q.eq("status", "open") as typeof q;
+    else q = applyViewPreset(q as unknown as Q, cv) as typeof q;
+    if (listClientId) q = q.eq("client_id", listClientId) as typeof q;
+    for (const row of activeRows) {
+      if (!row.enabled) continue;
+      q = applyRowToQuery(q as unknown as Q, row, workspaceId, supabase, postFilters) as typeof q;
+    }
+    return q;
+  };
 
   // Resolve any async label/channel filter expansions first.
   const resolved = await Promise.all(
@@ -203,23 +200,12 @@ export async function loadThreads(
   // membership), searchThreadIds (top-bar search), openResponseIds
   // ("Open Responses" preset). Each one is a set of thread UUIDs.
   //
-  // If we pass them all to `.in("id", …)` clauses, PostgREST encodes
-  // them in the URL query string. ~400 UUIDs is enough to overshoot
-  // Node's 16 KB header cap and fetch throws HeadersOverflowError —
-  // the page silently renders empty even though the data is there.
-  // (That's the "Not Interested can't be clicked" bug at 441 matches.)
-  //
-  // Switch strategy when any id-set restriction is active: fetch the
-  // full matching list (no id-set filters in the URL), intersect with
-  // the id sets in memory, then paginate. Single round-trip, payload
-  // bounded by the OPEN-thread count instead of by URL length.
-  // Logical AND across these sets — every set must contain the row's
-  // id for it to qualify. EXCLUSION sets go in `idNotInSets` and are
-  // applied as the negation. Both kinds funnel into the safe path
-  // (memory intersection) so neither ever builds a too-long URL,
-  // regardless of how many ids a future view's filter ends up
-  // matching. This is the single guard that protects every label-
-  // based / list / search / preset view, present and future.
+  // Passing them all to `.in("id", …)` would encode thousands of UUIDs
+  // in the URL and overshoot Node's 16 KB header cap (fetch throws
+  // HeadersOverflowError and the page silently renders empty — the old
+  // "Not Interested can't be clicked" bug). So we resolve them to
+  // in-memory sets instead. Logical AND across restriction sets; any
+  // exclusion set that contains an id disqualifies it.
   const idRestrictionSets: Set<string>[] = [];
   const idNotInSets: Set<string>[] = [];
   for (const r of resolved) {
@@ -233,44 +219,66 @@ export async function loadThreads(
       idNotInSets.push(new Set(r.idNotIn));
     }
   }
-  if (listClientId) {
-    query = query.eq("client_id", listClientId) as typeof query;
-  }
   if (listThreadIds !== null) idRestrictionSets.push(new Set(listThreadIds));
   if (searchThreadIds !== null) idRestrictionSets.push(new Set(searchThreadIds));
   if (openResponseIds !== null) idRestrictionSets.push(new Set(openResponseIds));
-  const usingIdRestrictionPath =
-    idRestrictionSets.length > 0 || idNotInSets.length > 0;
 
-  // Two execution paths share the rest of the function:
-  //
-  // FAST PATH (no id-set restrictions active): one query, the DB
-  //   does count + range, ~50 rows come back.
-  //
-  // SAFE PATH (id restrictions are active — label-based views,
-  //   list_id membership, top-bar search, or Open Responses): fetch
-  //   all matching rows in one go, intersect with the id sets in
-  //   memory, paginate locally. Keeps URLs under PostgREST's header
-  //   cap regardless of how many threads a label has been applied
-  //   to. The payload is bounded by the OPEN-thread count, not by
-  //   URL length.
   const detailCols = `id, subject, last_message_at, last_message_preview, needs_reply, seen, message_count, source_provider, campaign_id, campaign_name,
        leads:lead_id(full_name, email, company),
        channels:channel_id(provider),
        clients:client_id(name, slug)`;
   const offset = (safePage - 1) * pageSize;
 
+  // Hydrate the heavy detail columns for just the visible page. `.in()`
+  // doesn't guarantee order, so re-project into the given page order.
+  // ~50 ids → ~1.9 KB URL, well under the PostgREST header cap.
+  const hydratePage = async (
+    pageIds: string[],
+  ): Promise<Record<string, unknown>[] | null> => {
+    if (pageIds.length === 0) return [];
+    const { data: hydrated, error: hydrateErr } = await supabase
+      .from("threads")
+      .select(detailCols)
+      .eq("workspace_id", workspaceId)
+      .in("id", pageIds);
+    if (hydrateErr) {
+      console.error("[loadThreads] hydrate failed", hydrateErr);
+      return null;
+    }
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const h of (hydrated ?? []) as Record<string, unknown>[]) {
+      byId.set(h.id as string, h);
+    }
+    return pageIds
+      .map((id) => byId.get(id))
+      .filter((r): r is Record<string, unknown> => Boolean(r));
+  };
+
+  // Order by last_message_at desc, nulls last — the SQL order the fast
+  // path gets for free. ISO-8601 strings compare lexicographically =
+  // chronologically, so no Date parsing needed.
+  const byLastMessageDesc = (
+    a: { last_message_at: string | null },
+    b: { last_message_at: string | null },
+  ) => {
+    if (a.last_message_at === b.last_message_at) return 0;
+    if (a.last_message_at === null) return 1;
+    if (b.last_message_at === null) return -1;
+    return a.last_message_at < b.last_message_at ? 1 : -1;
+  };
+
   let ordered: Record<string, unknown>[] = [];
   let total = 0;
 
-  if (!usingIdRestrictionPath) {
+  if (idRestrictionSets.length === 0 && idNotInSets.length === 0) {
+    // FAST PATH — no id restrictions. One query; the DB does count +
+    // range and ~pageSize rows come back.
+    //
     // Trade-off: post-filters (domain, name, email) still run client-
     // side, so the displayed total can be slightly off when they
-    // exclude rows. Accepted; post-filters are rare in the typical
-    // view.
-    const detailQuery = query.select(detailCols);
+    // exclude rows. Accepted; post-filters are rare in the typical view.
     const pagedQuery = (
-      detailQuery.order("last_message_at", {
+      makeQuery(detailCols, true).order("last_message_at", {
         ascending: false,
         nullsFirst: false,
       }) as unknown as {
@@ -282,34 +290,100 @@ export async function loadThreads(
       }
     ).range(offset, offset + pageSize - 1);
 
-    const pageResult = await pagedQuery;
-    const { data, error, count } = pageResult;
+    const { data, error, count } = await pagedQuery;
     if (error) {
       console.error("[loadThreads] page query failed", error);
       return { rows: [], total: 0, page: safePage, pageSize };
     }
     total = count ?? data?.length ?? 0;
     ordered = data ?? [];
-  } else {
-    // Safe path. Fetch everything that matches the SQL filters and
-    // intersect with the id sets in memory. PAGE past Supabase's
-    // server-side db-max-rows=1000 cap — a single .range(0, 49_999)
-    // does NOT lift it (the server replies Content-Range: 0-999/N no
-    // matter what range the client asks for). The only way to drain
-    // every row is to page in 1000-row windows; fetchAllRows does
-    // that.
+  } else if (idRestrictionSets.length > 0) {
+    // BOUNDED SAFE PATH — the fix for the 5-6s clicks.
     //
-    // PERF: drain only the LIGHT columns needed to intersect + order +
-    // paginate — id + last_message_at — NOT the heavy detailCols with
-    // their leads/channels/clients joins. `query`'s base select is
-    // already exactly `id, last_message_at` (see the .select() at the
-    // top of this fn), so we reuse it as-is. For a label view matching
-    // hundreds/thousands of threads this cuts the drained payload ~20x
-    // (a label bucket can hold 3000+ threads). The full detail columns
-    // are then hydrated for ONLY the visible page (~100 rows) below.
-    // Filtering, ordering, pagination, and total are byte-identical to
-    // the previous full-drain implementation.
-    const orderedQuery = query.order("last_message_at", {
+    // The restriction sets ARE thread-id sets (a label's threads, a
+    // list's threads, search hits, the Open Responses bucket). Intersect
+    // them in memory first (no DB), then fetch ONLY those candidate
+    // threads that also pass the SQL filters. Work is bounded by the most
+    // selective set — a 232-thread "Interested" view touches ~232 rows,
+    // not the entire ~20k open-thread table the old full-drain walked in
+    // 15-20 sequential 1000-row windows (that was the 5-6s spike).
+    const sortedSets = [...idRestrictionSets].sort((a, b) => a.size - b.size);
+    const smallest = sortedSets[0];
+    const candidates: string[] = [];
+    for (const id of smallest) {
+      let ok = true;
+      for (let i = 1; i < sortedSets.length; i++) {
+        if (!sortedSets[i].has(id)) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+      let excluded = false;
+      for (const s of idNotInSets) {
+        if (s.has(id)) {
+          excluded = true;
+          break;
+        }
+      }
+      if (!excluded) candidates.push(id);
+    }
+    if (candidates.length === 0) {
+      return { rows: [], total: 0, page: safePage, pageSize };
+    }
+
+    // Fetch light {id, last_message_at} for the candidates that also pass
+    // the SQL filters (status=open, client, campaign, …), in URL-safe
+    // 300-id chunks, in parallel. Most views are a single chunk.
+    const CHUNK = 300;
+    const chunks: string[][] = [];
+    for (let i = 0; i < candidates.length; i += CHUNK) {
+      chunks.push(candidates.slice(i, i + CHUNK));
+    }
+    // Run the chunk queries with bounded concurrency (batches of 6) so a
+    // pathologically large label (dozens of chunks) can't open dozens of
+    // simultaneous pooler connections. The common case is a single chunk.
+    let chunkError: { message: string } | null = null;
+    const runChunk = async (slice: string[]) => {
+      const { data, error } = (await (
+        makeQuery("id, last_message_at", false).in("id", slice) as unknown as PromiseLike<{
+          data: { id: string; last_message_at: string | null }[] | null;
+          error: { message: string } | null;
+        }>
+      )) as {
+        data: { id: string; last_message_at: string | null }[] | null;
+        error: { message: string } | null;
+      };
+      if (error) {
+        chunkError = error;
+        return [] as { id: string; last_message_at: string | null }[];
+      }
+      return data ?? [];
+    };
+    const BATCH = 6;
+    const collected: { id: string; last_message_at: string | null }[] = [];
+    for (let i = 0; i < chunks.length; i += BATCH) {
+      const batch = chunks.slice(i, i + BATCH);
+      const results = await Promise.all(batch.map(runChunk));
+      for (const r of results) collected.push(...r);
+      if (chunkError) break;
+    }
+    if (chunkError) {
+      console.error("[loadThreads] bounded safe-path chunk failed", chunkError);
+      return { rows: [], total: 0, page: safePage, pageSize };
+    }
+    const matching = collected.sort(byLastMessageDesc);
+    total = matching.length;
+    const pageIds = matching.slice(offset, offset + pageSize).map((r) => r.id);
+    const hydrated = await hydratePage(pageIds);
+    if (hydrated === null) return { rows: [], total, page: safePage, pageSize };
+    ordered = hydrated;
+  } else {
+    // EXCLUSION-ONLY fallback — a labels-NOT view with no positive
+    // restriction to bound by. There's no smaller candidate set, so drain
+    // the filtered open-thread list (light cols) and apply the exclusion
+    // in memory. Rare, and unavoidable without a positive anchor.
+    const orderedQuery = makeQuery("id, last_message_at", true).order("last_message_at", {
       ascending: false,
       nullsFirst: false,
     });
@@ -327,47 +401,19 @@ export async function loadThreads(
       return [] as { id: string; last_message_at: string | null }[];
     });
     if (safePathError) {
-      console.error("[loadThreads] safe-path query failed", safePathError);
+      console.error("[loadThreads] exclusion-path query failed", safePathError);
       return { rows: [], total: 0, page: safePage, pageSize };
     }
-    // Every restriction set must contain the row's id (logical AND);
-    // no exclusion set may contain it. Both kinds get intersected in
-    // memory so the URL never carries thousands of UUIDs.
     const matching = allRows.filter((r) => {
-      const id = r.id;
-      if (!id) return false;
-      for (const s of idRestrictionSets) if (!s.has(id)) return false;
-      for (const s of idNotInSets) if (s.has(id)) return false;
+      if (!r.id) return false;
+      for (const s of idNotInSets) if (s.has(r.id)) return false;
       return true;
     });
     total = matching.length;
-    const pageIds = matching
-      .slice(offset, offset + pageSize)
-      .map((r) => r.id);
-    if (pageIds.length === 0) {
-      ordered = [];
-    } else {
-      // Hydrate the heavy detail columns for just the visible page.
-      // `.in()` doesn't guarantee order, so re-project into the page's
-      // last_message_at-desc order afterwards. ~100 ids → ~3.7 KB URL,
-      // well under the PostgREST header cap.
-      const { data: hydrated, error: hydrateErr } = await supabase
-        .from("threads")
-        .select(detailCols)
-        .eq("workspace_id", workspaceId)
-        .in("id", pageIds);
-      if (hydrateErr) {
-        console.error("[loadThreads] safe-path hydrate failed", hydrateErr);
-        return { rows: [], total, page: safePage, pageSize };
-      }
-      const byId = new Map<string, Record<string, unknown>>();
-      for (const h of (hydrated ?? []) as Record<string, unknown>[]) {
-        byId.set(h.id as string, h);
-      }
-      ordered = pageIds
-        .map((id) => byId.get(id))
-        .filter((r): r is Record<string, unknown> => Boolean(r));
-    }
+    const pageIds = matching.slice(offset, offset + pageSize).map((r) => r.id);
+    const hydrated = await hydratePage(pageIds);
+    if (hydrated === null) return { rows: [], total, page: safePage, pageSize };
+    ordered = hydrated;
   }
 
   if (ordered.length === 0) {
