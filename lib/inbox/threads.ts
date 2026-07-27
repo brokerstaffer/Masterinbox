@@ -291,20 +291,33 @@ export async function loadThreads(
     // matter what range the client asks for). The only way to drain
     // every row is to page in 1000-row windows; fetchAllRows does
     // that.
-    const orderedQuery = query
-      .select(detailCols)
-      .order("last_message_at", { ascending: false, nullsFirst: false });
+    //
+    // PERF: drain only the LIGHT columns needed to intersect + order +
+    // paginate — id + last_message_at — NOT the heavy detailCols with
+    // their leads/channels/clients joins. `query`'s base select is
+    // already exactly `id, last_message_at` (see the .select() at the
+    // top of this fn), so we reuse it as-is. For a label view matching
+    // hundreds/thousands of threads this cuts the drained payload ~20x
+    // (a label bucket can hold 3000+ threads). The full detail columns
+    // are then hydrated for ONLY the visible page (~100 rows) below.
+    // Filtering, ordering, pagination, and total are byte-identical to
+    // the previous full-drain implementation.
+    const orderedQuery = query.order("last_message_at", {
+      ascending: false,
+      nullsFirst: false,
+    });
     let safePathError: { message: string } | null = null;
-    const allRows = await fetchAllRows<Record<string, unknown>>(({ from, to }) =>
-      (orderedQuery as unknown as {
-        range(from: number, to: number): PromiseLike<{
-          data: Record<string, unknown>[] | null;
-          error: { message: string } | null;
-        }>;
-      }).range(from, to),
+    const allRows = await fetchAllRows<{ id: string; last_message_at: string | null }>(
+      ({ from, to }) =>
+        (orderedQuery as unknown as {
+          range(from: number, to: number): PromiseLike<{
+            data: { id: string; last_message_at: string | null }[] | null;
+            error: { message: string } | null;
+          }>;
+        }).range(from, to),
     ).catch((err: Error) => {
       safePathError = { message: err.message };
-      return [] as Record<string, unknown>[];
+      return [] as { id: string; last_message_at: string | null }[];
     });
     if (safePathError) {
       console.error("[loadThreads] safe-path query failed", safePathError);
@@ -314,14 +327,40 @@ export async function loadThreads(
     // no exclusion set may contain it. Both kinds get intersected in
     // memory so the URL never carries thousands of UUIDs.
     const matching = allRows.filter((r) => {
-      const id = (r as { id?: string }).id;
+      const id = r.id;
       if (!id) return false;
       for (const s of idRestrictionSets) if (!s.has(id)) return false;
       for (const s of idNotInSets) if (s.has(id)) return false;
       return true;
     });
     total = matching.length;
-    ordered = matching.slice(offset, offset + pageSize);
+    const pageIds = matching
+      .slice(offset, offset + pageSize)
+      .map((r) => r.id);
+    if (pageIds.length === 0) {
+      ordered = [];
+    } else {
+      // Hydrate the heavy detail columns for just the visible page.
+      // `.in()` doesn't guarantee order, so re-project into the page's
+      // last_message_at-desc order afterwards. ~100 ids → ~3.7 KB URL,
+      // well under the PostgREST header cap.
+      const { data: hydrated, error: hydrateErr } = await supabase
+        .from("threads")
+        .select(detailCols)
+        .eq("workspace_id", workspaceId)
+        .in("id", pageIds);
+      if (hydrateErr) {
+        console.error("[loadThreads] safe-path hydrate failed", hydrateErr);
+        return { rows: [], total, page: safePage, pageSize };
+      }
+      const byId = new Map<string, Record<string, unknown>>();
+      for (const h of (hydrated ?? []) as Record<string, unknown>[]) {
+        byId.set(h.id as string, h);
+      }
+      ordered = pageIds
+        .map((id) => byId.get(id))
+        .filter((r): r is Record<string, unknown> => Boolean(r));
+    }
   }
 
   if (ordered.length === 0) {
