@@ -439,6 +439,16 @@ export async function POST(
     cc: payload.cc?.map((r) => r.email_address) ?? [],
     bcc: payload.bcc?.map((r) => r.email_address) ?? [],
   };
+  // Compute once so the stored message and the thread's list-preview
+  // agree exactly. The thread list shows last_message_preview /
+  // last_message_at as the conversation's most-recent activity — so
+  // an outbound send must advance them too, otherwise the list keeps
+  // showing the lead's last inbound message even after we reply.
+  const ebSentAt = new Date().toISOString();
+  const ebOutboundText =
+    payload.content_type === "text"
+      ? payload.body
+      : payload.body.replace(/<[^>]+>/g, "");
   await admin.from("messages").insert({
     workspace_id: thread.workspace_id,
     thread_id: threadId,
@@ -450,15 +460,20 @@ export async function POST(
     recipients: recipientsPayload,
     subject: payload.subject ?? null,
     body_html: payload.content_type === "html" ? payload.body : null,
-    body_text:
-      payload.content_type === "text"
-        ? payload.body
-        : payload.body.replace(/<[^>]+>/g, ""),
-    sent_at: new Date().toISOString(),
+    body_text: ebOutboundText,
+    sent_at: ebSentAt,
     external_message_id: outboundId,
     emailbison_reply_id: newReplyId ? String(newReplyId) : null,
   });
-  await admin.from("threads").update({ needs_reply: false, seen: true }).eq("id", threadId);
+  await admin
+    .from("threads")
+    .update({
+      needs_reply: false,
+      seen: true,
+      last_message_at: ebSentAt,
+      last_message_preview: ebOutboundText.slice(0, 200),
+    })
+    .eq("id", threadId);
 
   // Mark any pending drafts on this thread as sent — the user has acted on
   // the conversation and we don't want stale "review me" drafts hanging
@@ -645,6 +660,15 @@ async function sendInstantlyReply(args: {
     cc: payload.cc?.map((r) => r.email_address) ?? [],
     bcc: payload.bcc?.map((r) => r.email_address) ?? [],
   };
+  // Compute once so the stored message and the thread's list-preview
+  // agree — an outbound send advances last_message_at / preview so the
+  // list reflects our reply as the most-recent activity (mirrors the
+  // EmailBison path above).
+  const instSentAt = new Date().toISOString();
+  const instOutboundText =
+    payload.content_type === "text"
+      ? payload.body
+      : payload.body.replace(/<[^>]+>/g, "");
   await admin.from("messages").insert({
     workspace_id: workspaceId,
     thread_id: threadId,
@@ -654,17 +678,19 @@ async function sendInstantlyReply(args: {
     recipients: recipientsPayload,
     subject: payload.subject ?? null,
     body_html: payload.content_type === "html" ? payload.body : null,
-    body_text:
-      payload.content_type === "text"
-        ? payload.body
-        : payload.body.replace(/<[^>]+>/g, ""),
-    sent_at: new Date().toISOString(),
+    body_text: instOutboundText,
+    sent_at: instSentAt,
     external_message_id: outboundId,
     instantly_email_id: newEmailId,
   });
   await admin
     .from("threads")
-    .update({ needs_reply: false, seen: true })
+    .update({
+      needs_reply: false,
+      seen: true,
+      last_message_at: instSentAt,
+      last_message_preview: instOutboundText.slice(0, 200),
+    })
     .eq("id", threadId);
   await admin
     .from("reply_drafts")
