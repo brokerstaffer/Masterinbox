@@ -1,10 +1,6 @@
 import { cache } from "react";
 import { createServerSupabase } from "@/lib/supabase/server";
-import {
-  OPEN_RESPONSES_PRESET,
-  openResponsesThreadIds,
-} from "@/lib/inbox/open-responses";
-import { fetchAllRows } from "@/lib/db/paginated-select";
+import { OPEN_RESPONSES_PRESET } from "@/lib/inbox/open-responses";
 
 export type { CustomView } from "./views-shared";
 export { slugifyView } from "./views-shared";
@@ -82,10 +78,13 @@ export interface ViewCount {
 // Computes, per TabBar view: the "N new" unseen count AND the percentage
 // of all open threads carrying that view's label ("40% Interested" etc.).
 //
-// One pass over every OPEN thread (id + seen) + its label assignments
-// lets us derive both — total-per-label for the %, unseen-per-label for
-// the pill. `listId` narrows everything to one client when a sidebar
-// list is active.
+// Backed by the inbox_view_counts SQL aggregate (migration 0058) — ONE
+// server-side call returns totals, per-label all/unseen, and the Open
+// Responses bucket. This replaced a per-render drain of every open
+// thread + all their label assignments + a messages walk (~2.1s of
+// round-trip amplification on EVERY thread open). `listId` narrows
+// everything to one client when a sidebar list is active — the RPC
+// applies the same scope via its p_list_client argument.
 export const loadViewCounts = cache(async function loadViewCounts(
   workspaceId: string,
   listId?: string | null,
@@ -104,97 +103,49 @@ export const loadViewCounts = cache(async function loadViewCounts(
     listClientId = (listRow?.client_id as string | null) ?? null;
   }
 
-  // Every OPEN thread with its seen flag. Page past db-max-rows=1000
-  // — a single .range(0, N) does NOT lift Supabase's server-side cap
-  // (Content-Range comes back 0-999/N regardless). Drain in 1000-row
-  // windows.
-  const threadRows = await fetchAllRows<{ id: string; seen: boolean }>(
-    ({ from, to }) => {
-      let req = supabase
-        .from("threads")
-        .select("id, seen")
-        .eq("workspace_id", workspaceId)
-        .eq("status", "open");
-      if (listClientId) req = req.eq("client_id", listClientId);
-      return req.range(from, to);
-    },
-  );
-  const totalOpen = threadRows.length;
-  const ids = threadRows.map((t) => t.id);
-  const unseenSet = new Set(threadRows.filter((t) => !t.seen).map((t) => t.id));
-  const totalUnseen = unseenSet.size;
-
-  // label_id → { all threads, unseen threads }
-  //
-  // CHUNK was 500 — that built a PostgREST URL with `target_id=in.(uuid1,
-  // …,uuid500)` totalling ~18KB which Node's default fetch (16KB header
-  // cap) couldn't handle, producing a silent 7-second retry per page
-  // render. 150 matches the safer cap used in lib/inbox/open-responses.ts
-  // and keeps every chunk URL under ~6KB.
-  //
-  // The chunks are independent — fire them in parallel via Promise.all
-  // instead of awaiting sequentially. With 465 threads → 4 chunks ×
-  // ~80ms each, totalling 80ms instead of 320ms.
-  const byLabel = new Map<string, { all: Set<string>; unseen: Set<string> }>();
-  const CHUNK = 150;
-  const slices: string[][] = [];
-  for (let i = 0; i < ids.length; i += CHUNK) slices.push(ids.slice(i, i + CHUNK));
-  // Each chunk also pages — a 150-thread slice can match >1000 label
-  // assignments if those threads carry several labels each, and
-  // db-max-rows would silently truncate. fetchAllRows drains each
-  // chunk; the chunks themselves still run in parallel.
-  const chunkResults = await Promise.all(
-    slices.map((slice) =>
-      fetchAllRows<{ label_id: string; target_id: string }>(({ from, to }) =>
-        supabase
-          .from("label_assignments")
-          .select("label_id, target_id")
-          .eq("workspace_id", workspaceId)
-          .eq("target_type", "thread")
-          .in("target_id", slice)
-          .range(from, to),
-      ),
-    ),
-  );
-  for (const assignments of chunkResults) {
-    for (const row of assignments) {
-      const r = row;
-      const bucket = byLabel.get(r.label_id) ?? { all: new Set(), unseen: new Set() };
-      bucket.all.add(r.target_id);
-      if (unseenSet.has(r.target_id)) bucket.unseen.add(r.target_id);
-      byLabel.set(r.label_id, bucket);
-    }
+  const { data: rpcRows, error } = await supabase.rpc("inbox_view_counts", {
+    p_ws: workspaceId,
+    p_list_client: listClientId,
+  });
+  if (error) {
+    // Fail safe: render the tab bar without pills rather than break the
+    // whole inbox if the aggregate ever errors.
+    console.error("[loadViewCounts] inbox_view_counts rpc failed", error);
+    return {};
   }
 
-  // For the "Open Responses" view we now have to know which thread's
-  // last message was inbound — that's only knowable after a per-thread
-  // message lookup, which `openResponsesThreadIds` already does. Reuse
-  // that helper so the count pass and the visible-list pass can never
-  // disagree about who belongs.
-  const openResponseSet = views.some(
-    (v) => (v.filter_json as { preset?: string } | null)?.preset === OPEN_RESPONSES_PRESET,
-  )
-    ? await openResponsesThreadIds(supabase, workspaceId)
-    : new Set<string>();
+  type CountRow = {
+    kind: string;
+    label_id: string | null;
+    all_ct: number | string;
+    unseen_ct: number | string;
+  };
+  let totalOpen = 0;
+  let totalUnseen = 0;
+  let openRespAll = 0;
+  let openRespUnseen = 0;
+  const byLabel = new Map<string, { all: number; unseen: number }>();
+  for (const r of (rpcRows ?? []) as CountRow[]) {
+    const all = Number(r.all_ct) || 0;
+    const unseen = Number(r.unseen_ct) || 0;
+    if (r.kind === "total") {
+      totalOpen = all;
+      totalUnseen = unseen;
+    } else if (r.kind === "open_responses") {
+      openRespAll = all;
+      openRespUnseen = unseen;
+    } else if (r.kind === "label" && r.label_id) {
+      byLabel.set(r.label_id, { all, unseen });
+    }
+  }
 
   const counts: Record<string, ViewCount> = {};
   for (const v of views) {
     const preset = (v.filter_json as { preset?: string } | null)?.preset;
     if (preset === OPEN_RESPONSES_PRESET) {
-      // Intersect with the current list-scoped page of threads. When
-      // the sidebar has a client list active, that limits totalOpen
-      // and the `%` shown in the pill follows. The helper itself isn't
-      // list-scoped, so we filter by membership here.
-      const all = new Set<string>();
-      const unseen = new Set<string>();
-      for (const t of threadRows) {
-        if (!openResponseSet.has(t.id)) continue;
-        all.add(t.id);
-        if (unseenSet.has(t.id)) unseen.add(t.id);
-      }
       counts[v.id] = {
-        unseen: unseen.size,
-        pct: totalOpen > 0 ? Math.round((all.size / totalOpen) * 100) : 0,
+        unseen: openRespUnseen,
+        pct: totalOpen > 0 ? Math.round((openRespAll / totalOpen) * 100) : 0,
       };
       continue;
     }
@@ -207,17 +158,22 @@ export const loadViewCounts = cache(async function loadViewCounts(
     const labelsRow = rows.find((r) => r?.field === "labels");
     if (labelsRow && Array.isArray(labelsRow.value)) {
       const labelIds = labelsRow.value as string[];
-      const allIds = new Set<string>();
-      const unseenIds = new Set<string>();
+      // Every current view is single-label, so this sum equals the one
+      // bucket exactly. A hypothetical multi-label view would sum
+      // per-label counts (a slight over-count only where a thread
+      // carries two of the view's labels) — acceptable for a cosmetic
+      // badge, and no such view exists today.
+      let allCt = 0;
+      let unseenCt = 0;
       for (const lid of labelIds) {
         const bucket = byLabel.get(lid);
         if (!bucket) continue;
-        for (const id of bucket.all) allIds.add(id);
-        for (const id of bucket.unseen) unseenIds.add(id);
+        allCt += bucket.all;
+        unseenCt += bucket.unseen;
       }
       counts[v.id] = {
-        unseen: unseenIds.size,
-        pct: totalOpen > 0 ? Math.round((allIds.size / totalOpen) * 100) : 0,
+        unseen: unseenCt,
+        pct: totalOpen > 0 ? Math.round((allCt / totalOpen) * 100) : 0,
       };
       continue;
     }
