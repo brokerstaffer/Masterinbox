@@ -32,7 +32,14 @@ type Q = ReturnType<ReturnType<Awaited<ReturnType<typeof createServerSupabase>>[
 //   1. URL `?f=` (ad-hoc filter from FilterBuilder Apply)
 //   2. custom_view.filter_json (when the view was saved with rows)
 //   3. legacy preset on the view (preset: "all_email" etc.)
-export const THREAD_PAGE_SIZE = 100;
+// Rows rendered per list page. The list is NOT virtualized, so every row
+// is serialized into the RSC payload, rendered to HTML, and hydrated on
+// the client on every load AND every thread switch. At 100 that was a
+// large repeated cost (a big chunk of the "opening a thread is slow"
+// complaint) even for a tiny conversation. 50 halves that work; the
+// sidebar rail is only 300px wide, so nobody scrolls 100 rows there —
+// search, filters, and pagination cover deeper lists.
+export const THREAD_PAGE_SIZE = 50;
 
 export interface ThreadListResult {
   rows: ThreadRow[];
