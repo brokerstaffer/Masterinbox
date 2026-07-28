@@ -43,6 +43,11 @@ interface PortalClientRow {
   created_at: string;
   updated_at: string;
   counts: { pipeline: number; agents: number; dnc: number; team: number };
+  // Most-recent updated_at across every lead (client_pipeline_entries row,
+  // any stage) associated with this portal. Bumps on a stage change, a
+  // note add, or any lead-level edit (see migration 0060). null when the
+  // portal has no leads, or none has been touched since creation.
+  last_lead_activity_at: string | null;
 }
 
 export async function GET(request: Request) {
@@ -140,12 +145,30 @@ export async function GET(request: Request) {
   // workspace today; loadPortalCounts is a single RPC per client.
   const enriched = await Promise.all(
     rows.map(async (row): Promise<PortalClientRow> => {
-      let counts = { pipeline: 0, agents: 0, dnc: 0, team: 0 };
-      try {
-        counts = await loadPortalCounts(row.id);
-      } catch (err) {
-        console.error("[clients/portals] counts failed for", row.id, err);
-      }
+      // counts + last-lead-activity run in parallel per client.
+      const [counts, lastLeadActivityAt] = await Promise.all([
+        loadPortalCounts(row.id).catch((err) => {
+          console.error("[clients/portals] counts failed for", row.id, err);
+          return { pipeline: 0, agents: 0, dnc: 0, team: 0 };
+        }),
+        // MAX(updated_at) over the client's pipeline entries (all stages).
+        // One indexed lookup per client; null when the portal has no leads.
+        (async (): Promise<string | null> => {
+          try {
+            const { data } = await admin
+              .from("client_pipeline_entries")
+              .select("updated_at")
+              .eq("client_id", row.id)
+              .order("updated_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            return (data?.updated_at as string | null) ?? null;
+          } catch (err) {
+            console.error("[clients/portals] last activity failed for", row.id, err);
+            return null;
+          }
+        })(),
+      ]);
       const rawOverrides = row.stage_label_overrides;
       const rawFlags = row.feature_flags;
       const fubKey = row.fub_api_key;
@@ -173,6 +196,7 @@ export async function GET(request: Request) {
         created_at: row.created_at,
         updated_at: row.updated_at,
         counts,
+        last_lead_activity_at: lastLeadActivityAt,
       };
     }),
   );

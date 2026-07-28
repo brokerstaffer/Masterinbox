@@ -41,6 +41,12 @@ export const fetchCache = "force-no-store";
 interface IntroRow {
   client_name: string;
   assigned_at: string;
+  // Most-recent modification of the LEAD (its client_pipeline_entries
+  // row): stage change, note add, or any lead-level edit. Equals
+  // assigned_at right after the lead enters the stage, and bumps forward
+  // on later edits. Never null — falls back to assigned_at when the row
+  // has no pipeline entry (e.g. an Interested thread never introduced).
+  updated_at: string;
   // Nice-to-have:
   client_slug: string;
   client_id: string;
@@ -222,6 +228,30 @@ export async function GET(request: Request) {
     }
   }
 
+  // Lead activity per row = the matching client_pipeline_entries row's
+  // updated_at (the Introduction label creates that entry via trigger; a
+  // note/stage/edit bumps its updated_at — see migration 0060). Keyed by
+  // thread_id: a thread maps to one pipeline entry. Rows with no entry
+  // (e.g. an Interested thread never introduced) fall back to assigned_at
+  // so updated_at is never null.
+  const updatedByThread = new Map<string, string>();
+  for (let i = 0; i < threadIds.length; i += CHUNK) {
+    const slice = threadIds.slice(i, i + CHUNK);
+    const { data: entries } = await admin
+      .from("client_pipeline_entries")
+      .select("thread_id, updated_at")
+      .in("thread_id", slice);
+    for (const e of (entries ?? []) as Array<{
+      thread_id: string | null;
+      updated_at: string;
+    }>) {
+      if (!e.thread_id) continue;
+      const prev = updatedByThread.get(e.thread_id);
+      // If a thread somehow maps to >1 entry, keep the most recent.
+      if (!prev || e.updated_at > prev) updatedByThread.set(e.thread_id, e.updated_at);
+    }
+  }
+
   // Assemble rows. Drop assignments whose thread has no client_id —
   // those threads belong to the "Unknown" fallback bucket (or pre-dating
   // the client tagging) and don't roll up to a real client.
@@ -235,6 +265,7 @@ export async function GET(request: Request) {
     intros.push({
       client_name: client.name,
       assigned_at: a.assigned_at,
+      updated_at: updatedByThread.get(a.target_id) ?? a.assigned_at,
       client_slug: client.slug,
       client_id: meta.client_id,
       thread_id: a.target_id,
@@ -393,6 +424,8 @@ async function introsFromPipelineStage(
       // rows hired after migration 0059). Older rows have no hired_at, so
       // fall back to updated_at — the prior behaviour.
       assigned_at: r.hired_at ?? r.updated_at,
+      // Lead activity: the entry's own updated_at (bumps on note/edit).
+      updated_at: r.updated_at,
       client_slug: client.slug,
       client_id: r.client_id,
       thread_id: r.thread_id,
