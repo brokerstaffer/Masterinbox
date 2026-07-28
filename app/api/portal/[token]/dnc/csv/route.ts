@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { z } from "zod";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { resolvePortalClient } from "@/lib/portals/token";
@@ -7,6 +7,7 @@ import {
   enforceDomainBlocklist,
   normalizeDomain,
 } from "@/lib/portals/enforce-blocklist";
+import { notifyPortalDncBulkAdd } from "@/lib/webhooks/slack-portal";
 
 // POST /api/portal/[token]/dnc/csv — bulk-import parsed DNC rows.
 //
@@ -113,9 +114,28 @@ export async function POST(
       onConflict: "client_id,dedup_key",
       ignoreDuplicates: true,
     })
-    .select("id, kind, email, domain");
+    .select("id, kind, name, email, phone, domain");
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  // Slack: one summary notification for the batch (parity with the
+  // single-add path, which the portal UI uses). `inserted` holds ONLY the
+  // genuinely-new rows — ignoreDuplicates drops re-imported ones — so
+  // re-uploading the same file stays silent. Runs in after() so the
+  // response isn't blocked.
+  const newEntries = ((inserted ?? []) as Array<{
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+    domain: string | null;
+  }>).map((r) => ({
+    name: r.name,
+    handle: r.email || r.domain || r.phone || null,
+  }));
+  if (newEntries.length > 0) {
+    const clientId = client.id;
+    after(() => notifyPortalDncBulkAdd({ clientId, entries: newEntries }));
   }
 
   // Async provider push. We respond immediately with the row count;

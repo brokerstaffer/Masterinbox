@@ -227,6 +227,38 @@ export async function notifyPortalDncChange(args: {
   }
 }
 
+// Bulk DNC add (CSV import / API batch). One summary message instead of
+// one-per-row so a 300-row import doesn't post 300 Slack messages. Only
+// the genuinely-new rows should be passed in (skip idempotent
+// re-imports), so re-uploading the same file stays quiet.
+export async function notifyPortalDncBulkAdd(args: {
+  clientId: string;
+  entries: Array<{ name: string | null; handle: string | null }>;
+}): Promise<void> {
+  try {
+    if (args.entries.length === 0) return;
+    const clientName = await loadClientName(args.clientId);
+    if (!clientName) return;
+    const n = args.entries.length;
+    const noun = n === 1 ? "entry" : "entries";
+    const lines = [`🚫  *DNC list — ${n} ${noun} added to ${clientName}*`];
+    const shown = args.entries.slice(0, 10);
+    for (const e of shown) {
+      const who = (e.name && e.name.trim()) || e.handle || "(unknown)";
+      lines.push(
+        e.handle && e.handle !== who ? `   •  ${who}  ·  ${e.handle}` : `   •  ${who}`,
+      );
+    }
+    if (n > shown.length) lines.push(`   …and ${n - shown.length} more`);
+    await postSlackMessage({
+      channel: env.SLACK_CHANNEL_PORTAL,
+      text: lines.join("\n"),
+    });
+  } catch (err) {
+    console.error("[slack-portal] notifyPortalDncBulkAdd failed", err);
+  }
+}
+
 // --- Your Agents add / remove ------------------------------------------
 
 export async function notifyPortalAgentChange(args: {
