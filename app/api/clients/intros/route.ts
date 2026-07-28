@@ -3,6 +3,7 @@ import { requireSession } from "@/lib/auth/workspace";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/db/paginated-select";
+import { DEFAULT_STAGE_LABELS } from "@/lib/portals/portal-data";
 import { env } from "@/lib/env";
 
 // GET /api/clients/intros[?label=Introduction]
@@ -43,7 +44,9 @@ interface IntroRow {
   // Nice-to-have:
   client_slug: string;
   client_id: string;
-  thread_id: string;
+  // null only for portal pipeline-stage rows (e.g. "Hired") whose agent
+  // was added straight to the portal and never had an inbox thread.
+  thread_id: string | null;
   lead_email: string | null;
   lead_name: string | null;
   // Campaign that originally surfaced the thread (snapshot at
@@ -93,10 +96,11 @@ export async function GET(request: Request) {
     .ilike("name", labelName)
     .maybeSingle();
   if (!labelRow?.id) {
-    return NextResponse.json(
-      { error: `Label "${labelName}" not found in this workspace.` },
-      { status: 404 },
-    );
+    // Not a workspace label. It may be a client-portal PIPELINE STAGE
+    // (e.g. "Hired"), which lives on client_pipeline_entries.stage rather
+    // than on label_assignments. Fall back to the pipeline so callers get
+    // the exact same row shape they get for Introduction / Interested.
+    return introsFromPipelineStage(admin, labelName);
   }
 
   // Pull every assignment for this label. .range() alone does NOT
@@ -245,6 +249,138 @@ export async function GET(request: Request) {
     ok: true,
     label: labelName,
     label_id: labelRow.id,
+    intros,
+  });
+}
+
+// Source rows from a client-portal pipeline STAGE (e.g. "Hired") instead
+// of label_assignments. Returns the identical envelope + IntroRow shape as
+// the label path so the same consumer code works for both.
+//
+// Notes on the mapping:
+//   - assigned_at → client_pipeline_entries.updated_at. There's no
+//     dedicated "entered this stage" timestamp; updated_at moves whenever
+//     the row changes, and in practice that's the stage transition — the
+//     best available "hired at" signal for weekly bucketing.
+//   - lead_name / lead_email → the row's SNAPSHOT columns. Most hired
+//     agents are added straight to the portal (no inbox thread), so we
+//     must not rely on a threads/leads join for identity.
+//   - thread_id / campaign → only present for entries that still carry a
+//     thread; null otherwise.
+//   - clients (and their pipeline entries) are a global singleton in this
+//     deployment (migration 0010), not workspace-scoped — mirroring how
+//     the rest of the app treats clients — so there's no workspace filter.
+async function introsFromPipelineStage(
+  admin: ReturnType<typeof createAdminSupabase>,
+  labelName: string,
+): Promise<Response> {
+  const stageEntry = Object.entries(DEFAULT_STAGE_LABELS).find(
+    ([, label]) => label.toLowerCase() === labelName.toLowerCase(),
+  );
+  if (!stageEntry) {
+    return NextResponse.json(
+      { error: `Label "${labelName}" not found in this workspace.` },
+      { status: 404 },
+    );
+  }
+  const stageKey = stageEntry[0];
+
+  const pipeRows = await fetchAllRows<{
+    client_id: string;
+    thread_id: string | null;
+    lead_name: string | null;
+    lead_email: string | null;
+    updated_at: string;
+  }>(({ from, to }) =>
+    admin
+      .from("client_pipeline_entries")
+      .select("client_id, thread_id, lead_name, lead_email, updated_at")
+      .eq("stage", stageKey)
+      .order("updated_at", { ascending: false })
+      .range(from, to),
+  );
+
+  if (pipeRows.length === 0) {
+    return NextResponse.json({
+      ok: true,
+      label: labelName,
+      label_id: null,
+      source: "pipeline",
+      intros: [],
+    });
+  }
+
+  const CHUNK = 200;
+
+  // clients → name + slug
+  const clientIds = Array.from(
+    new Set(pipeRows.map((r) => r.client_id).filter(Boolean)),
+  );
+  const clientById = new Map<string, { name: string; slug: string }>();
+  for (let i = 0; i < clientIds.length; i += CHUNK) {
+    const slice = clientIds.slice(i, i + CHUNK);
+    const { data: clients } = await admin
+      .from("clients")
+      .select("id, name, slug")
+      .in("id", slice);
+    for (const c of (clients ?? []) as Array<{ id: string; name: string; slug: string }>) {
+      clientById.set(c.id, { name: c.name, slug: c.slug });
+    }
+  }
+
+  // campaign (nice-to-have) via threads for entries that still have one
+  const threadIds = Array.from(
+    new Set(
+      pipeRows
+        .map((r) => r.thread_id)
+        .filter((v): v is string => Boolean(v)),
+    ),
+  );
+  const campaignByThread = new Map<
+    string,
+    { campaign_id: string | null; campaign_name: string | null }
+  >();
+  for (let i = 0; i < threadIds.length; i += CHUNK) {
+    const slice = threadIds.slice(i, i + CHUNK);
+    const { data: threads } = await admin
+      .from("threads")
+      .select("id, campaign_id, campaign_name")
+      .in("id", slice);
+    for (const t of (threads ?? []) as Array<{
+      id: string;
+      campaign_id: string | null;
+      campaign_name: string | null;
+    }>) {
+      campaignByThread.set(t.id, {
+        campaign_id: t.campaign_id,
+        campaign_name: t.campaign_name,
+      });
+    }
+  }
+
+  const intros: IntroRow[] = [];
+  for (const r of pipeRows) {
+    const client = clientById.get(r.client_id);
+    if (!client) continue; // orphaned entry (client deleted) — skip
+    const camp = r.thread_id ? campaignByThread.get(r.thread_id) : null;
+    intros.push({
+      client_name: client.name,
+      assigned_at: r.updated_at,
+      client_slug: client.slug,
+      client_id: r.client_id,
+      thread_id: r.thread_id,
+      lead_email: r.lead_email,
+      lead_name: r.lead_name,
+      campaign_id: camp?.campaign_id ?? null,
+      campaign_name: camp?.campaign_name ?? null,
+    });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    label: labelName,
+    label_id: null,
+    source: "pipeline",
     intros,
   });
 }
