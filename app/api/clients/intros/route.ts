@@ -285,19 +285,43 @@ async function introsFromPipelineStage(
   }
   const stageKey = stageEntry[0];
 
-  const pipeRows = await fetchAllRows<{
+  // hired_at exists only after migration 0059. Probe once so this route
+  // works whether or not the migration has landed yet — it can never
+  // 500 the Hired feed on a column-not-found, so the code deploy and the
+  // DB migration are fully decoupled (safe in any order).
+  const probe = await admin
+    .from("client_pipeline_entries")
+    .select("hired_at")
+    .limit(1);
+  const hasHiredAt = !probe.error;
+  const cols = hasHiredAt
+    ? "client_id, thread_id, lead_name, lead_email, hired_at, updated_at"
+    : "client_id, thread_id, lead_name, lead_email, updated_at";
+
+  type PipeRow = {
     client_id: string;
     thread_id: string | null;
     lead_name: string | null;
     lead_email: string | null;
+    hired_at?: string | null;
     updated_at: string;
-  }>(({ from, to }) =>
-    admin
-      .from("client_pipeline_entries")
-      .select("client_id, thread_id, lead_name, lead_email, updated_at")
-      .eq("stage", stageKey)
-      .order("updated_at", { ascending: false })
-      .range(from, to),
+  };
+  const pipeRows = await fetchAllRows<PipeRow>(({ from, to }) =>
+    (
+      admin
+        .from("client_pipeline_entries")
+        .select(cols)
+        .eq("stage", stageKey)
+        .order("updated_at", { ascending: false }) as unknown as {
+        range(
+          from: number,
+          to: number,
+        ): PromiseLike<{
+          data: PipeRow[] | null;
+          error: { message: string } | null;
+        }>;
+      }
+    ).range(from, to),
   );
 
   if (pipeRows.length === 0) {
@@ -365,7 +389,10 @@ async function introsFromPipelineStage(
     const camp = r.thread_id ? campaignByThread.get(r.thread_id) : null;
     intros.push({
       client_name: client.name,
-      assigned_at: r.updated_at,
+      // Prefer the real stage-entry timestamp (set by the DB trigger for
+      // rows hired after migration 0059). Older rows have no hired_at, so
+      // fall back to updated_at — the prior behaviour.
+      assigned_at: r.hired_at ?? r.updated_at,
       client_slug: client.slug,
       client_id: r.client_id,
       thread_id: r.thread_id,
