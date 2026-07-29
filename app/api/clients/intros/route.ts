@@ -46,7 +46,16 @@ interface IntroRow {
   // assigned_at right after the lead enters the stage, and bumps forward
   // on later edits. Never null — falls back to assigned_at when the row
   // has no pipeline entry (e.g. an Interested thread never introduced).
+  // NOTE: updated_at also moves on our own automation (FollowUp Boss
+  // push, "move agent"). For a clean "did the CLIENT engage?" signal use
+  // client_activity_at below.
   updated_at: string;
+  // Last time the CLIENT engaged with this lead (moved a stage, added a
+  // note, edited a field). Excludes intro creation / FUB push / move-agent
+  // — see migration 0061. null means the client has never touched it since
+  // it entered the stage (the reliable "stagnant" signal), and also null
+  // before migration 0061 is applied.
+  client_activity_at: string | null;
   // Nice-to-have:
   client_slug: string;
   client_id: string;
@@ -234,21 +243,49 @@ export async function GET(request: Request) {
   // thread_id: a thread maps to one pipeline entry. Rows with no entry
   // (e.g. an Interested thread never introduced) fall back to assigned_at
   // so updated_at is never null.
+  // client_activity_at (migration 0061) = last genuine client engagement.
+  // Probe so this works before/after the migration lands.
+  const caProbe = await admin
+    .from("client_pipeline_entries")
+    .select("client_activity_at")
+    .limit(1);
+  const hasClientActivity = !caProbe.error;
+  const entryCols = hasClientActivity
+    ? "thread_id, updated_at, client_activity_at"
+    : "thread_id, updated_at";
+
   const updatedByThread = new Map<string, string>();
+  const clientActivityByThread = new Map<string, string>();
   for (let i = 0; i < threadIds.length; i += CHUNK) {
     const slice = threadIds.slice(i, i + CHUNK);
-    const { data: entries } = await admin
-      .from("client_pipeline_entries")
-      .select("thread_id, updated_at")
-      .in("thread_id", slice);
-    for (const e of (entries ?? []) as Array<{
-      thread_id: string | null;
-      updated_at: string;
-    }>) {
+    const { data: entries } = await (
+      admin
+        .from("client_pipeline_entries")
+        .select(entryCols) as unknown as {
+        in(
+          col: string,
+          vals: string[],
+        ): PromiseLike<{
+          data:
+            | Array<{
+                thread_id: string | null;
+                updated_at: string;
+                client_activity_at?: string | null;
+              }>
+            | null;
+        }>;
+      }
+    ).in("thread_id", slice);
+    for (const e of entries ?? []) {
       if (!e.thread_id) continue;
       const prev = updatedByThread.get(e.thread_id);
       // If a thread somehow maps to >1 entry, keep the most recent.
       if (!prev || e.updated_at > prev) updatedByThread.set(e.thread_id, e.updated_at);
+      if (e.client_activity_at) {
+        const pc = clientActivityByThread.get(e.thread_id);
+        if (!pc || e.client_activity_at > pc)
+          clientActivityByThread.set(e.thread_id, e.client_activity_at);
+      }
     }
   }
 
@@ -266,6 +303,7 @@ export async function GET(request: Request) {
       client_name: client.name,
       assigned_at: a.assigned_at,
       updated_at: updatedByThread.get(a.target_id) ?? a.assigned_at,
+      client_activity_at: clientActivityByThread.get(a.target_id) ?? null,
       client_slug: client.slug,
       client_id: meta.client_id,
       thread_id: a.target_id,
@@ -316,18 +354,23 @@ async function introsFromPipelineStage(
   }
   const stageKey = stageEntry[0];
 
-  // hired_at exists only after migration 0059. Probe once so this route
-  // works whether or not the migration has landed yet — it can never
-  // 500 the Hired feed on a column-not-found, so the code deploy and the
-  // DB migration are fully decoupled (safe in any order).
-  const probe = await admin
-    .from("client_pipeline_entries")
-    .select("hired_at")
-    .limit(1);
-  const hasHiredAt = !probe.error;
-  const cols = hasHiredAt
-    ? "client_id, thread_id, lead_name, lead_email, hired_at, updated_at"
-    : "client_id, thread_id, lead_name, lead_email, updated_at";
+  // hired_at (0059) and client_activity_at (0061) exist only after their
+  // migrations. Probe each so this route works whether or not they've
+  // landed — it can never 500 on a column-not-found, so code deploy and DB
+  // migration are fully decoupled (safe in any order).
+  const [hiredProbe, caProbe] = await Promise.all([
+    admin.from("client_pipeline_entries").select("hired_at").limit(1),
+    admin.from("client_pipeline_entries").select("client_activity_at").limit(1),
+  ]);
+  const hasHiredAt = !hiredProbe.error;
+  const hasClientActivity = !caProbe.error;
+  const cols = [
+    "client_id, thread_id, lead_name, lead_email, updated_at",
+    hasHiredAt ? "hired_at" : null,
+    hasClientActivity ? "client_activity_at" : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   type PipeRow = {
     client_id: string;
@@ -335,6 +378,7 @@ async function introsFromPipelineStage(
     lead_name: string | null;
     lead_email: string | null;
     hired_at?: string | null;
+    client_activity_at?: string | null;
     updated_at: string;
   };
   const pipeRows = await fetchAllRows<PipeRow>(({ from, to }) =>
@@ -426,6 +470,8 @@ async function introsFromPipelineStage(
       assigned_at: r.hired_at ?? r.updated_at,
       // Lead activity: the entry's own updated_at (bumps on note/edit).
       updated_at: r.updated_at,
+      // Last genuine client engagement (null until the client acts).
+      client_activity_at: r.client_activity_at ?? null,
       client_slug: client.slug,
       client_id: r.client_id,
       thread_id: r.thread_id,

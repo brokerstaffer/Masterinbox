@@ -44,10 +44,16 @@ interface PortalClientRow {
   updated_at: string;
   counts: { pipeline: number; agents: number; dnc: number; team: number };
   // Most-recent updated_at across every lead (client_pipeline_entries row,
-  // any stage) associated with this portal. Bumps on a stage change, a
-  // note add, or any lead-level edit (see migration 0060). null when the
-  // portal has no leads, or none has been touched since creation.
+  // any stage) associated with this portal. Bumps on ANY modification —
+  // including our own automation (new intros, FollowUp Boss push, "move
+  // agent"). null when the portal has no leads.
   last_lead_activity_at: string | null;
+  // Most-recent client_activity_at across the portal's leads — i.e. the
+  // last time the CLIENT engaged (moved a lead, added a note, edited a
+  // field). Excludes intro creation, FUB push, and move-agent, so this is
+  // the field to show as "Portal Updated". null when the client has never
+  // engaged (or before migration 0061 is applied). See migration 0061.
+  last_client_activity_at: string | null;
 }
 
 export async function GET(request: Request) {
@@ -141,12 +147,21 @@ export async function GET(request: Request) {
   // in this single-tenant deployment, but we still surface the
   // resolved id in the response for caller-side observability.
 
+  // client_activity_at exists only after migration 0061. Probe once so
+  // the endpoint works before OR after it lands (no ordering dependency,
+  // never 500s on a column-not-found); pre-migration we just report null.
+  const clientActivityProbe = await admin
+    .from("client_pipeline_entries")
+    .select("client_activity_at")
+    .limit(1);
+  const hasClientActivity = !clientActivityProbe.error;
+
   // Fetch every client's counts in parallel. ~30 clients per
   // workspace today; loadPortalCounts is a single RPC per client.
   const enriched = await Promise.all(
     rows.map(async (row): Promise<PortalClientRow> => {
-      // counts + last-lead-activity run in parallel per client.
-      const [counts, lastLeadActivityAt] = await Promise.all([
+      // counts + last-lead-activity + last-client-activity in parallel.
+      const [counts, lastLeadActivityAt, lastClientActivityAt] = await Promise.all([
         loadPortalCounts(row.id).catch((err) => {
           console.error("[clients/portals] counts failed for", row.id, err);
           return { pipeline: 0, agents: 0, dnc: 0, team: 0 };
@@ -165,6 +180,26 @@ export async function GET(request: Request) {
             return (data?.updated_at as string | null) ?? null;
           } catch (err) {
             console.error("[clients/portals] last activity failed for", row.id, err);
+            return null;
+          }
+        })(),
+        // MAX(client_activity_at) — last genuine client engagement. NULLS
+        // LAST so an all-null client (never engaged) returns null, not a
+        // stray row. Skipped (null) until migration 0061 adds the column.
+        (async (): Promise<string | null> => {
+          if (!hasClientActivity) return null;
+          try {
+            const { data } = await admin
+              .from("client_pipeline_entries")
+              .select("client_activity_at")
+              .eq("client_id", row.id)
+              .not("client_activity_at", "is", null)
+              .order("client_activity_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            return (data?.client_activity_at as string | null) ?? null;
+          } catch (err) {
+            console.error("[clients/portals] client activity failed for", row.id, err);
             return null;
           }
         })(),
@@ -197,6 +232,7 @@ export async function GET(request: Request) {
         updated_at: row.updated_at,
         counts,
         last_lead_activity_at: lastLeadActivityAt,
+        last_client_activity_at: lastClientActivityAt,
       };
     }),
   );
