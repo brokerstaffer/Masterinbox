@@ -2,6 +2,11 @@ import { createAdminSupabase } from "@/lib/supabase/admin";
 import { loadAiConfigWithKey } from "@/lib/ai/config";
 import { classifyReply, DEFAULT_SYSTEM_PROMPT } from "@/lib/ai/label";
 import { isHostileLabel, markThreadLeadDoNotContact } from "@/lib/inbox/dnc";
+import {
+  isInterestedLabel,
+  isNotInterestedLabel,
+  markEmailBisonReplyInterested,
+} from "@/lib/inbox/interest";
 
 interface LabelInboundInput {
   workspaceId: string;
@@ -153,6 +158,21 @@ export async function labelInboundMessage(input: LabelInboundInput): Promise<Lab
   // platform's blocklist so the sequencer stops emailing them.
   if (isHostileLabel(labelRow.name)) {
     await markThreadLeadDoNotContact(input.threadId);
+  }
+
+  // Interested / Not Interested → mirror the verdict to EmailBison so the
+  // reply's interested flag round-trips to EmailBison's smart lists +
+  // sequence rules — parity with what the MANUAL label routes already do.
+  // Fire-and-forget: the EmailBison client has no request timeout, so we
+  // must NOT let a slow/hung call block message sync. The helper is
+  // idempotent, self-filters to EmailBison threads with a reply id, and
+  // never throws (all errors caught), so a bare `void` is safe (no
+  // unhandled rejection). A missed push is recovered by the next relabel
+  // or the /api/admin/backfill-interested one-off.
+  if (isInterestedLabel(labelRow.name)) {
+    void markEmailBisonReplyInterested(input.threadId, true);
+  } else if (isNotInterestedLabel(labelRow.name)) {
+    void markEmailBisonReplyInterested(input.threadId, false);
   }
 
   await admin.rpc("ai_labeling_touch_run", { p_workspace: input.workspaceId });
